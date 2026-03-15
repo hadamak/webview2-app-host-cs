@@ -72,16 +72,18 @@ webview2-app-host-cs/
 
 ---
 
-## ビルド手順
+## 対象者別ガイド
 
-### 1. リポジトリのクローン
+### 開発者向け（ローカルビルド）
+
+#### 1. リポジトリのクローン
 
 ```powershell
 git clone https://github.com/hadamak/webview2-app-host-cs.git
 cd webview2-app-host-cs
 ```
 
-### 2. 依存パッケージの取得（初回のみ）
+#### 2. 依存パッケージの取得（初回のみ）
 
 ```powershell
 dotnet restore src\WebView2AppHost.csproj
@@ -89,7 +91,7 @@ dotnet restore src\WebView2AppHost.csproj
 
 NuGet パッケージ（WebView2 SDK）を取得します。`project.assets.json` が生成されれば完了です。
 
-### 3. ビルド
+#### 3. ビルド
 
 ```powershell
 msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
@@ -97,11 +99,36 @@ msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
 
 `web-content/` の ZIP 化（`src/app.zip` の生成）は MSBuild が自動で行います。
 
-### 4. 実行
+#### 4. 実行
 
 ```powershell
 .\src\bin\x64\Release\net472\WebView2AppHost.exe
 ```
+
+### リポジトリ管理者向け（自動リリース）
+
+タグ push で GitHub Release を自動作成するワークフローを同梱しています。
+
+- 対象タグ: `v*`（例: `v1.0.0`）
+- 実行内容:
+  1. Release ビルド（`x64 / net472`）
+  2. 頒布最小構成ファイルの ZIP 化
+  3. SHA-256 チェックサム生成
+  4. GitHub Release 作成 & アセット添付
+
+#### リリース手順
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+`Actions > Release` が成功すると、`Releases` ページに以下が公開されます。
+
+- `WebView2AppHost-v1.0.0-win-x64.zip`
+- `WebView2AppHost-v1.0.0-win-x64.zip.sha256`
+
+タグを使わずに内容確認だけしたい場合は、`workflow_dispatch` で手動実行できます（この場合は GitHub Release は作成されず、Actions Artifact のみ生成されます）。
 
 ---
 

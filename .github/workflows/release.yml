@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.x'
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: dotnet restore src\WebView2AppHost.csproj
+
+      - name: Build
+        run: msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
+
+      - name: Package distributable files
+        shell: pwsh
+        run: |
+          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "manual-${{ github.run_number }}" }
+          $outDir = "dist/WebView2AppHost-$version-win-x64"
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+          $base = "src/bin/x64/Release/net472"
+          Copy-Item "$base/WebView2AppHost.exe" $outDir
+          Copy-Item "$base/WebView2AppHost.exe.config" $outDir
+          Copy-Item "$base/Microsoft.Web.WebView2.Core.dll" $outDir
+          Copy-Item "$base/Microsoft.Web.WebView2.WinForms.dll" $outDir
+          Copy-Item "$base/WebView2Loader.dll" $outDir
+
+          Compress-Archive -Path "$outDir/*" -DestinationPath "$outDir.zip" -Force
+
+          $hash = (Get-FileHash "$outDir.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $(Split-Path -Leaf "$outDir.zip")" | Out-File "$outDir.zip.sha256" -Encoding ascii
+
+      - name: Upload release bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle-${{ github.ref_name || github.sha }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/*.sha256
