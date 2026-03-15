@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>WebView2AppHost</AssemblyName>
+    <RootNamespace>WebView2AppHost</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\resources\app.ico</ApplicationIcon>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <Optimize>true</Optimize>
+    <PlatformTarget>x64</PlatformTarget>
+    <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
+    <DebugSymbols Condition="'$(Configuration)'=='Release'">false</DebugSymbols>
+  </PropertyGroup>
+
+  <!-- web-content/ を app.zip に固めて埋め込みリソースにする -->
+  <Target Name="PackAppZip" BeforeTargets="BeforeBuild">
+    <Exec Command="python &quot;$(MSBuildProjectDirectory)\..\scripts\pack_zip.py&quot; &quot;$(MSBuildProjectDirectory)\..\web-content&quot; &quot;$(MSBuildProjectDirectory)\app.zip&quot;" />
+  </Target>
+
+  <ItemGroup>
+    <EmbeddedResource Include="app.zip" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3240.44" />
+  </ItemGroup>
+
+  <!-- WPF は使用しないので出力から除外 -->
+  <Target Name="RemoveWpfDll" AfterTargets="Build">
+    <Delete Files="$(OutputPath)Microsoft.Web.WebView2.Wpf.dll" />
+  </Target>
+
+</Project>

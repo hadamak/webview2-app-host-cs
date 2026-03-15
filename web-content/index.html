@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WebView2 App Host</title>
+  <!--
+    favicon: <link rel="icon"> の変化がウィンドウのタイトルバー・タスクバーに自動反映されます。
+    SVG の Data URI を使うと外部ファイルなしでアイコンを設定できます。
+  -->
+  <link rel="icon" type="image/svg+xml"
+        href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>">
+  <link rel="stylesheet" href="assets/css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <h1>🎮 WebView2 App Host</h1>
+    <p class="subtitle">GameBridge API デモ</p>
+
+    <!-- ウィンドウ操作 -->
+    <section class="panel">
+      <h2>ウィンドウ操作</h2>
+      <p class="hint">
+        <code>GameBridge.toggleFullscreen()</code> でフルスクリーンを切り替えます。<br>
+        F11 キーでも同じ動作をします。ESC でフルスクリーン解除。
+      </p>
+      <div class="row">
+        <button id="btn-fullscreen">⛶ フルスクリーン切替 (F11)</button>
+        <button id="btn-check-fs">フルスクリーン状態を確認</button>
+        <button id="btn-exit">✕ 終了</button>
+      </div>
+      <div id="fs-status" class="value-display">—</div>
+    </section>
+
+    <!-- タイトル変更 -->
+    <section class="panel">
+      <h2>ウィンドウタイトル変更</h2>
+      <p class="hint">
+        <code>&lt;title&gt;</code> タグの内容がリアルタイムでウィンドウタイトルバーに反映されます。<br>
+        SPA のルーティングや状態変化に合わせてタイトルを更新できます。
+      </p>
+      <div class="row">
+        <input id="title-input" type="text" placeholder="新しいタイトル" />
+        <button id="btn-set-title">タイトルを変更</button>
+        <button id="btn-reset-title">リセット</button>
+      </div>
+    </section>
+
+    <!-- localStorage -->
+    <section class="panel">
+      <h2>localStorage 永続化</h2>
+      <p class="hint">
+        通常のブラウザと同じ <code>localStorage</code> API が使えます。<br>
+        EXE 名から自動決定したユーザーデータディレクトリに保存されるため、<br>
+        EXE を移動しても・再起動しても値が保持されます。
+      </p>
+      <div class="row">
+        <input id="save-input" type="text" placeholder="保存するテキスト" />
+        <button id="btn-save">保存</button>
+        <button id="btn-clear">消去</button>
+      </div>
+      <div id="save-status" class="value-display">—</div>
+    </section>
+
+    <!-- appClosing -->
+    <section class="panel">
+      <h2>appClosing（beforeunload 相当）</h2>
+      <p class="hint">
+        × ボタン・Alt+F4・<code>GameBridge.exitApp()</code> でウィンドウを閉じようとすると
+        <code>appClosing</code> イベントが発火します。<br>
+        リスナーを登録した場合は<strong>必ず</strong>
+        <code>confirmClose()</code> か <code>cancelClose()</code> を呼んでください。
+        どちらも呼ばないとウィンドウが閉じられなくなります。
+      </p>
+      <label class="checkbox-label">
+        <input type="checkbox" id="chk-confirm-close" />
+        閉じる前に確認ダイアログを表示する
+      </label>
+      <div id="closing-log" class="log"></div>
+    </section>
+
+    <!-- visibilitychange -->
+    <section class="panel">
+      <h2>visibilitychange</h2>
+      <p class="hint">
+        ウィンドウの最小化・他アプリへの切替で <code>visibilitychange</code> イベントが発火します。<br>
+        ブラウザ標準の <code>document.visibilityState</code> も同時に更新されるため、<br>
+        BGM の停止・再開やゲームのポーズなどを通常のブラウザと同じコードで実装できます。
+      </p>
+      <div id="visibility-state" class="value-display">visible</div>
+      <div id="visibility-log" class="log"></div>
+    </section>
+
+  </div>
+
+  <!--
+    type="module" を使うと ES Modules が使えます。
+    https://app.local/ は https:// として配信されるため、
+    ブラウザと同じ条件で動作します。
+  -->
+  <script type="module" src="assets/js/main.js"></script>
+</body>
+</html>
