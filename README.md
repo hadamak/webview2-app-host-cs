@@ -112,8 +112,8 @@ msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
 - 対象タグ: `v*`（例: `v1.0.0`）
 - 実行内容:
   1. Release ビルド（`x64 / net472`）
-  2. 頒布最小構成ファイルの ZIP 化
-  3. SHA-256 チェックサム生成
+  2. 頒布最小構成ファイルの作成（EXE / DLL / config）
+  3. EXE と ZIP の SHA-256 チェックサム生成
   4. GitHub Release 作成 & アセット添付
 
 #### リリース手順
@@ -125,6 +125,8 @@ git push origin v1.0.0
 
 `Actions > Release` が成功すると、`Releases` ページに以下が公開されます。
 
+- `WebView2AppHost.exe`
+- `WebView2AppHost.exe.sha256`
 - `WebView2AppHost-v1.0.0-win-x64.zip`
 - `WebView2AppHost-v1.0.0-win-x64.zip.sha256`
 
