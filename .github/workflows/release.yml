@@ -43,6 +43,10 @@ jobs:
           Copy-Item "$base/Microsoft.Web.WebView2.WinForms.dll" $outDir
           Copy-Item "$base/WebView2Loader.dll" $outDir
 
+          $exePath = "$outDir/WebView2AppHost.exe"
+          $exeHash = (Get-FileHash $exePath -Algorithm SHA256).Hash.ToLower()
+          "$exeHash  $(Split-Path -Leaf $exePath)" | Out-File "$exePath.sha256" -Encoding ascii
+
           Compress-Archive -Path "$outDir/*" -DestinationPath "$outDir.zip" -Force
 
           $hash = (Get-FileHash "$outDir.zip" -Algorithm SHA256).Hash.ToLower()
@@ -53,6 +57,8 @@ jobs:
         with:
           name: release-bundle-${{ github.ref_name || github.sha }}
           path: |
+            dist/**/*.exe
+            dist/**/*.exe.sha256
             dist/*.zip
             dist/*.sha256
 
@@ -62,5 +68,7 @@ jobs:
         with:
           generate_release_notes: true
           files: |
+            dist/**/*.exe
+            dist/**/*.exe.sha256
             dist/*.zip
             dist/*.sha256
