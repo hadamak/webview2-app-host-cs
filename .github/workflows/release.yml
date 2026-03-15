@@ -43,6 +43,10 @@ jobs:
           Copy-Item "$base/Microsoft.Web.WebView2.WinForms.dll" $outDir
           Copy-Item "$base/WebView2Loader.dll" $outDir
 
+          Copy-Item "README.md" $outDir
+          Copy-Item "LICENSE" $outDir
+          Copy-Item "web-content" "$outDir/web-content" -Recurse
+
           $exePath = "$outDir/WebView2AppHost.exe"
           $exeHash = (Get-FileHash $exePath -Algorithm SHA256).Hash.ToLower()
           "$exeHash  $(Split-Path -Leaf $exePath)" | Out-File "$exePath.sha256" -Encoding ascii
