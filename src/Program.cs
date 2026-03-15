@@ -17,8 +17,11 @@ namespace WebView2AppHost
             {
                 MessageBox.Show(
                     "コンテンツが見つかりませんでした。\n" +
-                    "app.zip が EXE と同じフォルダにあるか、\n" +
-                    "EXE にコンテンツが埋め込まれているか確認してください。",
+                    "次のいずれかの配置になっているか確認してください。\n" +
+                    "- コマンドライン引数で ZIP を指定\n" +
+                    "- EXE と同名の .zip を同じフォルダに配置\n" +
+                    "- EXE 末尾に ZIP を結合\n" +
+                    "- EXE にコンテンツを埋め込み",
                     "WebView2 App Host",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
