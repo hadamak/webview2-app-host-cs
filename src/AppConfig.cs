@@ -1,72 +1,54 @@
 using System;
 using System.IO;
-using System.Text;
-using System.Text.RegularExpressions;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
 
 namespace WebView2AppHost
 {
     /// <summary>
-    /// app.conf.json の設定値。ファイルがない場合はデフォルト値を使う。
+    /// app.conf.json の設定値。
+    /// DataContract を使用して JSON とマッピングする。
     /// </summary>
+    [DataContract]
     internal sealed class AppConfig
     {
-        public string Title      { get; private set; } = "WebView2 App Host";
-        public int    Width      { get; private set; } = 1280;
-        public int    Height     { get; private set; } = 720;
-        public bool   Fullscreen { get; private set; } = false;
+        [DataMember(Name = "title")]
+        public string Title { get; private set; } = "WebView2 App Host";
 
-        // ---------------------------------------------------------------------------
-        // 読み込み
-        // ---------------------------------------------------------------------------
+        [DataMember(Name = "width")]
+        public int Width { get; private set; } = 1280;
+
+        [DataMember(Name = "height")]
+        public int Height { get; private set; } = 720;
+
+        [DataMember(Name = "fullscreen")]
+        public bool Fullscreen { get; private set; } = false;
 
         /// <summary>
-        /// ZipContentProvider から /app.conf.json を読んで設定を返す。
-        /// エントリが存在しない場合はデフォルト値のインスタンスを返す。
+        /// ストリームから JSON を読み込み、AppConfig インスタンスを生成する。
+        /// フォーマットエラーなどで失敗した場合は null を返す（フォールバック用）。
         /// </summary>
-        public static AppConfig Load(ZipContentProvider zip)
+        public static AppConfig? Load(Stream stream)
         {
-            var cfg = new AppConfig();
-
-            var data = zip.TryGetBytes("/app.conf.json");
-            if (data == null) return cfg;
-
-            var json = Encoding.UTF8.GetString(data);
-
-            var title = GetString(json, "title");
-            if (!string.IsNullOrEmpty(title)) cfg.Title = title!;
-
-            var w = GetInt(json, "width");
-            if (w > 0) cfg.Width = w;
-
-            var h = GetInt(json, "height");
-            if (h > 0) cfg.Height = h;
-
-            cfg.Fullscreen = GetBool(json, "fullscreen", cfg.Fullscreen);
-
-            return cfg;
-        }
-
-        // ---------------------------------------------------------------------------
-        // 最小 JSON パーサー（固定キー専用・外部ライブラリなし）
-        // ---------------------------------------------------------------------------
-
-        private static string? GetString(string json, string key)
-        {
-            var m = Regex.Match(json, $@"""{Regex.Escape(key)}""\s*:\s*""((?:[^""\\]|\\.)*)""");
-            return m.Success ? m.Groups[1].Value : null;
-        }
-
-        private static int GetInt(string json, string key)
-        {
-            var m = Regex.Match(json, $@"""{Regex.Escape(key)}""\s*:\s*(\d+)");
-            return m.Success ? int.Parse(m.Groups[1].Value) : 0;
-        }
-
-        private static bool GetBool(string json, string key, bool defaultValue)
-        {
-            var m = Regex.Match(json, $@"""{Regex.Escape(key)}""\s*:\s*(true|false)");
-            if (!m.Success) return defaultValue;
-            return m.Groups[1].Value == "true";
+            try
+            {
+                var serializer = new DataContractJsonSerializer(typeof(AppConfig));
+                var config = (AppConfig?)serializer.ReadObject(stream);
+                
+                // バリデーション: 極端な値が入っている場合は補正、または失敗とする
+                if (config != null)
+                {
+                    if (config.Width <= 0) config.Width = 1280;
+                    if (config.Height <= 0) config.Height = 720;
+                }
+                
+                return config;
+            }
+            catch
+            {
+                // JSON の構文エラーなどはここでキャッチして null を返す
+                return null;
+            }
         }
     }
 }

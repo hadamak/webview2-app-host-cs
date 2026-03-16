@@ -53,10 +53,11 @@ jobs:
           # 3. EXE と ZIP を連結した単一配布用 EXE を作成 (bundle.py)
           python scripts/bundle.py "$base/WebView2AppHost.exe" "$outDir/app.zip" "$outDir/WebView2AppHost_bundled.exe"
 
-          # 4. ドキュメント・ライセンス類
+          # 4. ドキュメント・ライセンス類・スクリプト
           Copy-Item "README.md" $outDir
           Copy-Item "LICENSE" $outDir
           Copy-Item "THIRD_PARTY_NOTICES.md" $outDir
+          Copy-Item "scripts" $outDir -Recurse
 
           # ハッシュ生成
           Get-ChildItem -Path $outDir -Include *.exe, *.zip -Recurse | ForEach-Object {

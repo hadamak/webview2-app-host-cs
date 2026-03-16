@@ -159,7 +159,7 @@ namespace WebView2AppHost
                 var mime  = MimeTypes.FromPath(path);
                 var total = stream.Length;
 
-                if (!string.IsNullOrEmpty(rangeHeader))
+                if (!string.IsNullOrEmpty(rangeHeader) && stream.CanSeek)
                 {
                     var (start, end) = ParseRange(rangeHeader!, total);
                     var length = end - start + 1;
@@ -542,8 +542,6 @@ namespace WebView2AppHost
         private readonly bool   _ownsInner;
         private          long   _position;
 
-        /// <param name="ownsInner">true = Dispose 時に inner を閉じる（デフォルト）。
-        /// false = inner を共有する場合（ZIP ストリームを複数の SubStream で共有する場合）。</param>
         public SubStream(Stream inner, long offset, long length, bool ownsInner = true)
         {
             _inner     = inner;
@@ -560,36 +558,45 @@ namespace WebView2AppHost
 
         public override long Position
         {
-            get => _position;
+            get { lock (_inner) return _position; }
             set
             {
-                _position = value;
-                _inner.Position = _offset + value;
+                lock (_inner)
+                {
+                    _position = value;
+                    _inner.Position = _offset + value;
+                }
             }
         }
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            var remaining = _length - _position;
-            if (remaining <= 0) return 0;
-            count = (int)Math.Min(count, remaining);
-            _inner.Position = _offset + _position;
-            var read = _inner.Read(buffer, offset, count);
-            _position += read;
-            return read;
+            lock (_inner)
+            {
+                var remaining = _length - _position;
+                if (remaining <= 0) return 0;
+                count = (int)Math.Min(count, remaining);
+                _inner.Position = _offset + _position;
+                var read = _inner.Read(buffer, offset, count);
+                _position += read;
+                return read;
+            }
         }
 
         public override long Seek(long offset, SeekOrigin origin)
         {
-            long newPos = origin switch
+            lock (_inner)
             {
-                SeekOrigin.Begin   => offset,
-                SeekOrigin.Current => _position + offset,
-                SeekOrigin.End     => _length + offset,
-                _                  => throw new ArgumentException()
-            };
-            Position = newPos;
-            return _position;
+                long newPos = origin switch
+                {
+                    SeekOrigin.Begin   => offset,
+                    SeekOrigin.Current => _position + offset,
+                    SeekOrigin.End     => _length + offset,
+                    _                  => throw new ArgumentException()
+                };
+                Position = newPos;
+                return _position;
+            }
         }
 
         public override void Flush()  { }

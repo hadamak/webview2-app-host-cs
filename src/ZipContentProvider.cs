@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
+using System.Linq;
 
 namespace WebView2AppHost
 {
@@ -13,140 +14,108 @@ namespace WebView2AppHost
     /// コンテンツの読み込み優先順位（高い順）:
     ///   1. 個別配置: EXE 隣接の www/ フォルダ
     ///   2. 外部指定: コマンドライン引数でパスを渡す
-    ///   3. 同封: EXE と同名の .zip ファイル（隣接 ZIP）
+    ///   3. 同封: EXE と同名の .zip ファイル
     ///   4. 連結: EXE 末尾に結合された ZIP（WZGM トレーラー）
     ///   5. 埋め込み: EXE に埋め込まれたリソース（app.zip）
+    ///
+    /// ファイル単位でフォールバックするため、優先順位の高いソースにファイルがない場合は
+    /// 次のソースを自動的に探しに行きます。
     /// </summary>
     internal sealed class ZipContentProvider : IDisposable
     {
-        // WZGM バンドルのトレーラーマジック（bundle.py と一致させる）
         private const string WzgmMagic  = "WZGM";
-        private const int    TrailerSize = 12; // 8バイト(ZIP サイズ) + 4バイト(マジック)
+        private const int    TrailerSize = 12;
 
-        // メイン ZIP（外部指定・同封・連結・埋め込みのいずれか）
-        private ZipArchive? _archive;
-        private Stream?     _stream;
-
-        // 個別配置などの追加ソース
-        private readonly List<IContentSource> _extras = new List<IContentSource>();
+        // 有効なコンテンツソースのリスト（優先順位順）
+        private readonly List<IContentSource> _sources = new List<IContentSource>();
 
         // ---------------------------------------------------------------------------
         // 初期化
         // ---------------------------------------------------------------------------
 
         /// <summary>
-        /// フォールバック順でメイン ZIP を開き、個別配置ソースを自動検出する。
-        /// 優先順位（高い順）: 外部指定 → 同封 → 連結 → 埋め込み
+        /// 優先順位に従ってすべての有効なコンテンツソースを登録する。
+        /// いずれかのソースが一つでも見つかれば true を返す。
         /// </summary>
         public bool Load()
         {
-            var ok = TryLoadFromArg()
-                  || TryLoadFromSiblingFile()
-                  || TryLoadFromSelf()
-                  || TryLoadFromResource();
+            // 1. 個別配置（最優先）
+            LoadIndividualSource();
 
-            if (ok) LoadExtraSources();
-            return ok;
+            // 2〜5. 各種 ZIP ソース（見つかったものすべてをリストに追加）
+            TryAddArgSource();
+            TryAddSiblingSource();
+            TryAddBundledSource();
+            TryAddEmbeddedSource();
+
+            return _sources.Count > 0;
         }
 
-        /// <summary>
-        /// EXE 隣接の個別配置ソースを自動検出して登録する。
-        /// </summary>
-        private void LoadExtraSources()
+        private void LoadIndividualSource()
         {
             var exeDir = Path.GetDirectoryName(GetExePath()) ?? ".";
-
-            // www/ ディレクトリ → https://app.local/ にルートマップ（個別配置）
             var wwwDir = Path.Combine(exeDir, "www");
             if (Directory.Exists(wwwDir))
             {
-                _extras.Add(new DirectorySource(wwwDir));
-                Console.WriteLine($"[ZipContentProvider] mounted: {wwwDir}/");
+                _sources.Add(new DirectorySource(wwwDir));
+                Console.WriteLine($"[ZipContentProvider] Mounted Individual Source: {wwwDir}");
             }
         }
 
-        private bool TryLoadFromArg()
+        private void TryAddArgSource()
         {
             var args = Environment.GetCommandLineArgs();
-            if (args.Length < 2) return false;
-            var path = args[1];
-            if (!File.Exists(path)) return false;
-            return TryOpenZipFile(path);
+            if (args.Length >= 2 && File.Exists(args[1]))
+            {
+                var src = ZipSource.FromFile(args[1]);
+                if (src != null) { _sources.Add(src); Console.WriteLine($"[ZipContentProvider] Mounted Arg Source: {args[1]}"); }
+            }
         }
 
-        private bool TryLoadFromSelf()
+        private void TryAddSiblingSource()
+        {
+            var zipPath = Path.ChangeExtension(GetExePath(), ".zip");
+            if (File.Exists(zipPath))
+            {
+                var src = ZipSource.FromFile(zipPath);
+                if (src != null) { _sources.Add(src); Console.WriteLine($"[ZipContentProvider] Mounted Sibling Source: {zipPath}"); }
+            }
+        }
+
+        private void TryAddBundledSource()
         {
             var exePath = GetExePath();
             try
             {
-                using var fs = new FileStream(exePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                if (fs.Length < TrailerSize) return false;
+                var fs = new FileStream(exePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                if (fs.Length < TrailerSize) { fs.Dispose(); return; }
 
                 fs.Seek(-TrailerSize, SeekOrigin.End);
                 var trailer = new byte[TrailerSize];
                 fs.Read(trailer, 0, TrailerSize);
 
-                var magic = System.Text.Encoding.ASCII.GetString(trailer, 8, 4);
-                if (magic != WzgmMagic) return false;
+                if (System.Text.Encoding.ASCII.GetString(trailer, 8, 4) != WzgmMagic) { fs.Dispose(); return; }
 
                 var zipSize   = BitConverter.ToInt64(trailer, 0);
                 var zipOffset = fs.Length - TrailerSize - zipSize;
-                if (zipOffset < 0 || zipSize <= 0) return false;
+                if (zipOffset < 0 || zipSize <= 0) { fs.Dispose(); return; }
 
-                if (zipSize > int.MaxValue) return false;
-                var zipBytes  = new byte[zipSize];
-                fs.Seek(zipOffset, SeekOrigin.Begin);
-                var totalRead = 0;
-                while (totalRead < (int)zipSize)
-                {
-                    var n = fs.Read(zipBytes, totalRead, (int)zipSize - totalRead);
-                    if (n == 0) return false;
-                    totalRead += n;
-                }
-
-                return TryOpenZipStream(new MemoryStream(zipBytes));
+                var sub = new SubStream(fs, zipOffset, zipSize, ownsInner: true);
+                var src = ZipSource.FromStream(sub);
+                if (src != null) { _sources.Add(src); Console.WriteLine("[ZipContentProvider] Mounted Bundled Source"); }
             }
-            catch { return false; }
+            catch { /* Ignore */ }
         }
 
-        private bool TryLoadFromSiblingFile()
-        {
-            var zipPath = Path.ChangeExtension(GetExePath(), ".zip");
-            if (!File.Exists(zipPath)) return false;
-            return TryOpenZipFile(zipPath);
-        }
-
-        private bool TryLoadFromResource()
+        private void TryAddEmbeddedSource()
         {
             var asm          = Assembly.GetExecutingAssembly();
             var resourceName = asm.GetName().Name + ".app.zip";
             var stream       = asm.GetManifestResourceStream(resourceName);
-            if (stream == null) return false;
-            return TryOpenZipStream(stream);
-        }
-
-        private bool TryOpenZipFile(string path)
-        {
-            try
+            if (stream != null)
             {
-                var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-                return TryOpenZipStream(fs);
-            }
-            catch { return false; }
-        }
-
-        private bool TryOpenZipStream(Stream stream)
-        {
-            try
-            {
-                _stream  = stream;
-                _archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
-                return true;
-            }
-            catch
-            {
-                stream.Dispose();
-                return false;
+                var src = ZipSource.FromStream(stream);
+                if (src != null) { _sources.Add(src); Console.WriteLine("[ZipContentProvider] Mounted Embedded Source"); }
             }
         }
 
@@ -154,110 +123,38 @@ namespace WebView2AppHost
         // コンテンツ提供
         // ---------------------------------------------------------------------------
 
-        /// <summary>
-        /// 仮想パス（例: /assets/image.png）に対応する Stream を返す。
-        /// 呼び出し元が Stream を Dispose する責任を持つ。
-        /// エントリが存在しない場合は null を返す。
-        ///
-        /// 無圧縮（ZIP_STORED）エントリ: ZIP ストリーム上のデータ位置を SubStream で直接返す。
-        /// 圧縮（ZIP_DEFLATED）エントリ: MemoryStream に展開して返す。
-        /// </summary>
         public Stream? OpenEntry(string virtualPath)
         {
-            // 追加ソースを優先して検索
-            foreach (var extra in _extras)
+            // 優先順位が高い順に検索し、最初に見つかったものを返す
+            foreach (var source in _sources)
             {
-                var s = extra.OpenEntry(virtualPath);
-                if (s != null) return s;
+                var stream = source.OpenEntry(virtualPath);
+                if (stream != null) return stream;
             }
-
-            // メイン ZIP を検索
-            return OpenFromArchive(virtualPath);
+            return null;
         }
 
-        private Stream? OpenFromArchive(string virtualPath)
-        {
-            if (_archive == null || _stream == null) return null;
-
-            var entryName = virtualPath.TrimStart('/');
-            var entry     = _archive.GetEntry(entryName);
-            if (entry == null) return null;
-
-            // 無圧縮エントリはシーク可能な SubStream で直接返す
-            if (entry.CompressedLength == entry.Length && _stream.CanSeek)
-            {
-                var dataOffset = GetStoredEntryDataOffset(entry, _stream);
-                if (dataOffset >= 0)
-                    return new SubStream(_stream, dataOffset, entry.Length, ownsInner: false);
-            }
-
-            // 圧縮エントリは MemoryStream に展開
-            using var entryStream = entry.Open();
-            var ms = new MemoryStream((int)entry.Length);
-            entryStream.CopyTo(ms);
-            ms.Position = 0;
-            return ms;
-        }
-
-        /// <summary>
-        /// エントリ全体をバイト配列で返す（app.conf.json など小さいファイル用）。
-        /// </summary>
         public byte[]? TryGetBytes(string virtualPath)
         {
             using var stream = OpenEntry(virtualPath);
             if (stream == null) return null;
             if (stream is MemoryStream ms) return ms.ToArray();
-            var copy = new MemoryStream();
+            using var copy = new MemoryStream();
             stream.CopyTo(copy);
             return copy.ToArray();
         }
 
-        // ---------------------------------------------------------------------------
-        // ZIP ローカルファイルヘッダ解析
-        // ---------------------------------------------------------------------------
-
-        private static long GetStoredEntryDataOffset(ZipArchiveEntry entry, Stream zipStream)
+        public void Dispose()
         {
-            try
-            {
-                var field = entry.GetType().GetField(
-                    "_offsetOfLocalHeader",
-                    BindingFlags.NonPublic | BindingFlags.Instance);
-                if (field == null) return -1;
-
-                var headerOffset = (long)field.GetValue(entry)!;
-
-                zipStream.Seek(headerOffset, SeekOrigin.Begin);
-                var header = new byte[30];
-                if (zipStream.Read(header, 0, 30) < 30) return -1;
-
-                if (header[0] != 0x50 || header[1] != 0x4B ||
-                    header[2] != 0x03 || header[3] != 0x04)
-                    return -1;
-
-                var fileNameLen = BitConverter.ToUInt16(header, 26);
-                var extraLen    = BitConverter.ToUInt16(header, 28);
-                return headerOffset + 30 + fileNameLen + extraLen;
-            }
-            catch { return -1; }
+            foreach (var source in _sources) source.Dispose();
+            _sources.Clear();
         }
-
-        // ---------------------------------------------------------------------------
-        // ユーティリティ
-        // ---------------------------------------------------------------------------
 
         private static string GetExePath()
             => System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName!;
 
-        public void Dispose()
-        {
-            _archive?.Dispose();
-            _stream?.Dispose();
-            foreach (var extra in _extras) extra.Dispose();
-        }
-
         // ---------------------------------------------------------------------------
-        // コンテンツソース抽象
+        // コンテンツソース定義
         // ---------------------------------------------------------------------------
 
         private interface IContentSource : IDisposable
@@ -266,39 +163,112 @@ namespace WebView2AppHost
         }
 
         /// <summary>
-        /// ディレクトリソース（ファイルシステム直読み）。
-        /// EXE 隣の www/ フォルダを https://app.local/ にルートマップする。
-        ///   www/index.html       → https://app.local/index.html
-        ///   www/assets/video.mp4 → https://app.local/assets/video.mp4
+        /// ディレクトリソース (個別配置用)
         /// </summary>
         private sealed class DirectorySource : IContentSource
         {
             private readonly string _root;
-
-            public DirectorySource(string root)
-            {
-                _root = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            }
+            public DirectorySource(string root) { _root = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar); }
 
             public Stream? OpenEntry(string virtualPath)
             {
                 var relative = virtualPath.TrimStart('/');
                 if (string.IsNullOrEmpty(relative)) return null;
-
                 var fullPath = Path.GetFullPath(Path.Combine(_root, relative));
-
-                // ディレクトリトラバーサル防止
-                if (!fullPath.StartsWith(_root + Path.DirectorySeparatorChar,
-                        StringComparison.OrdinalIgnoreCase))
-                    return null;
-
+                if (!fullPath.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return null;
                 if (!File.Exists(fullPath)) return null;
 
-                return new FileStream(fullPath, FileMode.Open, FileAccess.Read,
-                    FileShare.Read, 4096, FileOptions.RandomAccess);
+                return new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.RandomAccess);
+            }
+            public void Dispose() { }
+        }
+
+        /// <summary>
+        /// ZIP ソース (外部・同封・連結・埋め込み用)
+        /// </summary>
+        private sealed class ZipSource : IContentSource
+        {
+            private readonly ZipArchive _archive;
+            private readonly Stream     _stream;
+
+            private ZipSource(Stream stream)
+            {
+                _stream  = stream;
+                _archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
             }
 
-            public void Dispose() { }
+            public static ZipSource? FromFile(string path)
+            {
+                try { return new ZipSource(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)); }
+                catch { return null; }
+            }
+
+            public static ZipSource? FromStream(Stream stream)
+            {
+                try { return new ZipSource(stream); }
+                catch { return null; }
+            }
+
+            public Stream? OpenEntry(string virtualPath)
+            {
+                var entryName = virtualPath.TrimStart('/');
+                var entry     = _archive.GetEntry(entryName);
+                if (entry == null) return null;
+
+                lock (_stream)
+                {
+                    // 無圧縮 (STORED)
+                    if (entry.CompressedLength == entry.Length && _stream.CanSeek)
+                    {
+                        var dataOffset = GetStoredEntryDataOffset(entry, _stream);
+                        if (dataOffset >= 0)
+                            return new SubStream(_stream, dataOffset, entry.Length, ownsInner: false);
+                    }
+                    // 圧縮 (DEFLATED) - シーク不可ストリームとして返す
+                    return new ReadOnlyStream(entry.Open(), entry.Length);
+                }
+            }
+
+            private static long GetStoredEntryDataOffset(ZipArchiveEntry entry, Stream zipStream)
+            {
+                try
+                {
+                    var field = entry.GetType().GetField("_offsetOfLocalHeader", BindingFlags.NonPublic | BindingFlags.Instance);
+                    if (field == null) return -1;
+                    var headerOffset = (long)field.GetValue(entry)!;
+                    zipStream.Seek(headerOffset, SeekOrigin.Begin);
+                    var header = new byte[30];
+                    if (zipStream.Read(header, 0, 30) < 30) return -1;
+                    if (header[0] != 0x50 || header[1] != 0x4B || header[2] != 0x03 || header[3] != 0x04) return -1;
+                    var fileNameLen = BitConverter.ToUInt16(header, 26);
+                    var extraLen    = BitConverter.ToUInt16(header, 28);
+                    return headerOffset + 30 + fileNameLen + extraLen;
+                }
+                catch { return -1; }
+            }
+
+            public void Dispose() { _archive.Dispose(); /* _stream is disposed by _archive */ }
+        }
+
+        /// <summary>
+        /// シーク不可なストリームに Length を付与するラッパー
+        /// </summary>
+        private sealed class ReadOnlyStream : Stream
+        {
+            private readonly Stream _inner;
+            private readonly long   _length;
+            public ReadOnlyStream(Stream inner, long length) { _inner = inner; _length = length; }
+            public override bool CanRead  => true;
+            public override bool CanSeek  => false;
+            public override bool CanWrite => false;
+            public override long Length   => _length;
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+            public override long Seek(long offset, SeekOrigin origin)      => throw new NotSupportedException();
+            public override void Flush() { }
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+            protected override void Dispose(bool disposing) { if (disposing) _inner.Dispose(); base.Dispose(disposing); }
         }
     }
 }
