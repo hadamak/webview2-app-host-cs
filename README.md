@@ -119,16 +119,21 @@ python scripts\bundle.py src\bin\x64\Release\net472\WebView2AppHost.exe app.zip 
 
 ### 頒布に必要なファイル
 
-最小構成（連結方式でも DLL 類は必要です）:
-```
-MyApp.exe
-MyApp.exe.config
-Microsoft.Web.WebView2.Core.dll
-Microsoft.Web.WebView2.WinForms.dll
-WebView2Loader.dll
-LICENSE
-THIRD_PARTY_NOTICES.md
-```
+自動リリース（GitHub Actions）で生成される配布用パッケージ（`WebView2AppHost-v*-win-x64.zip`）の内部構成は以下の通りです。
+
+| ファイル / フォルダ | 内容 |
+|:---|:---|
+| **`WebView2AppHost_bundled.exe`** | **連結方式**。EXE 末尾に ZIP が結合された単一配布用 EXE です。 |
+| **`app.zip`** | **同封方式**用。コンテンツ単体です。 |
+| **`bin/`** | アプリの実行に必要な最小構成のバイナリ群です。 |
+| **`LICENSE`** / **`THIRD_PARTY_NOTICES.md`** | 本アプリおよびサードパーティのライセンス通知です。 |
+
+**エンドユーザーへの配布方法（例）:**
+1. **連結方式（単一ファイル）**: `WebView2AppHost_bundled.exe` と `bin/` フォルダ、ライセンス、配布用ドキュメントを同梱して配布します。
+2. **同封方式（コンテンツ分離）**: `bin/` フォルダ内の `WebView2AppHost.exe` を任意の名称にリネームし、その隣に `app.zip`（同じ名称に変更）を置いて配布します。
+
+> [!NOTE]
+> 連結方式であっても、WebView2 SDK の DLL 類（`bin/` フォルダ内のファイル）は EXE と同じ場所に同梱する必要があります。
 
 ---
 
