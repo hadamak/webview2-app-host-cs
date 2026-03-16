@@ -37,20 +37,34 @@ jobs:
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
           $base = "src/bin/x64/Release/net472"
-          Copy-Item "$base/WebView2AppHost.exe" $outDir
-          Copy-Item "$base/WebView2AppHost.exe.config" $outDir
-          Copy-Item "$base/Microsoft.Web.WebView2.Core.dll" $outDir
-          Copy-Item "$base/Microsoft.Web.WebView2.WinForms.dll" $outDir
-          Copy-Item "$base/WebView2Loader.dll" $outDir
+          
+          # 1. 最小構成の実行ファイル群をコピー (bin フォルダ)
+          $binDir = "$outDir/bin"
+          New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+          Copy-Item "$base/WebView2AppHost.exe" $binDir
+          Copy-Item "$base/WebView2AppHost.exe.config" $binDir
+          Copy-Item "$base/Microsoft.Web.WebView2.Core.dll" $binDir
+          Copy-Item "$base/Microsoft.Web.WebView2.WinForms.dll" $binDir
+          Copy-Item "$base/WebView2Loader.dll" $binDir
 
+          # 2. コンテンツを ZIP 化 (pack_zip.py)
+          python scripts/pack_zip.py web-content "$outDir/app.zip"
+
+          # 3. EXE と ZIP を連結した単一配布用 EXE を作成 (bundle.py)
+          python scripts/bundle.py "$base/WebView2AppHost.exe" "$outDir/app.zip" "$outDir/WebView2AppHost_bundled.exe"
+
+          # 4. ドキュメント・ライセンス類
           Copy-Item "README.md" $outDir
           Copy-Item "LICENSE" $outDir
-          Copy-Item "web-content" "$outDir/web-content" -Recurse
+          Copy-Item "THIRD_PARTY_NOTICES.md" $outDir
 
-          $exePath = "$outDir/WebView2AppHost.exe"
-          $exeHash = (Get-FileHash $exePath -Algorithm SHA256).Hash.ToLower()
-          "$exeHash  $(Split-Path -Leaf $exePath)" | Out-File "$exePath.sha256" -Encoding ascii
+          # ハッシュ生成
+          Get-ChildItem -Path $outDir -Include *.exe, *.zip -Recurse | ForEach-Object {
+              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+              "$hash  $($_.Name)" | Out-File "$($_.FullName).sha256" -Encoding ascii
+          }
 
+          # 最終的な ZIP パッケージ
           Compress-Archive -Path "$outDir/*" -DestinationPath "$outDir.zip" -Force
 
           $hash = (Get-FileHash "$outDir.zip" -Algorithm SHA256).Hash.ToLower()

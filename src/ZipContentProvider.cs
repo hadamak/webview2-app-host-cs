@@ -10,17 +10,12 @@ namespace WebView2AppHost
     /// ZIP・ディレクトリからコンテンツを提供する。
     /// 起動時に全展開せず、リクエストのあったエントリだけ展開して返す（リクエスト時展開）。
     ///
-    /// メイン ZIP のフォールバック順（優先度が高い順）:
-    ///   1. コマンドライン引数で指定された ZIP ファイル
-    ///   2. EXE と同名の .zip ファイル（隣接ファイル）
-    ///   3. EXE 末尾に結合された ZIP（WZGM トレーラー）
-    ///   4. EXE に埋め込まれたリソース（デフォルト）
-    ///
-    /// 追加ソース（EXE と同じフォルダに配置するだけで自動マウント）:
-    ///   www/  → ルート（https://app.local/）にマップ
-    ///
-    /// リクエスト時の検索順: www/（ディレクトリ）→ メイン ZIP
-    /// www/ が最優先なので、ZIP のファイルをディレクトリ側で上書きできる。
+    /// コンテンツの読み込み優先順位（高い順）:
+    ///   1. 個別配置: EXE 隣接の www/ フォルダ
+    ///   2. 外部指定: コマンドライン引数でパスを渡す
+    ///   3. 同封: EXE と同名の .zip ファイル（隣接 ZIP）
+    ///   4. 連結: EXE 末尾に結合された ZIP（WZGM トレーラー）
+    ///   5. 埋め込み: EXE に埋め込まれたリソース（app.zip）
     /// </summary>
     internal sealed class ZipContentProvider : IDisposable
     {
@@ -28,11 +23,11 @@ namespace WebView2AppHost
         private const string WzgmMagic  = "WZGM";
         private const int    TrailerSize = 12; // 8バイト(ZIP サイズ) + 4バイト(マジック)
 
-        // メイン ZIP
+        // メイン ZIP（外部指定・同封・連結・埋め込みのいずれか）
         private ZipArchive? _archive;
         private Stream?     _stream;
 
-        // 追加ソース（登録順に検索）
+        // 個別配置などの追加ソース
         private readonly List<IContentSource> _extras = new List<IContentSource>();
 
         // ---------------------------------------------------------------------------
@@ -40,8 +35,8 @@ namespace WebView2AppHost
         // ---------------------------------------------------------------------------
 
         /// <summary>
-        /// フォールバック順でメイン ZIP を開き、追加ソースを自動検出する。
-        /// 優先順位（高い順）: コマンドライン引数 → 隣接 ZIP → WZGM 結合 → 埋め込みリソース
+        /// フォールバック順でメイン ZIP を開き、個別配置ソースを自動検出する。
+        /// 優先順位（高い順）: 外部指定 → 同封 → 連結 → 埋め込み
         /// </summary>
         public bool Load()
         {
@@ -55,13 +50,13 @@ namespace WebView2AppHost
         }
 
         /// <summary>
-        /// EXE 隣接の追加ソースを自動検出して登録する。
+        /// EXE 隣接の個別配置ソースを自動検出して登録する。
         /// </summary>
         private void LoadExtraSources()
         {
             var exeDir = Path.GetDirectoryName(GetExePath()) ?? ".";
 
-            // www/ ディレクトリ → https://app.local/ にルートマップ（最優先）
+            // www/ ディレクトリ → https://app.local/ にルートマップ（個別配置）
             var wwwDir = Path.Combine(exeDir, "www");
             if (Directory.Exists(wwwDir))
             {

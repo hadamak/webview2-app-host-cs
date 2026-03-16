@@ -18,10 +18,11 @@ namespace WebView2AppHost
                 MessageBox.Show(
                     "コンテンツが見つかりませんでした。\n" +
                     "次のいずれかの配置になっているか確認してください。\n" +
-                    "- コマンドライン引数で ZIP を指定\n" +
-                    "- EXE と同名の .zip を同じフォルダに配置\n" +
-                    "- EXE 末尾に ZIP を結合\n" +
-                    "- EXE にコンテンツを埋め込み",
+                    "- 個別配置: EXE と同じ場所に www フォルダを配置\n" +
+                    "- 外部指定: コマンドライン引数で ZIP パスを指定\n" +
+                    "- 同封: EXE と同名の .zip ファイルを配置\n" +
+                    "- 連結: bundle.py で EXE 末尾に ZIP を結合\n" +
+                    "- 埋め込み: プロジェクトのリソースとして埋め込み",
                     "WebView2 App Host",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Error);
