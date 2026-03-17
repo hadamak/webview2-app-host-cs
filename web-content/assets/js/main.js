@@ -5,7 +5,7 @@
  * 自分のアプリを作るときはこのファイルを参考にして書き換えてください。
  *
  * AppBridge API 一覧:
- *   AppBridge.exitApp()              アプリを終了する
+ *   (なし) - 標準の Web API を使用してください
  *
  * ライフサイクルイベント:
  *   document の 'fullscreenchange'   フルスクリーン状態変化時（標準 API と同じ）
@@ -54,7 +54,7 @@ document.addEventListener('fullscreenchange', () => {
 });
 
 document.getElementById('btn-exit').addEventListener('click', () => {
-  AppBridge.exitApp();
+  window.close();
 });
 
 // =============================================================================

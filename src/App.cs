@@ -1,8 +1,6 @@
 using System;
 using System.Drawing;
 using System.IO;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Json;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -101,9 +99,6 @@ namespace WebView2AppHost
             // カスタムスキームの登録（https://app.local/*）
             RegisterCustomScheme();
 
-            // JS ブリッジの注入
-            SetupHostObjectBridge();
-
             // <title> 変化をウィンドウタイトルに反映
             wv.DocumentTitleChanged += (s, _) =>
             {
@@ -114,8 +109,26 @@ namespace WebView2AppHost
             // favicon 追従
             SetupFaviconTracking();
 
-            // JS からのメッセージ受信
-            wv.WebMessageReceived += OnWebMessageReceived;
+            // JS からのウィンドウクローズ要求 (window.close())
+            wv.WindowCloseRequested += (s, _) => Close();
+
+            // C# から JS へのイベント通知（visibilitychange 等）の土台を注入
+            await wv.AddScriptToExecuteOnDocumentCreatedAsync(@"
+                window.chrome.webview.addEventListener('message', function(e) {
+                    let data;
+                    try { data = JSON.parse(e.data); } catch { return; }
+
+                    if (data.event === 'visibilityChange') {
+                        Object.defineProperty(document, 'visibilityState', {
+                            value: data.state, writable: true, configurable: true
+                        });
+                        Object.defineProperty(document, 'hidden', {
+                            value: data.state === 'hidden', writable: true, configurable: true
+                        });
+                        document.dispatchEvent(new Event('visibilitychange'));
+                    }
+                });
+            ");
 
             // フルスクリーン状態の同期
             wv.ContainsFullScreenElementChanged += (s, e) =>
@@ -258,78 +271,6 @@ namespace WebView2AppHost
 
             // end のクランプは維持（ブラウザが total を超えた end を送ることがある）
             return (Math.Max(0, start), Math.Min(end, total - 1));
-        }
-
-        // ---------------------------------------------------------------------------
-        // JS ブリッジ
-        // ---------------------------------------------------------------------------
-
-        private void SetupHostObjectBridge()
-        {
-            const string script = @"
-        window.AppBridge = {
-            exitApp: function() {
-                window.chrome.webview.postMessage(JSON.stringify({ cmd: 'exit' }));
-            }
-        };
-
-        // C# からのイベント受信
-        window.chrome.webview.addEventListener('message', function(e) {
-            let data;
-            try { data = JSON.parse(e.data); } catch { return; }
-
-            if (data.event === 'visibilityChange') {
-                Object.defineProperty(document, 'visibilityState', {
-                    value: data.state, writable: true, configurable: true
-                });
-                Object.defineProperty(document, 'hidden', {
-                    value: data.state === 'hidden', writable: true, configurable: true
-                });
-                document.dispatchEvent(new Event('visibilitychange'));
-            }
-        });
-
-        console.log('[AppBridge] ready');
-            ";
-
-            _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
-        }
-
-        private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
-        {
-            string msg;
-            try { msg = e.TryGetWebMessageAsString(); }
-            catch { return; }
-
-            WebMessage? data;
-            try
-            {
-                var serializer = new DataContractJsonSerializer(typeof(WebMessage));
-                using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(msg));
-                data = (WebMessage?)serializer.ReadObject(stream);
-            }
-            catch { return; }
-
-            if (data?.Cmd == null) return;
-
-            switch (data.Cmd)
-            {
-                case "exit":
-                    Close();
-                    break;
-
-                default:
-                    System.Diagnostics.Debug.WriteLine($"[AppBridge] unknown cmd: {data.Cmd}");
-                    break;
-            }
-        }
-
-        /// <summary>JS → C# メッセージの DTO。</summary>
-        [DataContract]
-        private sealed class WebMessage
-        {
-            [DataMember(Name = "cmd")]
-            public string? Cmd { get; private set; }
         }
 
         // ---------------------------------------------------------------------------

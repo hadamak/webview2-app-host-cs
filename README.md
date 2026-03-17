@@ -162,24 +162,15 @@ python scripts\bundle.py bin\WebView2AppHost.exe app.zip dist\MyApp.exe
 | `height` | int | `720` | 初期高さ（ピクセル） |
 | `fullscreen` | bool | `false` | フルスクリーン起動 |
 
-### JavaScript API (`window.AppBridge`)
-
-JS から呼び出せるネイティブ制御 API です。
-
-```js
-AppBridge.exitApp();          // アプリ終了
-```
-
-**ライフサイクルイベント:**
-- `fullscreenchange`: フルスクリーン状態の変化を検知（標準 API そのまま）。
-- `visibilitychange`: 最小化や非アクティブ化を検知（標準 API と同じ）。
-
 ### 標準 HTML5 API への対応
 本ホストアプリは WebView2 の標準機能を活用しているため、以下の標準 API がそのまま利用可能です。
-- `element.requestFullscreen()`
-- `document.exitFullscreen()`
-- `document.fullscreenElement`
-- `fullscreenchange` イベント
+- `window.close()`: アプリを終了します。
+- `element.requestFullscreen()`: フルスクリーン化します。
+- `document.exitFullscreen()`: フルスクリーンを解除します。
+- `document.fullscreenElement`: 現在のフルスクリーン要素を取得します。
+- `fullscreenchange` イベント: フルスクリーン状態の変化を検知します。
+
+以前のバージョンで提供されていた `window.AppBridge` 経由の独自 API は、すべて上記の標準 API へ移行・統合されました。
 
 ### 現在の制限事項
 
