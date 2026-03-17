@@ -212,31 +212,60 @@ namespace WebView2AppHost
                 var entry     = _archive.GetEntry(entryName);
                 if (entry == null) return null;
 
-                return new ReadOnlyStream(entry.Open(), entry.Length);
+                // entry.Open() は呼び出しのたびに新しい解凍ストリームを返す
+                var stream = entry.Open();
+                if (stream == null) return null;
+
+                return new ReadOnlyStream(stream, entry.Length);
             }
 
-            public void Dispose() { _archive.Dispose(); /* _stream is disposed by _archive */ }
+            public void Dispose() { _archive.Dispose(); }
         }
 
         /// <summary>
-        /// シーク不可なストリームに Length を付与するラッパー
+        /// シーク不可な解凍ストリームに Length を付与するラッパー。
+        /// WebView2 のリソースレスポンス作成に必要。
         /// </summary>
         private sealed class ReadOnlyStream : Stream
         {
             private readonly Stream _inner;
             private readonly long   _length;
-            public ReadOnlyStream(Stream inner, long length) { _inner = inner; _length = length; }
+            private          long   _position = 0;
+
+            public ReadOnlyStream(Stream inner, long length)
+            {
+                _inner  = inner ?? throw new ArgumentNullException(nameof(inner));
+                _length = length;
+            }
+
             public override bool CanRead  => true;
             public override bool CanSeek  => false;
             public override bool CanWrite => false;
             public override long Length   => _length;
-            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-            public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
-            public override long Seek(long offset, SeekOrigin origin)      => throw new NotSupportedException();
+
+            public override long Position
+            {
+                get => _position;
+                set => throw new NotSupportedException();
+            }
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                var read = _inner.Read(buffer, offset, count);
+                _position += read;
+                return read;
+            }
+
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
             public override void Flush() { }
             public override void SetLength(long value) => throw new NotSupportedException();
             public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-            protected override void Dispose(bool disposing) { if (disposing) _inner.Dispose(); base.Dispose(disposing); }
+
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing) _inner.Dispose();
+                base.Dispose(disposing);
+            }
         }
     }
 }

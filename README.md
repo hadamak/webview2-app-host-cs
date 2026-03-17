@@ -162,20 +162,28 @@ python scripts\bundle.py bin\WebView2AppHost.exe app.zip dist\MyApp.exe
 | `height` | int | `720` | 初期高さ（ピクセル） |
 | `fullscreen` | bool | `false` | フルスクリーン起動 |
 
-### 標準 HTML5 API への対応
-本ホストアプリは WebView2 の標準機能を活用しているため、以下の標準 API がそのまま利用可能です。
-- `window.close()`: アプリを終了します。
-- `element.requestFullscreen()`: フルスクリーン化します。
-- `document.exitFullscreen()`: フルスクリーンを解除します。
-- `document.fullscreenElement`: 現在のフルスクリーン要素を取得します。
-- `fullscreenchange` イベント: フルスクリーン状態の変化を検知します。
+### 標準 Web API への対応
+本ホストアプリは WebView2 の機能を活用し、Web 標準のライフサイクルに準拠しています。以下の標準 API が特別な設定なしにそのまま利用可能です。
 
-以前のバージョンで提供されていた `window.AppBridge` 経由の独自 API は、すべて上記の標準 API へ移行・統合されました。
+- **アプリ終了**: `window.close()`
+  - JavaScript から呼び出すことでアプリを終了します。
+- **フルスクリーン**: `element.requestFullscreen()` / `document.exitFullscreen()`
+  - 呼び出しに合わせてホスト側のウィンドウ状態（ボーダレス・最大化）が自動的に連動します。
+- **終了確認**: `beforeunload` イベント
+  - 保存確認ダイアログなどをブラウザ標準の作法で実装できます。
+- **外部リンク**: `target="_blank"` / `window.open()`
+  - `app.local` 以外の `http(s)` リンクは、自動的に OS 既定のブラウザで開かれます。
+- **ライフサイクル**: `visibilitychange` / `fullscreenchange`
+  - ウィンドウの最小化やフルスクリーン状態の変化を検知できます。
+
+### JavaScript API (`window.AppBridge`)
+Web 標準でカバーできないネイティブ固有の機能を最小限提供します。
+
+- 現在、提供されている API はありません（すべての制御が標準 Web API へ移行されました）。
 
 ### 現在の制限事項
 
 - **通知 (Notification API)**: UI 実装がないため、デフォルトでは表示されません。
-- **新しいウィンドウ**: `window.open()` 等によるポップアップは制限されます。
 - **カスタムスキーム**: `https://app.local/` で動作するため、一部の Service Worker 等で追加設定が必要になる場合があります。
 - **Range Request (シーク)**: ZIP に格納されたファイルは Range Request に対応しません。動画・音声・wasm など Range Request が必要なファイルは `www/` フォルダへの個別配置を使用してください。
 
