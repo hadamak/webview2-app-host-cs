@@ -6,27 +6,11 @@
  *
  * AppBridge API 一覧:
  *   AppBridge.exitApp()              アプリを終了する
- *   AppBridge.requestFullscreen()    フルスクリーン化する
- *   AppBridge.exitFullscreen()       ウィンドウモードに戻す
  *
  * ライフサイクルイベント:
  *   document の 'fullscreenchange'   フルスクリーン状態変化時（標準 API と同じ）
  *   document の 'visibilitychange'   最小化・フォーカス切替時（標準 API と同じ）
  */
-
-// =============================================================================
-// ブラウザ開発用 stub
-// ブラウザで直接 index.html を開いたとき自動的に有効になります。
-// アプリ内では AppBridge はホスト側から注入されるため、このブロックは実行されません。
-// =============================================================================
-if (!window.AppBridge) {
-  console.info('[AppBridge] ブラウザ環境 — stub を使用します');
-  window.AppBridge = {
-    exitApp() { window.close(); },
-    requestFullscreen() { document.documentElement.requestFullscreen?.(); },
-    exitFullscreen()    { document.exitFullscreen?.(); },
-  };
-}
 
 // =============================================================================
 // ユーティリティ
@@ -43,18 +27,24 @@ function appendLog(el, msg) {
 // ウィンドウ操作
 // =============================================================================
 document.getElementById('btn-enter-fs').addEventListener('click', () => {
-  AppBridge.requestFullscreen();
+  document.documentElement.requestFullscreen();
 });
 
 document.getElementById('btn-exit-fs').addEventListener('click', () => {
-  AppBridge.exitFullscreen();
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  }
 });
 
-// F11 はホスト側でも処理されますが、JS 側でも受け取れます
+// F11 キーでフルスクリーンをトグル
 window.addEventListener('keydown', (e) => {
   if (e.key === 'F11') {
     e.preventDefault();
-    document.fullscreenElement ? AppBridge.exitFullscreen() : AppBridge.requestFullscreen();
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      document.documentElement.requestFullscreen();
+    }
   }
 });
 

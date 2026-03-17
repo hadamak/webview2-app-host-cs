@@ -168,13 +168,18 @@ JS から呼び出せるネイティブ制御 API です。
 
 ```js
 AppBridge.exitApp();          // アプリ終了
-AppBridge.requestFullscreen(); // フルスクリーン化
-AppBridge.exitFullscreen();    // ウィンドウモードに戻す
 ```
 
 **ライフサイクルイベント:**
-- `fullscreenchange`: フルスクリーン状態の変化を検知（標準 API と同じ。`document.fullscreenElement` も同期更新）。
+- `fullscreenchange`: フルスクリーン状態の変化を検知（標準 API そのまま）。
 - `visibilitychange`: 最小化や非アクティブ化を検知（標準 API と同じ）。
+
+### 標準 HTML5 API への対応
+本ホストアプリは WebView2 の標準機能を活用しているため、以下の標準 API がそのまま利用可能です。
+- `element.requestFullscreen()`
+- `document.exitFullscreen()`
+- `document.fullscreenElement`
+- `fullscreenchange` イベント
 
 ### 現在の制限事項
 

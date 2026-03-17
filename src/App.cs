@@ -117,6 +117,19 @@ namespace WebView2AppHost
             // JS からのメッセージ受信
             wv.WebMessageReceived += OnWebMessageReceived;
 
+            // フルスクリーン状態の同期
+            wv.ContainsFullScreenElementChanged += (s, e) =>
+            {
+                if (wv.ContainsFullScreenElement)
+                {
+                    if (!_isFullscreen) RequestFullscreen();
+                }
+                else
+                {
+                    if (_isFullscreen) ExitFullscreen();
+                }
+            };
+
             // index.html へナビゲート
             wv.Navigate("https://app.local/index.html");
 
@@ -257,12 +270,6 @@ namespace WebView2AppHost
         window.AppBridge = {
             exitApp: function() {
                 window.chrome.webview.postMessage(JSON.stringify({ cmd: 'exit' }));
-            },
-            requestFullscreen: function() {
-                window.chrome.webview.postMessage(JSON.stringify({ cmd: 'requestFullscreen' }));
-            },
-            exitFullscreen: function() {
-                window.chrome.webview.postMessage(JSON.stringify({ cmd: 'exitFullscreen' }));
             }
         };
 
@@ -270,15 +277,6 @@ namespace WebView2AppHost
         window.chrome.webview.addEventListener('message', function(e) {
             let data;
             try { data = JSON.parse(e.data); } catch { return; }
-
-            if (data.event === 'fullscreenChange') {
-                const el = data.value ? document.documentElement : null;
-                Object.defineProperty(document, 'fullscreenElement', {
-                    value: el, writable: true, configurable: true
-                });
-                document.dispatchEvent(new Event('fullscreenchange'));
-                return;
-            }
 
             if (data.event === 'visibilityChange') {
                 Object.defineProperty(document, 'visibilityState', {
@@ -320,14 +318,6 @@ namespace WebView2AppHost
                     Close();
                     break;
 
-                case "requestFullscreen":
-                    RequestFullscreen();
-                    break;
-
-                case "exitFullscreen":
-                    ExitFullscreen();
-                    break;
-
                 default:
                     System.Diagnostics.Debug.WriteLine($"[AppBridge] unknown cmd: {data.Cmd}");
                     break;
@@ -354,7 +344,6 @@ namespace WebView2AppHost
             FormBorderStyle  = FormBorderStyle.None;
             WindowState      = FormWindowState.Maximized;
             _isFullscreen    = true;
-            NotifyFullscreenChange();
         }
 
         private void ExitFullscreen()
@@ -363,15 +352,6 @@ namespace WebView2AppHost
             FormBorderStyle = _prevBorderStyle;
             WindowState     = _prevWindowState;
             _isFullscreen   = false;
-            NotifyFullscreenChange();
-        }
-
-        private void NotifyFullscreenChange()
-        {
-            if (_webView.CoreWebView2 == null) return;
-            var state = _isFullscreen ? "true" : "false";
-            _webView.CoreWebView2.PostWebMessageAsString(
-                $"{{\"event\":\"fullscreenChange\",\"value\":{state}}}");
         }
 
         // ---------------------------------------------------------------------------
@@ -467,22 +447,6 @@ namespace WebView2AppHost
             if (_isMinimized || _webView.CoreWebView2 == null) return;
             _webView.CoreWebView2.PostWebMessageAsString(
                 "{\"event\":\"visibilityChange\",\"state\":\"hidden\"}");
-        }
-
-        // キー入力を WebView2 より先にフォームが受け取る
-        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
-        {
-            if (keyData == Keys.F11)
-            {
-                if (_isFullscreen) ExitFullscreen(); else RequestFullscreen();
-                return true;
-            }
-            if (keyData == Keys.Escape && _isFullscreen)
-            {
-                ExitFullscreen();
-                return true;
-            }
-            return base.ProcessCmdKey(ref msg, keyData);
         }
 
         /// <summary>
