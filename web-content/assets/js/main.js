@@ -58,6 +58,24 @@ document.getElementById('btn-exit').addEventListener('click', () => {
 });
 
 // =============================================================================
+// beforeunload (終了確認)
+// =============================================================================
+const checkConfirmExit = document.getElementById('check-confirm-exit');
+
+function handleBeforeUnload(e) {
+  e.preventDefault();
+  e.returnValue = ''; // 標準の確認ダイアログを表示
+}
+
+checkConfirmExit.addEventListener('change', () => {
+  if (checkConfirmExit.checked) {
+    window.addEventListener('beforeunload', handleBeforeUnload);
+  } else {
+    window.removeEventListener('beforeunload', handleBeforeUnload);
+  }
+});
+
+// =============================================================================
 // ウィンドウタイトル変更
 // <title> タグを書き換えるだけでタイトルバーに反映されます。
 // =============================================================================

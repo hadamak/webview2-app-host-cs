@@ -17,6 +17,10 @@ namespace WebView2AppHost
         // visibilitychange 用
         private bool _isMinimized = false;
 
+        // 終了確認用
+        private bool _isClosingConfirmed = false;
+        private bool _isClosingInProgress = false;
+
         // フルスクリーン用
         private bool             _isFullscreen    = false;
         private FormBorderStyle  _prevBorderStyle = FormBorderStyle.Sizable;
@@ -110,10 +114,37 @@ namespace WebView2AppHost
             SetupFaviconTracking();
 
             // JS からのウィンドウクローズ要求 (window.close())
-            wv.WindowCloseRequested += (s, _) => Close();
+            wv.WindowCloseRequested += (s, _) =>
+            {
+                _isClosingConfirmed = true;
+                Close();
+            };
 
-            // C# から JS へのイベント通知（visibilitychange 等）の土台を注入
+            // 外部リンク・ナビゲーションのハンドリング
+            wv.NewWindowRequested += (s, e) => HandleNavigation(e.Uri, () => e.Handled = true);
+            wv.NavigationStarting += (s, e) => HandleNavigation(e.Uri, () => e.Cancel  = true);
+
+            // 遷移完了時の判定（beforeunload を経て about:blank に到達した ＝ 終了承諾）
+            wv.NavigationCompleted += (s, e) =>
+            {
+                if (_isClosingInProgress && wv.Source == "about:blank")
+                {
+                    _isClosingConfirmed = true;
+                    Close();
+                }
+            };
+
+            // 標準のダイアログ（alert, confirm, prompt, beforeunload）を表示
+            wv.ScriptDialogOpening += (s, e) => { /* デフォルト動作 */ };
+
+            // C# から JS へのイベント通知の土台 & window.close() の標準化
             await wv.AddScriptToExecuteOnDocumentCreatedAsync(@"
+                // window.close() を about:blank への遷移に置き換える。
+                // これによりセキュリティ制限を回避し、かつ beforeunload を確実に発火させる。
+                window.close = function() {
+                    location.href = 'about:blank';
+                };
+
                 window.chrome.webview.addEventListener('message', function(e) {
                     let data;
                     try { data = JSON.parse(e.data); } catch { return; }
@@ -356,7 +387,47 @@ namespace WebView2AppHost
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            if (!_isClosingConfirmed && _webView.CoreWebView2 != null)
+            {
+                e.Cancel = true;
+                _isClosingInProgress = true;
+                // about:blank への遷移を試みることで beforeunload を発火させる。
+                // ユーザーが承諾すれば遷移が完了し、NavigationCompleted でアプリを閉じる。
+                _webView.CoreWebView2.Navigate("about:blank");
+                return;
+            }
             base.OnFormClosing(e);
+        }
+
+        private void OpenInDefaultBrowser(string uri)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName        = uri,
+                    UseShellExecute = true
+                });
+            }
+            catch { }
+        }
+
+        private void HandleNavigation(string uri, Action cancelAction)
+        {
+            // about:blank への遷移は終了処理の合図として内部で許可する
+            if (uri == "about:blank")
+            {
+                _isClosingInProgress = true;
+                return;
+            }
+
+            // https://app.local/ 以外かつ http(s) の場合は既定のブラウザで開く
+            if (!uri.StartsWith("https://app.local/") &&
+                (uri.StartsWith("http://") || uri.StartsWith("https://")))
+            {
+                cancelAction();
+                OpenInDefaultBrowser(uri);
+            }
         }
 
         protected override void OnResize(EventArgs e)
