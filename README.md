@@ -1,5 +1,7 @@
 # WebView2 App Host
 
+<img alt="screenshot" width="50%" src="images/screenshot.png" />
+
 Windows 向け Web アプリホスト。HTML / CSS / JS で作られた Web アプリを Windows デスクトップアプリとして配布するための軽量テンプレートです。
 
 ---
@@ -87,31 +89,30 @@ WebView2（Chromium ベース）を利用し、ES Modules・WebAssembly・Web Au
 | **4** | **連結** | `bundle.py` で EXE 末尾に結合 | ポータビリティ重視（単一ファイル化） |
 | **5** | **埋め込み** | リソースとして EXE 内部に内蔵 | 最小構成、改ざん防止 |
 
-### 配布形態の選択
+### 配布・構成の柔軟な選択
 
-#### A. 埋め込み（標準）
-追加作業なし。`web-content/` が EXE 内部にパッケージングされます。
+本ホストアプリは、以下の 4 つのソースからコンテンツを自動的に探索します（上ほど優先順位が高い）。これらは**ファイル単位でフォールバックされる**ため、複数の形態を自由に組み合わせて利用可能です。
 
-#### B. 同封
-EXE とは別に ZIP を用意。コンテンツのみの更新が容易です。
+#### 1. 個別配置 (www/ フォルダ)
+EXE と同じ場所に `www/` フォルダを作成してファイルを配置します。
+- **用途**: 開発中の即時反映、頻繁に更新するアセット、大容量の動画・音声ファイル（Range Request 対応が必要な場合）など。
+
+#### 2. 同封 (ZIP ファイル)
+EXE と同じ名前にした ZIP ファイル（例: `MyApp.exe` に対して `MyApp.zip`）を配置します。
+- **用途**: コンテンツのみのアップデート配布、プラグインや MOD のような拡張。
+
+#### 3. 連結 (EXE 結合 ZIP)
+`bundle.py` を使い、ZIP を EXE 本体の末尾に物理的に結合します。
+- **用途**: ポータビリティ重視（実質 1 ファイルでの配布）、設定ファイルの隠蔽。
 ```powershell
-# 1. 任意のフォルダ (例: my-app-content/) を ZIP 化
-python scripts\make_zip.py my-app-content app.zip
-
-# 2. EXE と ZIP を同じ名前にして同じフォルダに配置
-copy bin\WebView2AppHost.exe dist\MyApp.exe
-move app.zip dist\MyApp.zip
-```
-
-#### C. 連結
-EXE と ZIP を 1 ファイルにまとめます。
-```powershell
-# 1. 任意のフォルダ (例: my-app-content/) を ZIP 化
-python scripts\make_zip.py my-app-content app.zip
-
-# 2. EXE の末尾に ZIP を貼り付けた「連結済み EXE」を生成
 python scripts\bundle.py bin\WebView2AppHost.exe app.zip dist\MyApp.exe
 ```
+
+#### 4. 埋め込み (内蔵リソース)
+ビルド時に `web-content/` の内容をリソースとして EXE 内部にパッキングします。
+- **用途**: 最小構成での配布、コアとなるシステムファイルの保護。
+
+---
 
 ### ダウンロードパッケージの内容
 
@@ -121,7 +122,7 @@ python scripts\bundle.py bin\WebView2AppHost.exe app.zip dist\MyApp.exe
 |:---|:---|
 | **`WebView2AppHost.exe`** | ホスト本体 |
 | **`*.dll` / `*.exe.config`** | 実行に必要な WebView2 SDK ファイル群 |
-| **`www/`** | デモコンテンツ。AppBridge API の利用例として参照できます。起動時に自動的に読み込まれます。 |
+| **`www/`** | デモコンテンツ。利用例として参照できます。起動時に自動的に読み込まれます。 |
 | **`scripts/bundle.py`** | EXE 末尾に ZIP を結合して単一ファイル化するスクリプトです。 |
 | **`LICENSE`** / **`THIRD_PARTY_NOTICES.md`** | 本アプリおよびサードパーティのライセンス通知です。 |
 
