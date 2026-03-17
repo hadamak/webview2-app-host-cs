@@ -30,18 +30,12 @@ namespace WebView2AppHost
                     return;
                 }
 
-                // 設定を読む（優先順位順に探索し、最初にパース成功したものを採用）
+                // 設定を読む
                 AppConfig? config = null;
-                foreach (var path in new[] { "/app.conf.json", "/app.config.json" }) // 念のため別名もチェック
+                using (var stream = zip.OpenEntry("/app.conf.json"))
                 {
-                    using (var stream = zip.OpenEntry(path))
-                    {
-                        if (stream != null)
-                        {
-                            config = AppConfig.Load(stream);
-                            if (config != null) break;
-                        }
-                    }
+                    if (stream != null)
+                        config = AppConfig.Load(stream);
                 }
 
                 // 全ソースで見つからない、またはパース失敗時はデフォルト値を使用

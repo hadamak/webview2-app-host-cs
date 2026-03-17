@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Reflection;
-using System.Linq;
 
 namespace WebView2AppHost
 {
@@ -189,11 +188,9 @@ namespace WebView2AppHost
         private sealed class ZipSource : IContentSource
         {
             private readonly ZipArchive _archive;
-            private readonly Stream     _stream;
 
             private ZipSource(Stream stream)
             {
-                _stream  = stream;
                 _archive = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
             }
 
@@ -215,36 +212,7 @@ namespace WebView2AppHost
                 var entry     = _archive.GetEntry(entryName);
                 if (entry == null) return null;
 
-                lock (_stream)
-                {
-                    // 無圧縮 (STORED)
-                    if (entry.CompressedLength == entry.Length && _stream.CanSeek)
-                    {
-                        var dataOffset = GetStoredEntryDataOffset(entry, _stream);
-                        if (dataOffset >= 0)
-                            return new SubStream(_stream, dataOffset, entry.Length, ownsInner: false);
-                    }
-                    // 圧縮 (DEFLATED) - シーク不可ストリームとして返す
-                    return new ReadOnlyStream(entry.Open(), entry.Length);
-                }
-            }
-
-            private static long GetStoredEntryDataOffset(ZipArchiveEntry entry, Stream zipStream)
-            {
-                try
-                {
-                    var field = entry.GetType().GetField("_offsetOfLocalHeader", BindingFlags.NonPublic | BindingFlags.Instance);
-                    if (field == null) return -1;
-                    var headerOffset = (long)field.GetValue(entry)!;
-                    zipStream.Seek(headerOffset, SeekOrigin.Begin);
-                    var header = new byte[30];
-                    if (zipStream.Read(header, 0, 30) < 30) return -1;
-                    if (header[0] != 0x50 || header[1] != 0x4B || header[2] != 0x03 || header[3] != 0x04) return -1;
-                    var fileNameLen = BitConverter.ToUInt16(header, 26);
-                    var extraLen    = BitConverter.ToUInt16(header, 28);
-                    return headerOffset + 30 + fileNameLen + extraLen;
-                }
-                catch { return -1; }
+                return new ReadOnlyStream(entry.Open(), entry.Length);
             }
 
             public void Dispose() { _archive.Dispose(); /* _stream is disposed by _archive */ }

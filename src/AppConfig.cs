@@ -12,6 +12,11 @@ namespace WebView2AppHost
     [DataContract]
     internal sealed class AppConfig
     {
+        // ウィンドウサイズの許容範囲
+        private const int MinSize   =  160;   // 操作可能な最小値
+        private const int MaxWidth  = 7680;   // 8K 横
+        private const int MaxHeight = 4320;   // 8K 縦
+
         [DataMember(Name = "title")]
         public string Title { get; private set; } = "WebView2 App Host";
 
@@ -34,14 +39,7 @@ namespace WebView2AppHost
             {
                 var serializer = new DataContractJsonSerializer(typeof(AppConfig));
                 var config = (AppConfig?)serializer.ReadObject(stream);
-                
-                // バリデーション: 極端な値が入っている場合は補正、または失敗とする
-                if (config != null)
-                {
-                    if (config.Width <= 0) config.Width = 1280;
-                    if (config.Height <= 0) config.Height = 720;
-                }
-                
+                if (config != null) config.Sanitize();
                 return config;
             }
             catch
@@ -49,6 +47,30 @@ namespace WebView2AppHost
                 // JSON の構文エラーなどはここでキャッチして null を返す
                 return null;
             }
+        }
+
+        /// <summary>
+        /// 読み込んだ値を安全な範囲に補正する。
+        /// </summary>
+        private void Sanitize()
+        {
+            // Title: null・空文字・制御文字をデフォルトに戻す
+            if (string.IsNullOrWhiteSpace(Title))
+            {
+                Title = "WebView2 App Host";
+            }
+            else
+            {
+                // 制御文字を除去してトリム（タイトルバーに表示する文字列として適切な形に整える）
+                Title = System.Text.RegularExpressions.Regex
+                    .Replace(Title, @"[\p{C}]", "")
+                    .Trim();
+                if (Title.Length == 0) Title = "WebView2 App Host";
+            }
+
+            // Width / Height: 範囲外はデフォルト値にクランプ
+            Width  = Math.Max(MinSize, Math.Min(Width,  MaxWidth));
+            Height = Math.Max(MinSize, Math.Min(Height, MaxHeight));
         }
     }
 }

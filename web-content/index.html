@@ -15,21 +15,21 @@
 <body>
   <div id="app">
     <h1>🎮 WebView2 App Host</h1>
-    <p class="subtitle">GameBridge API デモ</p>
+    <p class="subtitle">AppBridge API デモ</p>
 
     <!-- ウィンドウ操作 -->
     <section class="panel">
       <h2>ウィンドウ操作</h2>
       <p class="hint">
-        <code>GameBridge.toggleFullscreen()</code> でフルスクリーンを切り替えます。<br>
+        <code>AppBridge.requestFullscreen()</code> / <code>AppBridge.exitFullscreen()</code> でフルスクリーンを制御します。<br>
         F11 キーでも同じ動作をします。ESC でフルスクリーン解除。
       </p>
       <div class="row">
-        <button id="btn-fullscreen">⛶ フルスクリーン切替 (F11)</button>
-        <button id="btn-check-fs">フルスクリーン状態を確認</button>
+        <button id="btn-enter-fs">⛶ フルスクリーン (F11)</button>
+        <button id="btn-exit-fs">⊡ ウィンドウに戻る (ESC)</button>
         <button id="btn-exit">✕ 終了</button>
       </div>
-      <div id="fs-status" class="value-display">—</div>
+      <div id="fs-status" class="value-display">ウィンドウモード</div>
     </section>
 
     <!-- タイトル変更 -->
@@ -60,23 +60,6 @@
         <button id="btn-clear">消去</button>
       </div>
       <div id="save-status" class="value-display">—</div>
-    </section>
-
-    <!-- appClosing -->
-    <section class="panel">
-      <h2>appClosing（beforeunload 相当）</h2>
-      <p class="hint">
-        × ボタン・Alt+F4・<code>GameBridge.exitApp()</code> でウィンドウを閉じようとすると
-        <code>appClosing</code> イベントが発火します。<br>
-        リスナーを登録した場合は<strong>必ず</strong>
-        <code>confirmClose()</code> か <code>cancelClose()</code> を呼んでください。
-        どちらも呼ばないとウィンドウが閉じられなくなります。
-      </p>
-      <label class="checkbox-label">
-        <input type="checkbox" id="chk-confirm-close" />
-        閉じる前に確認ダイアログを表示する
-      </label>
-      <div id="closing-log" class="log"></div>
     </section>
 
     <!-- visibilitychange -->

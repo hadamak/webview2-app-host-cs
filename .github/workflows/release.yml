@@ -15,16 +15,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.x'
-
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
       - name: Restore NuGet packages
-        run: dotnet restore src\WebView2AppHost.csproj
+        run: msbuild src\WebView2AppHost.csproj /t:Restore
 
       - name: Build
         run: msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
@@ -37,47 +32,41 @@ jobs:
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
           $base = "src/bin/x64/Release/net472"
-          
-          # 1. 最小構成の実行ファイル群をコピー (bin フォルダ)
-          $binDir = "$outDir/bin"
-          New-Item -ItemType Directory -Force -Path $binDir | Out-Null
-          Copy-Item "$base/WebView2AppHost.exe" $binDir
-          Copy-Item "$base/WebView2AppHost.exe.config" $binDir
-          Copy-Item "$base/Microsoft.Web.WebView2.Core.dll" $binDir
-          Copy-Item "$base/Microsoft.Web.WebView2.WinForms.dll" $binDir
-          Copy-Item "$base/WebView2Loader.dll" $binDir
 
-          # 2. コンテンツを ZIP 化 (pack_zip.py)
-          python scripts/pack_zip.py web-content "$outDir/app.zip"
+          # 実行ファイル・DLL 類をルートに展開
+          Copy-Item "$base/WebView2AppHost.exe" $outDir
+          Copy-Item "$base/WebView2AppHost.exe.config" $outDir
+          Copy-Item "$base/Microsoft.Web.WebView2.Core.dll" $outDir
+          Copy-Item "$base/Microsoft.Web.WebView2.WinForms.dll" $outDir
+          Copy-Item "$base/WebView2Loader.dll" $outDir
 
-          # 3. EXE と ZIP を連結した単一配布用 EXE を作成 (bundle.py)
-          python scripts/bundle.py "$base/WebView2AppHost.exe" "$outDir/app.zip" "$outDir/WebView2AppHost_bundled.exe"
+          # デモコンテンツ (www/ として同梱)
+          Copy-Item "web-content" "$outDir/www" -Recurse
 
-          # 4. ドキュメント・ライセンス類・スクリプト
+          # スクリプト
+          $scriptsDir = "$outDir/scripts"
+          New-Item -ItemType Directory -Force -Path $scriptsDir | Out-Null
+          Copy-Item "scripts/bundle.py" $scriptsDir
+
+          # ドキュメント・ライセンス類
           Copy-Item "README.md" $outDir
           Copy-Item "LICENSE" $outDir
           Copy-Item "THIRD_PARTY_NOTICES.md" $outDir
-          Copy-Item "scripts" $outDir -Recurse
+
+          # ZIP パッケージ化
+          $zipPath = "dist/WebView2AppHost-$version-win-x64.zip"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($outDir, $zipPath)
 
           # ハッシュ生成
-          Get-ChildItem -Path $outDir -Include *.exe, *.zip -Recurse | ForEach-Object {
-              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
-              "$hash  $($_.Name)" | Out-File "$($_.FullName).sha256" -Encoding ascii
-          }
-
-          # 最終的な ZIP パッケージ
-          Compress-Archive -Path "$outDir/*" -DestinationPath "$outDir.zip" -Force
-
-          $hash = (Get-FileHash "$outDir.zip" -Algorithm SHA256).Hash.ToLower()
-          "$hash  $(Split-Path -Leaf "$outDir.zip")" | Out-File "$outDir.zip.sha256" -Encoding ascii
+          $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
+          "$hash  $(Split-Path -Leaf $zipPath)" | Out-File "$zipPath.sha256" -Encoding ascii
 
       - name: Upload release bundle artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-bundle-${{ github.ref_name || github.sha }}
           path: |
-            dist/**/*.exe
-            dist/**/*.exe.sha256
             dist/*.zip
             dist/*.sha256
 
@@ -87,7 +76,5 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            dist/**/*.exe
-            dist/**/*.exe.sha256
             dist/*.zip
             dist/*.sha256

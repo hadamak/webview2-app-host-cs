@@ -18,7 +18,7 @@
 
   <!-- web-content/ を app.zip に固めて埋め込みリソースにする -->
   <Target Name="PackAppZip" BeforeTargets="BeforeBuild">
-    <Exec Command="python &quot;$(MSBuildProjectDirectory)\..\scripts\pack_zip.py&quot; &quot;$(MSBuildProjectDirectory)\..\web-content&quot; &quot;$(MSBuildProjectDirectory)\app.zip&quot;" />
+    <Exec Command="python &quot;$(MSBuildProjectDirectory)\..\scripts\make_zip.py&quot; &quot;$(MSBuildProjectDirectory)\..\web-content&quot; &quot;$(MSBuildProjectDirectory)\app.zip&quot;" />
   </Target>
 
   <ItemGroup>

@@ -1,6 +1,8 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Json;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -13,10 +15,6 @@ namespace WebView2AppHost
         private readonly WebView2         _webView  = new WebView2();
         private readonly ZipContentProvider _zip;
         private readonly AppConfig        _config;
-
-        // 閉じる確認フラグ
-        private bool _closePending   = false;
-        private bool _closeConfirmed = false;
 
         // visibilitychange 用
         private bool _isMinimized = false;
@@ -90,10 +88,15 @@ namespace WebView2AppHost
             var wv = _webView.CoreWebView2;
 
             // WebView2 設定
-            wv.Settings.IsStatusBarEnabled            = false;
             wv.Settings.AreDefaultContextMenusEnabled = false;
             wv.Settings.IsZoomControlEnabled          = false;
-            wv.Settings.AreDevToolsEnabled            = false;
+#if DEBUG
+            wv.Settings.IsStatusBarEnabled  = true;
+            wv.Settings.AreDevToolsEnabled  = true;
+#else
+            wv.Settings.IsStatusBarEnabled  = false;
+            wv.Settings.AreDevToolsEnabled  = false;
+#endif
 
             // カスタムスキームの登録（https://app.local/*）
             RegisterCustomScheme();
@@ -119,7 +122,7 @@ namespace WebView2AppHost
 
             // 起動時フルスクリーン
             if (_config.Fullscreen)
-                EnterFullscreen();
+                RequestFullscreen();
         }
 
         // ---------------------------------------------------------------------------
@@ -161,7 +164,18 @@ namespace WebView2AppHost
 
                 if (!string.IsNullOrEmpty(rangeHeader) && stream.CanSeek)
                 {
-                    var (start, end) = ParseRange(rangeHeader!, total);
+                    var range = ParseRange(rangeHeader!, total);
+                    if (range == null)
+                    {
+                        stream.Dispose();
+                        e.Response = _webView.CoreWebView2.Environment
+                            .CreateWebResourceResponse(null, 416, "Range Not Satisfiable",
+                                $"Content-Range: bytes */{total}\r\n" +
+                                "Access-Control-Allow-Origin: *");
+                        return;
+                    }
+
+                    var (start, end) = range.Value;
                     var length = end - start + 1;
 
                     stream.Seek(start, SeekOrigin.Begin);
@@ -199,25 +213,37 @@ namespace WebView2AppHost
             }
         }
 
-        private static (long start, long end) ParseRange(string header, long total)
+        /// <summary>
+        /// Range ヘッダを解析して (start, end) を返す。
+        /// フォーマット不正・逆転レンジは null（416 を返すべきケース）。
+        /// end が total を超える場合は total-1 にクランプする（動画シーク互換）。
+        /// </summary>
+        private static (long start, long end)? ParseRange(string header, long total)
         {
-            // "bytes=start-end" or "bytes=start-"
             var m = Regex.Match(header, @"bytes=(\d*)-(\d*)");
-            if (!m.Success) return (0, total - 1);
+            if (!m.Success) return null;
 
             var startStr = m.Groups[1].Value;
             var endStr   = m.Groups[2].Value;
 
-            long start = string.IsNullOrEmpty(startStr) ? 0            : long.Parse(startStr);
-            long end   = string.IsNullOrEmpty(endStr)   ? total - 1    : long.Parse(endStr);
+            long start, end;
 
-            // suffix range: "bytes=-500" → 末尾500バイト
             if (string.IsNullOrEmpty(startStr))
             {
-                start = total - long.Parse(endStr);
+                // suffix range: "bytes=-500" → 末尾 500 バイト
+                if (!long.TryParse(endStr, out var suffix) || suffix <= 0) return null;
+                start = total - suffix;
                 end   = total - 1;
             }
+            else
+            {
+                start = long.Parse(startStr);
+                end   = string.IsNullOrEmpty(endStr) ? total - 1 : long.Parse(endStr);
+            }
 
+            if (start > end) return null;
+
+            // end のクランプは維持（ブラウザが total を超えた end を送ることがある）
             return (Math.Max(0, start), Math.Min(end, total - 1));
         }
 
@@ -228,49 +254,16 @@ namespace WebView2AppHost
         private void SetupHostObjectBridge()
         {
             const string script = @"
-        window.GameBridge = {
+        window.AppBridge = {
             exitApp: function() {
                 window.chrome.webview.postMessage(JSON.stringify({ cmd: 'exit' }));
             },
-            toggleFullscreen: function() {
-                window.chrome.webview.postMessage(JSON.stringify({ cmd: 'toggleFullscreen' }));
+            requestFullscreen: function() {
+                window.chrome.webview.postMessage(JSON.stringify({ cmd: 'requestFullscreen' }));
             },
-            isFullscreen: function() {
-                return new Promise((resolve) => {
-                    const id = 'isfs_' + Date.now();
-                    const handler = (e) => {
-                        try {
-                            const d = JSON.parse(e.data);
-                            if (d.id === id) {
-                                window.chrome.webview.removeEventListener('message', handler);
-                                resolve(d.value);
-                            }
-                        } catch {}
-                    };
-                    window.chrome.webview.addEventListener('message', handler);
-                    window.chrome.webview.postMessage(JSON.stringify({ cmd: 'isFullscreen', id }));
-                });
-            },
-            confirmClose: function() {
-                window.chrome.webview.postMessage(JSON.stringify({ cmd: 'confirmClose' }));
-            },
-            cancelClose: function() {
-                window.chrome.webview.postMessage(JSON.stringify({ cmd: 'cancelClose' }));
+            exitFullscreen: function() {
+                window.chrome.webview.postMessage(JSON.stringify({ cmd: 'exitFullscreen' }));
             }
-        };
-
-        // appClosing リスナーの登録数を追跡する
-        window._appClosingListenerCount = 0;
-        const _origAddEL    = window.addEventListener.bind(window);
-        const _origRemoveEL = window.removeEventListener.bind(window);
-        window.addEventListener = function(type, fn, opts) {
-            if (type === 'appClosing') window._appClosingListenerCount++;
-            return _origAddEL(type, fn, opts);
-        };
-        window.removeEventListener = function(type, fn, opts) {
-            if (type === 'appClosing')
-                window._appClosingListenerCount = Math.max(0, window._appClosingListenerCount - 1);
-            return _origRemoveEL(type, fn, opts);
         };
 
         // C# からのイベント受信
@@ -278,12 +271,12 @@ namespace WebView2AppHost
             let data;
             try { data = JSON.parse(e.data); } catch { return; }
 
-            if (data.event === 'appClosing') {
-                if (window._appClosingListenerCount > 0) {
-                    window.dispatchEvent(new Event('appClosing'));
-                } else {
-                    GameBridge.confirmClose();
-                }
+            if (data.event === 'fullscreenChange') {
+                const el = data.value ? document.documentElement : null;
+                Object.defineProperty(document, 'fullscreenElement', {
+                    value: el, writable: true, configurable: true
+                });
+                document.dispatchEvent(new Event('fullscreenchange'));
                 return;
             }
 
@@ -298,7 +291,7 @@ namespace WebView2AppHost
             }
         });
 
-        console.log('[GameBridge] ready');
+        console.log('[AppBridge] ready');
             ";
 
             _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
@@ -310,54 +303,50 @@ namespace WebView2AppHost
             try { msg = e.TryGetWebMessageAsString(); }
             catch { return; }
 
-            // cmd を取り出す
-            var cmdMatch = Regex.Match(msg, @"""cmd""\s*:\s*""([^""]+)""");
-            if (!cmdMatch.Success) return;
-            var cmd = cmdMatch.Groups[1].Value;
+            WebMessage? data;
+            try
+            {
+                var serializer = new DataContractJsonSerializer(typeof(WebMessage));
+                using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(msg));
+                data = (WebMessage?)serializer.ReadObject(stream);
+            }
+            catch { return; }
 
-            switch (cmd)
+            if (data?.Cmd == null) return;
+
+            switch (data.Cmd)
             {
                 case "exit":
-                    // × ボタンと同じ appClosing フローを経由して閉じる
                     Close();
                     break;
 
-                case "toggleFullscreen":
-                    ToggleFullscreen();
+                case "requestFullscreen":
+                    RequestFullscreen();
                     break;
 
-                case "isFullscreen":
-                    var idMatch = Regex.Match(msg, @"""id""\s*:\s*""([^""]+)""");
-                    if (!idMatch.Success) break;
-                    {
-                        var id  = idMatch.Groups[1].Value;
-                        var val = _isFullscreen ? "true" : "false";
-                        _webView.CoreWebView2.PostWebMessageAsString(
-                            $"{{\"id\":\"{id}\",\"value\":{val}}}");
-                    }
+                case "exitFullscreen":
+                    ExitFullscreen();
                     break;
 
-                case "confirmClose":
-                    _closeConfirmed = true;
-                    Close();
-                    break;
-
-                case "cancelClose":
-                    _closePending = false;
+                default:
+                    System.Diagnostics.Debug.WriteLine($"[AppBridge] unknown cmd: {data.Cmd}");
                     break;
             }
+        }
+
+        /// <summary>JS → C# メッセージの DTO。</summary>
+        [DataContract]
+        private sealed class WebMessage
+        {
+            [DataMember(Name = "cmd")]
+            public string? Cmd { get; private set; }
         }
 
         // ---------------------------------------------------------------------------
         // フルスクリーン
         // ---------------------------------------------------------------------------
 
-        private void ToggleFullscreen()
-        {
-            if (_isFullscreen) ExitFullscreen(); else EnterFullscreen();
-        }
-
-        private void EnterFullscreen()
+        private void RequestFullscreen()
         {
             if (_isFullscreen) return;
             _prevBorderStyle = FormBorderStyle;
@@ -365,6 +354,7 @@ namespace WebView2AppHost
             FormBorderStyle  = FormBorderStyle.None;
             WindowState      = FormWindowState.Maximized;
             _isFullscreen    = true;
+            NotifyFullscreenChange();
         }
 
         private void ExitFullscreen()
@@ -373,6 +363,15 @@ namespace WebView2AppHost
             FormBorderStyle = _prevBorderStyle;
             WindowState     = _prevWindowState;
             _isFullscreen   = false;
+            NotifyFullscreenChange();
+        }
+
+        private void NotifyFullscreenChange()
+        {
+            if (_webView.CoreWebView2 == null) return;
+            var state = _isFullscreen ? "true" : "false";
+            _webView.CoreWebView2.PostWebMessageAsString(
+                $"{{\"event\":\"fullscreenChange\",\"value\":{state}}}");
         }
 
         // ---------------------------------------------------------------------------
@@ -436,24 +435,7 @@ namespace WebView2AppHost
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            // confirmClose 済み、または WebView2 未初期化なら素直に閉じる
-            if (_closeConfirmed || _webView.CoreWebView2 == null)
-            {
-                base.OnFormClosing(e);
-                return;
-            }
-
-            // 既に appClosing を送信して応答待ちの場合は閉じない
-            if (_closePending)
-            {
-                e.Cancel = true;
-                return;
-            }
-
-            // JS に appClosing を通知して閉じるのを一旦キャンセル
-            e.Cancel      = true;
-            _closePending = true;
-            _webView.CoreWebView2.PostWebMessageAsString("{\"event\":\"appClosing\"}");
+            base.OnFormClosing(e);
         }
 
         protected override void OnResize(EventArgs e)
@@ -492,7 +474,7 @@ namespace WebView2AppHost
         {
             if (keyData == Keys.F11)
             {
-                ToggleFullscreen();
+                if (_isFullscreen) ExitFullscreen(); else RequestFullscreen();
                 return true;
             }
             if (keyData == Keys.Escape && _isFullscreen)
@@ -608,16 +590,5 @@ namespace WebView2AppHost
             if (disposing && _ownsInner) _inner.Dispose();
             base.Dispose(disposing);
         }
-    }
-
-    // ---------------------------------------------------------------------------
-    // NativeMethods
-    // ---------------------------------------------------------------------------
-
-    internal static class NativeMethods
-    {
-        [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-        public static extern bool DestroyIcon(IntPtr hIcon);
     }
 }
