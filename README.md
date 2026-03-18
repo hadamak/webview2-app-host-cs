@@ -1,219 +1,342 @@
 # WebView2 App Host
 
-<img alt="screenshot" width="50%" src="images/screenshot.png" />
+WebView2 を使って、HTML / CSS / JavaScript で作った Web アプリを Windows デスクトップアプリとして配布するための軽量ホストです。
 
-Windows 向け Web アプリホスト。HTML / CSS / JS で作られた Web アプリを Windows デスクトップアプリとして配布するための軽量テンプレートです。
+- `https://app.local/` で完全ローカル配信
+- `window.close()`、`requestFullscreen()` などの標準 Web API と自然に連携
+- Web コンテンツは `www/`、ZIP、EXE 連結、埋め込みリソースのいずれでも扱える
+- 配布物の作成方法が複数あり、いずれの方法でも小ささと速さを維持しつつ、用途に応じて運用を柔軟に構成できる
+
+![screenshot](images/screenshot.png)
 
 ---
 
 ## 目次
 
-- [**1. 概要と特徴**](#1-概要と特徴)
-- [**2. セットアップとビルド**](#2-セットアップとビルド)
-  - [必要な環境](#必要な環境)
-  - [ローカルビルド手順](#ローカルビルド)
-  - [Web コンテンツの差し替え](#web-コンテンツの差し替え)
-- [**3. コンテンツの配信と配布**](#3-コンテンツの配信と配布)
-  - [コンテンツの読み込み順序](#コンテンツの読み込み順序)
-  - [配布・構成の柔軟な選択](#配布構成の柔軟な選択)
-  - [ダウンロードパッケージの内容](#ダウンロードパッケージの内容)
-  - [エンドユーザーへの頒布に必要なファイル](#エンドユーザーへの頒布に必要なファイル)
-- [**4. 開発リファレンス**](#4-開発リファレンス)
-  - [ウィンドウ設定 (app.conf.json)](#ウィンドウ設定-appconfjson)
-  - [標準 Web API への対応](#標準-web-api-への対応)
-  - [JavaScript API (window.AppBridge)](#javascript-api-windowappbridge)
-  - [現在の制限事項](#現在の制限事項)
-- [**5. その他**](#5-その他)
-  - [キーボードショートカット](#キーボードショートカット)
-  - [よくある質問](#よくある質問)
-  - [ライセンス](#ライセンス)
+1. [概要](#概要)
+2. [主な特徴](#主な特徴)
+3. [比較](#比較)
+4. [必要な環境](#必要な環境)
+5. [クイックスタート](#クイックスタート)
+6. [Web コンテンツの差し替え](#web-コンテンツの差し替え)
+7. [配布方法](#配布方法)
+8. [設定](#設定)
+9. [Web API との連携](#web-api-との連携)
+10. [制限事項](#制限事項)
+11. [ショートカットキー](#ショートカットキー)
+12. [FAQ](#faq)
+13. [プロジェクト構成](#プロジェクト構成)
+14. [開発メモ](#開発メモ)
+15. [ライセンス](#ライセンス)
 
 ---
 
-## 1. 概要と特徴
+## 概要
 
-WebView2（Chromium ベース）を利用し、ES Modules・WebAssembly・Web Audio API などの最新 Web 技術をネイティブアプリ環境で提供します。
+このリポジトリは、WebView2 をベースにした Windows 向けの Web アプリホストです。既存の Web アプリ資産をほぼそのまま使い、デスクトップ向け EXE として配布することを目的にしています。
 
-| カテゴリ | 特徴 |
-|:---:|---|
-| **配信** | 仮想ホスト `https://app.local/` による完全ローカル配信、Range Request (シーク) 対応 |
-| **パッキング** | 同封、連結、埋め込みリソースなど、柔軟な配布形態を選択可能 |
-| **ネイティブ連携** | JS からの終了・フルスクリーン制御、タイトル・favicon の自動追従 |
-| **軽量・高速** | 外部 DLL 依存なし（WebView2 除く）、頒布最小構成 約 850KB |
+想定している用途は次のとおりです。
+
+- 既存の Web アプリを Windows デスクトップ向けに包みたい
+- インストール不要に近い形で配布したい
+- Web アプリとネイティブ機能の橋渡しを最小限で実装したい
+- 単一ファイル、同梱 ZIP、外部 `www/` など複数の配布形態を使い分けたい
 
 ---
 
-## 2. セットアップとビルド
+## 主な特徴
 
-### 必要な環境
+### 1. 配布物が小さい
+本ホストの主な狙いは、Web アプリのローカルアプリ化に伴う配布サイズを抑えることです。Electron のように Chromium と Node.js をアプリに同梱する方式と比べると、配布物を小さく保ちやすい構成です。
 
-**開発環境**
+### 2. 配布方法を複数選べる
+Web コンテンツは、用途に応じて次の形で扱えます。
+
+- `www/` フォルダを EXE 隣接で配置
+- EXE と同名の ZIP ファイルを同じ場所に置く
+- `bundle.py` で EXE の末尾に ZIP を連結する
+- ビルド時にリソースとして EXE に埋め込む
+
+### 3. 標準 Web API との親和性
+次のような Web 標準 API が、ホスト側の追加実装に依存せずに自然に使えます。
+
+- `window.close()` によるアプリ終了
+- `element.requestFullscreen()` / `document.exitFullscreen()` によるフルスクリーン制御
+- `beforeunload` による終了確認
+- `target="_blank"` や `window.open()` による外部リンク起動
+
+### 4. 生成コストを抑えやすい
+本ホストは、通常の .NET ビルドに加えて、既存の実行ファイルへ ZIP を連結する方法や、ZIP / ローカルファイルをそのまま参照する方法を持っています。用途によっては、配布物の再生成にほぼ時間をかけずに運用できます。
+
+---
+
+## 比較
+
+以下は、同一環境で各ターゲットのデフォルトコンテンツを用いて測定した実測値です。
+
+| 対象 | ビルド時間 | サイズ | 備考 |
+|---|---:|---:|---|
+| Electron | 12,909 ms | 343.56 MB | zip 化後 132 MB |
+| Tauri（初回ビルド） | 391,344 ms | 1.80 MB | installer サイズ |
+| Tauri（再実行ビルド） | 126,863 ms | 1.80 MB | installer サイズ |
+| Neutralino.js | 1,399 ms | 2.53 MB | zip 化後 920 KB |
+| WebView2Host ビルド | 5,197 ms | 852 KB | zip 化後 245 KB |
+| WebView2Host zip 連結 | 143 ms | 856 KB | zip 化後 245 KB |
+| WebView2Host zip 同封 | 0 ms | 856 KB | zip 化後 249 KB |
+| WebView2Host 個別配置 | 0 ms | 872 KB | zip 化後 253 KB |
+
+> 本ホストの特徴は、単に配布物を小さくできることだけではなく、配布物を作るための手順を「通常ビルド」「再パッケージ」「ゼロ生成」として、単独でも組み合わせても使える点にあります。
+
+## 必要な環境
+
+### 開発環境
 - Windows 10 以降
 - Visual Studio 2022（.NET デスクトップ開発ワークロード）
 - Python 3.8 以上
 
-**実行環境**
+### 実行環境
 - Windows 10 以降
-- .NET Framework 4.7.2（標準搭載）
-- WebView2 ランタイム（標準搭載、または要インストール）
-
-### ローカルビルド
-
-1. **リポジトリのクローン**
-   ```powershell
-   git clone https://github.com/hadamak/webview2-app-host-cs.git
-   cd webview2-app-host-cs
-   ```
-2. **ビルド**（NuGet パッケージの取得とコンパイルを一括実行）
-   ```powershell
-   msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64
-   ```
-
-### Web コンテンツの差し替え
-
-`web-content/` の中身を自分のアプリファイルに入れ替えて再ビルドするだけです。
-- `index.html` がエントリポイントです（必須）。
-- ビルド時に `web-content/` 以下がすべて `app.zip` として固められ、EXE に埋め込まれます。
+- .NET Framework 4.7.2
+- WebView2 ランタイム
 
 ---
 
-## 3. コンテンツの配信と配布
+## クイックスタート
 
-### コンテンツの読み込み順序
+### 1. リポジトリを取得
 
-アプリ起動時、以下の優先順位でコンテンツを検索します。同名ファイルが存在する場合、上位のソースが優先されます。
+```bash
+git clone https://github.com/hadamak/webview2-app-host-cs.git
+cd webview2-app-host-cs
+```
 
-| 優先度 | 名称 | 配置・指定方法 | 主な用途 |
-|:---:|---|---|---|
-| **1** | **個別配置** | `www/` フォルダ（EXE 隣接） | 開発中の即時反映、大容量アセットの外部化 |
-| **2** | **外部指定** | 起動引数で ZIP パスを渡す | テスト・デバッグ、複数コンテンツの切り替え |
-| **3** | **同封** | `{EXE名}.zip`（EXE 隣接） | コンテンツのみのアップデート配布 |
-| **4** | **連結** | `bundle.py` で EXE 末尾に結合 | 簡易な単一ファイル化 |
-| **5** | **埋め込み** | リソースとして EXE 内部に内蔵 | 最小構成、改ざん防止 |
+### 2. ビルド
 
-### 配布・構成の柔軟な選択
+```bat
+msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64
+```
 
-本ホストアプリは、以下の 4 つのソースからコンテンツを自動的に探索します（上ほど優先順位が高い）。これらは**ファイル単位でフォールバックされる**ため、複数の形態を自由に組み合わせて利用可能です。
+### 3. 起動
 
-#### 1. 個別配置 (www/ フォルダ)
-EXE と同じ場所に `www/` フォルダを作成してファイルを配置します。
-- **用途**: 開発中の即時反映、頻繁に更新するアセット、大容量の動画・音声ファイル（Range Request 対応が必要な場合）など。
+ビルド後に生成された EXE を実行します。初回はサンプルコンテンツが読み込まれます。
 
-#### 2. 同封 (ZIP ファイル)
-EXE と同じ名前にした ZIP ファイル（例: `MyApp.exe` に対して `MyApp.zip`）を配置します。
-- **用途**: コンテンツのみのアップデート配布、プラグインや MOD のような拡張。
+---
 
-#### 3. 連結 (EXE 結合 ZIP)
-`bundle.py` を使い、ZIP を EXE 本体の末尾に物理的に結合します。
-- **用途**: ビルド不要で利用できるexe + zip一体化。
-```powershell
+## Web コンテンツの差し替え
+
+このホストは `web-content/` をアプリ本体のコンテンツ領域として扱います。中身を自分の Web アプリに置き換えて再ビルドするだけで利用できます。
+
+### 基本ルール
+- `index.html` はエントリポイントです
+- `web-content/` 以下のファイルはビルド時に `app.zip` としてまとめられます
+- 生成されたコンテンツは EXE に埋め込まれます
+
+### 最小構成の例
+
+```text
+web-content/
+├── index.html
+├── app.conf.json
+├── assets/
+│   └── ...
+└── scripts/
+    └── ...
+```
+
+### 置き換えの手順
+1. `web-content/` の中身を自分のアプリファイルに差し替える
+2. 必要に応じて `app.conf.json` を編集する
+3. 再ビルドする
+4. 生成物を起動して確認する
+
+---
+
+## 配布方法
+
+このプロジェクトは、用途に応じてファイルごとに複数の配置方式を使い分けられます。
+
+### コンテンツの読み込み優先順
+同名ファイルが複数の場所に存在する場合は、上位のソースが優先されます。
+
+1. `www/` フォルダ（EXE 隣接）
+2. 起動引数で渡された ZIP パス
+3. EXE と同名の ZIP（例: `MyApp.exe` に対して `MyApp.zip`）
+4. `bundle.py` で EXE に連結した ZIP
+5. EXE 内部に埋め込まれたリソース
+
+### 1. `www/` フォルダ
+EXE と同じ場所に `www/` フォルダを置き、そこにコンテンツを配置します。
+
+向いている用途:
+- 開発中の即時反映
+- 頻繁に更新するアセット
+- 動画・音声など、Range Request が必要な大きなファイル
+
+### 2. ZIP 同梱
+EXE と同じ名前の ZIP を用意し、隣に置きます。
+
+向いている用途:
+- コンテンツだけを差し替える配布
+- プラグインや MOD 的な拡張
+
+### 3. EXE 連結
+`bundle.py` を使って、ZIP を EXE の末尾に物理結合します。
+
+向いている用途:
+- 単一ファイルに近い形で配布したい
+- ビルド後の配布物を簡素化したい
+
+```bash
 python scripts\bundle.py bin\WebView2AppHost.exe app.zip dist\MyApp.exe
 ```
 
-#### 4. 埋め込み (内蔵リソース)
-ビルド時に `web-content/` の内容をリソースとして EXE 内部にパッキングします。
-- **用途**: 最小構成での配布、コアとなるシステムファイルの保護。
+### 4. 埋め込みリソース
+ビルド時に `web-content/` を EXE 内部へ埋め込みます。
+
+向いている用途:
+- 最小構成で配布したい
+- コアとなるファイルを外出ししたくない
 
 ---
 
-### ダウンロードパッケージの内容
+## 設定
 
-自動リリース（GitHub Actions）で生成される `WebView2AppHost-v*-win-x64.zip` の内部構成は以下の通りです。
+### `app.conf.json`
 
-| ファイル / フォルダ | 内容 |
-|:---|:---|
-| **`WebView2AppHost.exe`** | ホスト本体 |
-| **`*.dll` / `*.exe.config`** | 実行に必要な WebView2 SDK ファイル群 |
-| **`www/`** | デモコンテンツ。利用例として参照できます。起動時に自動的に読み込まれます。 |
-| **`scripts/bundle.py`** | EXE 末尾に ZIP を結合して単一ファイル化するスクリプトです。 |
-| **`LICENSE`** / **`THIRD_PARTY_NOTICES.md`** | 本アプリおよびサードパーティのライセンス通知です。 |
-
-**自分のコンテンツで動かすには:**
-1. ZIP を展開して任意の場所に置く。
-2. `WebView2AppHost.exe` と同じ場所に `www/` フォルダを作成し、自分のコンテンツを配置する（同梱の `www/` は上書きまたは削除）。
-3. `WebView2AppHost.exe` を実行する。
-
-### エンドユーザーへの頒布に必要なファイル
-
-ホストアプリケーションにコンテンツを組み込んでエンドユーザーに配布する場合、以下のファイルが必要です。
-
-| ファイル | 内容 |
-|:---|:---|
-| **`WebView2AppHost.exe`**（任意の名称にリネーム可） | ホスト本体 |
-| **コンテンツ**（埋め込み・同封・連結のいずれか） | 自作の Web アプリ |
-| **`Microsoft.Web.WebView2.Core.dll`** | WebView2 SDK（必須） |
-| **`Microsoft.Web.WebView2.WinForms.dll`** | WebView2 SDK（必須） |
-| **`WebView2Loader.dll`** | WebView2 SDK（必須） |
-| **`WebView2AppHost.exe.config`** | 実行構成ファイル（必須） |
-| **`LICENSE`** / **`THIRD_PARTY_NOTICES.md`** | ライセンス通知（同梱義務あり） |
-
-> [!NOTE]
-> DLL 類は EXE と同じ場所に置いてください。
-
----
-
-## 4. 開発リファレンス
-
-### ウィンドウ設定 (app.conf.json)
-
-`web-content/app.conf.json`（または各 ZIP/フォルダのルート）で設定します。
+`web-content/app.conf.json`、または各 ZIP / フォルダのルートに配置して設定します。
 
 | キー | 型 | デフォルト | 説明 |
-|---|---|---|---|
-| `title` | string | `"WebView2 App Host"` | 起動時のタイトル |
+|---|---:|---:|---|
+| `title` | string | `"WebView2 App Host"` | 起動時のウィンドウタイトル |
 | `width` | int | `1280` | 初期幅（ピクセル） |
 | `height` | int | `720` | 初期高さ（ピクセル） |
-| `fullscreen` | bool | `false` | フルスクリーン起動 |
+| `fullscreen` | bool | `false` | フルスクリーン起動するかどうか |
 
-### 標準 Web API への対応
-本ホストアプリは WebView2 の機能を活用し、Web 標準のライフサイクルに準拠しています。以下の標準 API が特別な設定なしにそのまま利用可能です。
+### 例
 
-- **アプリ終了**: `window.close()`
-  - JavaScript から呼び出すことでアプリを終了します。
-- **フルスクリーン**: `element.requestFullscreen()` / `document.exitFullscreen()`
-  - 呼び出しに合わせてホスト側のウィンドウ状態（ボーダレス・最大化）が自動的に連動します。
-- **終了確認**: `beforeunload` イベント
-  - 保存確認ダイアログなどをブラウザ標準の作法で実装できます。
-- **外部リンク**: `target="_blank"` / `window.open()`
-  - `app.local` 以外の `http(s)` リンクは、自動的に OS 既定のブラウザで開かれます。
-- **ライフサイクル**: `visibilitychange` / `fullscreenchange`
-  - ウィンドウの最小化やフルスクリーン状態の変化を検知できます。
-
-### JavaScript API (`window.AppBridge`)
-Web 標準でカバーできないネイティブ固有の機能を最小限提供します。
-
-- 現在、提供されている API はありません（すべての制御が標準 Web API へ移行されました）。
-
-### 現在の制限事項
-
-- **通知 (Notification API)**: UI 実装がないため、デフォルトでは表示されません。
-- **カスタムスキーム**: `https://app.local/` で動作するため、一部の Service Worker 等で追加設定が必要になる場合があります。
-- **Range Request (シーク)**: ZIP に格納されたファイルは Range Request に対応しません。動画・音声・wasm など Range Request が必要なファイルは `www/` フォルダへの個別配置を使用してください。
+```json
+{
+  "title": "My App",
+  "width": 1440,
+  "height": 900,
+  "fullscreen": false
+}
+```
 
 ---
 
-## 5. その他
+## Web API との連携
 
-### キーボードショートカット
+このホストは、Web 標準 API を中心に操作できるように設計されています。
+
+### アプリ終了
+```js
+window.close();
+```
+`window.close()` でアプリを終了できます。
+
+### フルスクリーン
+```js
+element.requestFullscreen();
+document.exitFullscreen();
+```
+呼び出しに応じて、ホスト側のウィンドウ状態も連動します。
+
+### 終了確認
+```js
+window.addEventListener('beforeunload', (event) => {
+  event.preventDefault();
+  event.returnValue = '';
+});
+```
+保存確認などを、ブラウザ標準の作法で実装できます。
+
+### 外部リンク
+`target="_blank"` や `window.open()` で開かれた `http(s)` リンクは、OS の既定ブラウザで開かれます。
+
+### ライフサイクル
+- `visibilitychange`
+- `fullscreenchange`
+
+ウィンドウの最小化やフルスクリーン状態の変化を検知できます。
+
+### `window.AppBridge`
+現在は提供していません。ホスト固有 API を増やさず、標準 Web API を中心に使う方針です。
+
+---
+
+## 制限事項
+
+- Notification API は UI 実装がないため、デフォルトでは表示されません
+- `https://app.local/` ベースのため、一部の Service Worker などでは追加設定が必要になる場合があります
+- ZIP 内のファイルは Range Request に対応しません
+- 動画・音声・WASM など、Range Request が必要なファイルは `www/` フォルダに個別配置してください
+
+---
+
+## ショートカットキー
 
 | キー | 動作 |
-|------|------|
-| F11 | フルスクリーン切替 |
-| ESC | フルスクリーン解除 |
+|---|---|
+| `F11` | フルスクリーン切り替え |
+| `ESC` | フルスクリーン解除 |
 
-### よくある質問
+---
 
-<details>
-<summary>Q. アイコンを変えるには？</summary>
-resources/app.ico を差し替えてリビルドしてください。
-</details>
+## FAQ
 
-<details>
-<summary>Q. 開発中に DevTools を開くには？</summary>
-Debug ビルドでは自動的に有効になります。Release ビルドで有効にしたい場合は App.cs の <code>#if DEBUG</code> ブロックを調整してください。
-</details>
+### アイコンを変更したい
+`resources/app.ico` を差し替えて再ビルドしてください。
 
-### ライセンス
+### DevTools を開きたい
+Debug ビルドでは自動的に有効です。Release ビルドで有効にしたい場合は、`src/App.cs` 内の `#if DEBUG` ブロックを調整してください。
 
-本アプリケーションは [MIT ライセンス](LICENSE) で配布されています。  
-サードパーティ製コンポーネントのライセンスは [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) を参照してください。
+### どのファイルを配布すればよいですか
+配布方式によって異なりますが、基本的には次が必要です。
+
+- `WebView2AppHost.exe`
+- コンテンツ（埋め込み / 同封 / 連結 / `www/` のいずれか）
+- `Microsoft.Web.WebView2.Core.dll`
+- `Microsoft.Web.WebView2.WinForms.dll`
+- `WebView2Loader.dll`
+- `WebView2AppHost.exe.config`
+- `LICENSE`
+- `THIRD_PARTY_NOTICES.md`
+
+### `www/` と ZIP のどちらを使うべきですか
+開発中は `www/`、配布時は ZIP か埋め込みが扱いやすいです。大きなメディアを扱う場合は `www/` が適しています。
+
+---
+
+## プロジェクト構成
+
+```text
+.
+├── .github/
+│   └── workflows/
+├── docs/
+├── images/
+├── resources/
+├── scripts/
+├── src/
+├── web-content/
+├── LICENSE
+├── README.md
+└── THIRD_PARTY_NOTICES.md
+```
+
+---
+
+## 開発メモ
+
+- メイン実装は `src/` 配下にあります
+- 配布用の補助スクリプトは `scripts/` にあります
+- サンプルの Web コンテンツは `web-content/` にあります
+- GitHub Actions によるビルド / リリースの自動化が含まれています
+
+---
+
+## ライセンス
+
+本リポジトリは MIT ライセンスで配布されています。サードパーティ製コンポーネントのライセンスは `THIRD_PARTY_NOTICES.md` を参照してください。
+
