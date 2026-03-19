@@ -22,9 +22,6 @@ namespace WebView2AppHost
     /// </summary>
     internal sealed class ZipContentProvider : IDisposable
     {
-        private const string WzgmMagic  = "WZGM";
-        private const int    TrailerSize = 12;
-
         // 有効なコンテンツソースのリスト（優先順位順）
         private readonly List<IContentSource> _sources = new List<IContentSource>();
 
