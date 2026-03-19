@@ -14,7 +14,7 @@ namespace WebView2AppHost
     ///   1. 個別配置: EXE 隣接の www/ フォルダ
     ///   2. 外部指定: コマンドライン引数でパスを渡す
     ///   3. 同封: EXE と同名の .zip ファイル
-    ///   4. 連結: EXE 末尾に結合された ZIP
+    ///   4. 連結: EXE 末尾に結合された ZIP（WZGM トレーラー）
     ///   5. 埋め込み: EXE に埋め込まれたリソース（app.zip）
     ///
     /// ファイル単位でフォールバックするため、優先順位の高いソースにファイルがない場合は
@@ -22,6 +22,9 @@ namespace WebView2AppHost
     /// </summary>
     internal sealed class ZipContentProvider : IDisposable
     {
+        private const string WzgmMagic  = "WZGM";
+        private const int    TrailerSize = 12;
+
         // 有効なコンテンツソースのリスト（優先順位順）
         private readonly List<IContentSource> _sources = new List<IContentSource>();
 
@@ -83,7 +86,21 @@ namespace WebView2AppHost
             var exePath = GetExePath();
             try
             {
-                var src = ZipSource.FromFile(exePath);
+                var fs = new FileStream(exePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                if (fs.Length < TrailerSize) { fs.Dispose(); return; }
+
+                fs.Seek(-TrailerSize, SeekOrigin.End);
+                var trailer = new byte[TrailerSize];
+                fs.Read(trailer, 0, TrailerSize);
+
+                if (System.Text.Encoding.ASCII.GetString(trailer, 8, 4) != WzgmMagic) { fs.Dispose(); return; }
+
+                var zipSize   = BitConverter.ToInt64(trailer, 0);
+                var zipOffset = fs.Length - TrailerSize - zipSize;
+                if (zipOffset < 0 || zipSize <= 0) { fs.Dispose(); return; }
+
+                var sub = new SubStream(fs, zipOffset, zipSize, ownsInner: true);
+                var src = ZipSource.FromStream(sub);
                 if (src != null) { _sources.Add(src); Console.WriteLine("[ZipContentProvider] Mounted Bundled Source"); }
             }
             catch { /* Ignore */ }
