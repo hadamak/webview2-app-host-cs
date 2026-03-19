@@ -58,7 +58,7 @@ jobs:
           "$hash  $(Split-Path -Leaf $zipPath)" | Out-File "$zipPath.sha256" -Encoding ascii
 
       - name: Upload release bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-bundle-${{ github.ref_name || github.sha }}
           path: |
