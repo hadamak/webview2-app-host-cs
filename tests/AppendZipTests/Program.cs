@@ -82,16 +82,16 @@ namespace AppendZipTests
 
         private static void AssertCanReadSingleEntry(string bundledPath, string entryName, string expectedContent)
         {
-            using var fs = new FileStream(bundledPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var zip = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: false);
+            using var provider = new WebView2AppHost.ZipContentProvider(bundledPath);
+            provider.Load();
 
-            var entry = zip.GetEntry(entryName);
-            if (entry == null)
+            var contentBytes = provider.TryGetBytes("/" + entryName);
+            if (contentBytes == null)
             {
                 throw new InvalidOperationException($"Expected entry '{entryName}' in '{bundledPath}'.");
             }
 
-            using var reader = new StreamReader(entry.Open(), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            using var reader = new StreamReader(new MemoryStream(contentBytes), Encoding.UTF8, true);
             var content = reader.ReadToEnd();
             if (!string.Equals(content, expectedContent, StringComparison.Ordinal))
             {
@@ -101,10 +101,10 @@ namespace AppendZipTests
 
         private static void AssertZipDoesNotContain(string bundledPath, string entryName)
         {
-            using var fs = new FileStream(bundledPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            using var zip = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: false);
+            using var provider = new WebView2AppHost.ZipContentProvider(bundledPath);
+            provider.Load();
 
-            if (zip.GetEntry(entryName) != null)
+            if (provider.TryGetBytes("/" + entryName) != null)
             {
                 throw new InvalidOperationException($"Did not expect entry '{entryName}' in '{bundledPath}'.");
             }
@@ -112,17 +112,12 @@ namespace AppendZipTests
 
         private static void AssertInvalidZip(string path)
         {
-            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-            try
+            using var provider = new WebView2AppHost.ZipContentProvider(path);
+            bool loaded = provider.Load();
+            if (loaded)
             {
-                using var _ = new ZipArchive(fs, ZipArchiveMode.Read, leaveOpen: false);
+                throw new InvalidOperationException($"Expected '{path}' to be rejected as a content source (Load should return false).");
             }
-            catch (InvalidDataException)
-            {
-                return;
-            }
-
-            throw new InvalidOperationException($"Expected '{path}' to be rejected as a ZIP archive.");
         }
     }
 }

@@ -54,7 +54,7 @@ Web コンテンツは、用途に応じて次の形で扱えます。
 
 - `www/` フォルダを EXE 隣接で配置
 - EXE と同名の ZIP ファイルを同じ場所に置く
-- `bundle.py` で EXE の末尾に ZIP を連結する
+- copy /b コマンド等で EXE の末尾に ZIP を連結する
 - ビルド時にリソースとして EXE に埋め込む
 
 ### 3. 標準 Web API との親和性
@@ -92,7 +92,6 @@ Web コンテンツは、用途に応じて次の形で扱えます。
 ### 開発環境
 - Windows 10 以降
 - Visual Studio 2022（.NET デスクトップ開発ワークロード）
-- Python 3.8 以上
 
 ### 実行環境
 - Windows 10 以降
@@ -161,7 +160,7 @@ web-content/
 1. `www/` フォルダ（EXE 隣接）
 2. 起動引数で渡された ZIP パス
 3. EXE と同名の ZIP（例: `MyApp.exe` に対して `MyApp.zip`）
-4. `bundle.py` で EXE に連結した ZIP
+4. EXE に連結した ZIP
 5. EXE 内部に埋め込まれたリソース
 
 ### 1. `www/` フォルダ
@@ -180,14 +179,14 @@ EXE と同じ名前の ZIP を用意し、隣に置きます。
 - プラグインや MOD 的な拡張
 
 ### 3. EXE 連結
-`bundle.py` を使って、ZIP を EXE の末尾に物理結合します。
+copy /b コマンド等を使って、ZIP を EXE の末尾に物理結合します。
 
 向いている用途:
 - 単一ファイルに近い形で配布したい
 - ビルド後の配布物を簡素化したい
 
-```bash
-python scripts\bundle.py bin\WebView2AppHost.exe app.zip dist\MyApp.exe
+```powershell
+cmd /c copy /b src\bin\x64\Release\net472\WebView2AppHost.exe + src\app.zip dist\MyApp.exe
 ```
 
 ### 4. 埋め込みリソース
@@ -305,6 +304,7 @@ Debug ビルドでは自動的に有効です。Release ビルドで有効にし
 
 ### `www/` と ZIP のどちらを使うべきですか
 開発中は `www/`、配布時は ZIP か埋め込みが扱いやすいです。大きなメディアを扱う場合は `www/` が適しています。
+ファイルごとに適切な配置を選択できますので、どちらも同時に利用できます。
 
 ---
 
@@ -317,7 +317,6 @@ Debug ビルドでは自動的に有効です。Release ビルドで有効にし
 ├── docs/
 ├── images/
 ├── resources/
-├── scripts/
 ├── src/
 ├── web-content/
 ├── LICENSE
@@ -330,7 +329,6 @@ Debug ビルドでは自動的に有効です。Release ビルドで有効にし
 ## 開発メモ
 
 - メイン実装は `src/` 配下にあります
-- 配布用の補助スクリプトは `scripts/` にあります
 - サンプルの Web コンテンツは `web-content/` にあります
 - GitHub Actions によるビルド / リリースの自動化が含まれています
 

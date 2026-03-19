@@ -42,7 +42,7 @@ namespace WebView2AppHost
                 "- 個別配置: EXE と同じ場所に www フォルダを配置\n" +
                 "- 外部指定: コマンドライン引数で ZIP パスを指定\n" +
                 "- 同封: EXE と同名の .zip ファイルを配置\n" +
-                "- 連結: bundle.py で EXE 末尾に ZIP を結合\n" +
+                "- 連結: copy /b コマンド等で EXE 末尾に ZIP を結合\n" +
                 "- 埋め込み: プロジェクトのリソースとして埋め込み",
                 "WebView2 App Host",
                 MessageBoxButtons.OK,
