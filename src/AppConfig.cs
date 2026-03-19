@@ -33,13 +33,6 @@ namespace WebView2AppHost
         /// ストリームから JSON を読み込み、AppConfig インスタンスを生成する。
         /// フォーマットエラーなどで失敗した場合は null を返す（フォールバック用）。
         /// </summary>
-        public AppConfig()
-        {
-            Title      = "WebView2 App Host";
-            Width      = 1280;
-            Height     = 720;
-            Fullscreen = false;
-        }
 
         public static AppConfig? Load(Stream stream)
         {
