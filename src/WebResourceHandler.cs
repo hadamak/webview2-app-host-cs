@@ -1,0 +1,84 @@
+using System;
+using System.Text.RegularExpressions;
+
+namespace WebView2AppHost
+{
+    /// <summary>
+    /// カスタムスキーム (https://app.local/) のリソース応答に必要な
+    /// 純粋ロジックを提供するユーティリティ。
+    /// </summary>
+    internal static class WebResourceHandler
+    {
+        /// <summary>
+        /// Range ヘッダを解析して (start, end) を返す。
+        /// フォーマット不正・逆転レンジは null（416 を返すべきケース）。
+        /// end が total を超える場合は total-1 にクランプする（動画シーク互換）。
+        /// </summary>
+        public static (long start, long end)? ParseRange(string header, long total)
+        {
+            var m = Regex.Match(header, @"bytes=(\d*)-(\d*)");
+            if (!m.Success) return null;
+
+            var startStr = m.Groups[1].Value;
+            var endStr   = m.Groups[2].Value;
+
+            long start, end;
+
+            if (string.IsNullOrEmpty(startStr))
+            {
+                // suffix range: "bytes=-500" → 末尾 500 バイト
+                if (!long.TryParse(endStr, out var suffix) || suffix <= 0) return null;
+                start = total - suffix;
+                end   = total - 1;
+            }
+            else
+            {
+                start = long.Parse(startStr);
+                end   = string.IsNullOrEmpty(endStr) ? total - 1 : long.Parse(endStr);
+            }
+
+            if (start > end) return null;
+
+            // end のクランプは維持（ブラウザが total を超えた end を送ることがある）
+            return (Math.Max(0, start), Math.Min(end, total - 1));
+        }
+
+        /// <summary>
+        /// 通常レスポンス (200 OK) 用のヘッダ文字列を構築する。
+        /// </summary>
+        public static string BuildFullResponseHeaders(string mime, long contentLength)
+        {
+            return
+                $"Content-Type: {mime}\r\n" +
+                $"Content-Length: {contentLength}\r\n" +
+                "Accept-Ranges: bytes\r\n" +
+                "Cache-Control: no-store\r\n" +
+                "Access-Control-Allow-Origin: *";
+        }
+
+        /// <summary>
+        /// 部分レスポンス (206 Partial Content) 用のヘッダ文字列を構築する。
+        /// </summary>
+        public static string BuildPartialResponseHeaders(string mime, long start, long end, long total)
+        {
+            var length = end - start + 1;
+            return
+                $"Content-Type: {mime}\r\n" +
+                $"Content-Range: bytes {start}-{end}/{total}\r\n" +
+                $"Content-Length: {length}\r\n" +
+                "Accept-Ranges: bytes\r\n" +
+                "Cache-Control: no-store\r\n" +
+                "Access-Control-Allow-Origin: *";
+        }
+
+        /// <summary>
+        /// 416 Range Not Satisfiable 用のヘッダ文字列を構築する。
+        /// </summary>
+        public static string BuildRangeNotSatisfiableHeaders(long total)
+        {
+            return
+                $"Content-Range: bytes */{total}\r\n" +
+                "Access-Control-Allow-Origin: *";
+        }
+    }
+}

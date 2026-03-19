@@ -1,7 +1,6 @@
 using System;
 using System.Drawing;
 using System.IO;
-using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -220,14 +219,13 @@ namespace WebView2AppHost
 
                 if (!string.IsNullOrEmpty(rangeHeader) && stream.CanSeek)
                 {
-                    var range = ParseRange(rangeHeader!, total);
+                    var range = WebResourceHandler.ParseRange(rangeHeader!, total);
                     if (range == null)
                     {
                         stream.Dispose();
                         e.Response = _webView.CoreWebView2.Environment
                             .CreateWebResourceResponse(null, 416, "Range Not Satisfiable",
-                                $"Content-Range: bytes */{total}\r\n" +
-                                "Access-Control-Allow-Origin: *");
+                                WebResourceHandler.BuildRangeNotSatisfiableHeaders(total));
                         return;
                     }
 
@@ -235,31 +233,17 @@ namespace WebView2AppHost
                     var length = end - start + 1;
 
                     stream.Seek(start, SeekOrigin.Begin);
-                    // SubStream が stream の所有権を持ち Dispose 時に解放する
                     var rangeStream = new SubStream(stream, start, length);
 
-                    var headers =
-                        $"Content-Type: {mime}\r\n" +
-                        $"Content-Range: bytes {start}-{end}/{total}\r\n" +
-                        $"Content-Length: {length}\r\n" +
-                        "Accept-Ranges: bytes\r\n" +
-                        "Cache-Control: no-store\r\n" +
-                        "Access-Control-Allow-Origin: *";
-
                     e.Response = _webView.CoreWebView2.Environment
-                        .CreateWebResourceResponse(rangeStream, 206, "Partial Content", headers);
+                        .CreateWebResourceResponse(rangeStream, 206, "Partial Content",
+                            WebResourceHandler.BuildPartialResponseHeaders(mime, start, end, total));
                 }
                 else
                 {
-                    var headers =
-                        $"Content-Type: {mime}\r\n" +
-                        $"Content-Length: {total}\r\n" +
-                        "Accept-Ranges: bytes\r\n" +
-                        "Cache-Control: no-store\r\n" +
-                        "Access-Control-Allow-Origin: *";
-
                     e.Response = _webView.CoreWebView2.Environment
-                        .CreateWebResourceResponse(stream, 200, "OK", headers);
+                        .CreateWebResourceResponse(stream, 200, "OK",
+                            WebResourceHandler.BuildFullResponseHeaders(mime, total));
                 }
             }
             catch
@@ -269,39 +253,7 @@ namespace WebView2AppHost
             }
         }
 
-        /// <summary>
-        /// Range ヘッダを解析して (start, end) を返す。
-        /// フォーマット不正・逆転レンジは null（416 を返すべきケース）。
-        /// end が total を超える場合は total-1 にクランプする（動画シーク互換）。
-        /// </summary>
-        private static (long start, long end)? ParseRange(string header, long total)
-        {
-            var m = Regex.Match(header, @"bytes=(\d*)-(\d*)");
-            if (!m.Success) return null;
 
-            var startStr = m.Groups[1].Value;
-            var endStr   = m.Groups[2].Value;
-
-            long start, end;
-
-            if (string.IsNullOrEmpty(startStr))
-            {
-                // suffix range: "bytes=-500" → 末尾 500 バイト
-                if (!long.TryParse(endStr, out var suffix) || suffix <= 0) return null;
-                start = total - suffix;
-                end   = total - 1;
-            }
-            else
-            {
-                start = long.Parse(startStr);
-                end   = string.IsNullOrEmpty(endStr) ? total - 1 : long.Parse(endStr);
-            }
-
-            if (start > end) return null;
-
-            // end のクランプは維持（ブラウザが total を超えた end を送ることがある）
-            return (Math.Max(0, start), Math.Min(end, total - 1));
-        }
 
         // ---------------------------------------------------------------------------
         // フルスクリーン
@@ -412,19 +364,18 @@ namespace WebView2AppHost
 
         private void HandleNavigation(string uri, Action cancelAction)
         {
-            // about:blank への遷移は終了処理の合図として内部で許可する
-            if (uri == "about:blank")
+            switch (NavigationPolicy.Classify(uri))
             {
-                _isClosingInProgress = true;
-                return;
-            }
-
-            // https://app.local/ 以外かつ http(s) の場合は既定のブラウザで開く
-            if (!uri.StartsWith("https://app.local/") &&
-                (uri.StartsWith("http://") || uri.StartsWith("https://")))
-            {
-                cancelAction();
-                OpenInDefaultBrowser(uri);
+                case NavigationPolicy.Action.MarkClosing:
+                    _isClosingInProgress = true;
+                    break;
+                case NavigationPolicy.Action.OpenExternal:
+                    cancelAction();
+                    OpenInDefaultBrowser(uri);
+                    break;
+                case NavigationPolicy.Action.Allow:
+                default:
+                    break;
             }
         }
 
@@ -457,86 +408,6 @@ namespace WebView2AppHost
             if (_isMinimized || _webView.CoreWebView2 == null) return;
             _webView.CoreWebView2.PostWebMessageAsString(
                 "{\"event\":\"visibilityChange\",\"state\":\"hidden\"}");
-        }
-    }
-
-    // ---------------------------------------------------------------------------
-    // SubStream: Stream の部分範囲を別の Stream として公開（Range Request 用）
-    // ---------------------------------------------------------------------------
-
-    internal sealed class SubStream : Stream
-    {
-        private readonly Stream _inner;
-        private readonly long   _offset;
-        private readonly long   _length;
-        private readonly bool   _ownsInner;
-        private          long   _position;
-
-        public SubStream(Stream inner, long offset, long length, bool ownsInner = true)
-        {
-            _inner     = inner;
-            _offset    = offset;
-            _length    = length;
-            _ownsInner = ownsInner;
-            _position  = 0;
-        }
-
-        public override bool CanRead  => true;
-        public override bool CanSeek  => true;
-        public override bool CanWrite => false;
-        public override long Length   => _length;
-
-        public override long Position
-        {
-            get { lock (_inner) return _position; }
-            set
-            {
-                lock (_inner)
-                {
-                    _position = value;
-                    _inner.Position = _offset + value;
-                }
-            }
-        }
-
-        public override int Read(byte[] buffer, int offset, int count)
-        {
-            lock (_inner)
-            {
-                var remaining = _length - _position;
-                if (remaining <= 0) return 0;
-                count = (int)Math.Min(count, remaining);
-                _inner.Position = _offset + _position;
-                var read = _inner.Read(buffer, offset, count);
-                _position += read;
-                return read;
-            }
-        }
-
-        public override long Seek(long offset, SeekOrigin origin)
-        {
-            lock (_inner)
-            {
-                long newPos = origin switch
-                {
-                    SeekOrigin.Begin   => offset,
-                    SeekOrigin.Current => _position + offset,
-                    SeekOrigin.End     => _length + offset,
-                    _                  => throw new ArgumentException()
-                };
-                Position = newPos;
-                return _position;
-            }
-        }
-
-        public override void Flush()  { }
-        public override void SetLength(long value) => throw new NotSupportedException();
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing && _ownsInner) _inner.Dispose();
-            base.Dispose(disposing);
         }
     }
 }

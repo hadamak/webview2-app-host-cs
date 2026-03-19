@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AppendZipTests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3c6ec344c0a1aa0110fe3e7415a52abddb48530e")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cd8acdb5aa1bc8a57367994bed31a0d61e67870c")]
 [assembly: System.Reflection.AssemblyProductAttribute("AppendZipTests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AppendZipTests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
