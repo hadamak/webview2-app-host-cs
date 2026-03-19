@@ -1,0 +1,56 @@
+{
+  "format": 1,
+  "restore": {
+    "C:\\Users\\btqwm\\Documents\\webview2-app-host-cs\\tests\\AppendZipTests\\AppendZipTests.csproj": {}
+  },
+  "projects": {
+    "C:\\Users\\btqwm\\Documents\\webview2-app-host-cs\\tests\\AppendZipTests\\AppendZipTests.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "C:\\Users\\btqwm\\Documents\\webview2-app-host-cs\\tests\\AppendZipTests\\AppendZipTests.csproj",
+        "projectName": "AppendZipTests",
+        "projectPath": "C:\\Users\\btqwm\\Documents\\webview2-app-host-cs\\tests\\AppendZipTests\\AppendZipTests.csproj",
+        "packagesPath": "C:\\Users\\btqwm\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\btqwm\\Documents\\webview2-app-host-cs\\tests\\AppendZipTests\\obj\\",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "C:\\Users\\btqwm\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net472"
+        ],
+        "sources": {
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net472": {
+            "targetAlias": "net472",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "true",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        },
+        "SdkAnalysisLevel": "10.0.200"
+      },
+      "frameworks": {
+        "net472": {
+          "targetAlias": "net472",
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.200\\RuntimeIdentifierGraph.json"
+        }
+      },
+      "runtimes": {
+        "win-x64": {
+          "#import": []
+        }
+      }
+    }
+  }
+}

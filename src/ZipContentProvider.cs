@@ -28,6 +28,13 @@ namespace WebView2AppHost
         // 有効なコンテンツソースのリスト（優先順位順）
         private readonly List<IContentSource> _sources = new List<IContentSource>();
 
+        private readonly string? _mockExePath;
+
+        internal ZipContentProvider(string? mockExePath = null)
+        {
+            _mockExePath = mockExePath;
+        }
+
         // ---------------------------------------------------------------------------
         // 初期化
         // ---------------------------------------------------------------------------
@@ -86,21 +93,7 @@ namespace WebView2AppHost
             var exePath = GetExePath();
             try
             {
-                var fs = new FileStream(exePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                if (fs.Length < TrailerSize) { fs.Dispose(); return; }
-
-                fs.Seek(-TrailerSize, SeekOrigin.End);
-                var trailer = new byte[TrailerSize];
-                fs.Read(trailer, 0, TrailerSize);
-
-                if (System.Text.Encoding.ASCII.GetString(trailer, 8, 4) != WzgmMagic) { fs.Dispose(); return; }
-
-                var zipSize   = BitConverter.ToInt64(trailer, 0);
-                var zipOffset = fs.Length - TrailerSize - zipSize;
-                if (zipOffset < 0 || zipSize <= 0) { fs.Dispose(); return; }
-
-                var sub = new SubStream(fs, zipOffset, zipSize, ownsInner: true);
-                var src = ZipSource.FromStream(sub);
+                var src = ZipSource.FromAppendedFile(exePath);
                 if (src != null) { _sources.Add(src); Console.WriteLine("[ZipContentProvider] Mounted Bundled Source"); }
             }
             catch { /* Ignore */ }
@@ -149,8 +142,8 @@ namespace WebView2AppHost
             _sources.Clear();
         }
 
-        private static string GetExePath()
-            => System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName!;
+        private string GetExePath()
+            => _mockExePath ?? System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName!;
 
         // ---------------------------------------------------------------------------
         // コンテンツソース定義
@@ -198,6 +191,77 @@ namespace WebView2AppHost
             {
                 try { return new ZipSource(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)); }
                 catch { return null; }
+            }
+
+            public static ZipSource? FromAppendedFile(string path)
+            {
+                var stream = FindAppendedZipStream(path);
+                if (stream == null) return null;
+                return FromStream(stream);
+            }
+
+            private static Stream? FindAppendedZipStream(string path)
+            {
+                var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                try
+                {
+                    if (fs.Length < 22) { fs.Dispose(); return null; }
+
+                    // EOCD max size is 22 + 65535 = 65557 bytes.
+                    long readStart = Math.Max(0, fs.Length - 65557);
+                    int readLen = (int)(fs.Length - readStart);
+                    fs.Seek(readStart, SeekOrigin.Begin);
+
+                    byte[] buffer = new byte[readLen];
+                    int bytesRead = 0;
+                    while (bytesRead < readLen)
+                    {
+                        int r = fs.Read(buffer, bytesRead, readLen - bytesRead);
+                        if (r == 0) break;
+                        bytesRead += r;
+                    }
+
+                    // Search backwards for EOCD signature: 0x06054b50 (PK\x05\x06)
+                    // In little-endian: 0x50, 0x4B, 0x05, 0x06
+                    int eocdIdx = -1;
+                    for (int i = bytesRead - 22; i >= 0; i--)
+                    {
+                        if (buffer[i] == 0x50 && buffer[i + 1] == 0x4B && buffer[i + 2] == 0x05 && buffer[i + 3] == 0x06)
+                        {
+                            int commentLen = BitConverter.ToUInt16(buffer, i + 20);
+                            if (i + 22 + commentLen == bytesRead)
+                            {
+                                eocdIdx = i;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (eocdIdx < 0)
+                    {
+                        fs.Dispose();
+                        return null;
+                    }
+
+                    uint cdSize = BitConverter.ToUInt32(buffer, eocdIdx + 12);
+                    uint cdOffset = BitConverter.ToUInt32(buffer, eocdIdx + 16);
+                    uint commentLenFound = BitConverter.ToUInt16(buffer, eocdIdx + 20);
+
+                    long totalZipSize = cdOffset + cdSize + 22 + commentLenFound;
+                    if (totalZipSize > fs.Length || totalZipSize <= 0)
+                    {
+                        fs.Dispose();
+                        return null;
+                    }
+
+                    long zipStart = fs.Length - totalZipSize;
+                    return new SubStream(fs, zipStart, totalZipSize);
+                }
+                catch
+                {
+                    fs.Dispose();
+                    return null;
+                }
             }
 
             public static ZipSource? FromStream(Stream stream)
@@ -264,6 +328,69 @@ namespace WebView2AppHost
             protected override void Dispose(bool disposing)
             {
                 if (disposing) _inner.Dispose();
+                base.Dispose(disposing);
+            }
+        }
+
+        /// <summary>
+        /// ZipArchive 用のシーク可能な部分ストリームラッパー。
+        /// </summary>
+        private sealed class SubStream : Stream
+        {
+            private readonly Stream _base;
+            private readonly long _offset;
+            private readonly long _length;
+            private long _position;
+
+            public SubStream(Stream baseStream, long offset, long length)
+            {
+                _base = baseStream;
+                _offset = offset;
+                _length = length;
+            }
+
+            public override bool CanRead => _base.CanRead;
+            public override bool CanSeek => _base.CanSeek;
+            public override bool CanWrite => false;
+            public override long Length => _length;
+
+            public override long Position
+            {
+                get => _position;
+                set => _position = Math.Max(0, Math.Min(value, _length));
+            }
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                long remaining = _length - _position;
+                if (remaining <= 0) return 0;
+                if (count > remaining) count = (int)remaining;
+
+                _base.Seek(_offset + _position, SeekOrigin.Begin);
+                int read = _base.Read(buffer, offset, count);
+                _position += read;
+                return read;
+            }
+
+            public override long Seek(long offset, SeekOrigin origin)
+            {
+                switch (origin)
+                {
+                    case SeekOrigin.Begin: _position = offset; break;
+                    case SeekOrigin.Current: _position += offset; break;
+                    case SeekOrigin.End: _position = _length + offset; break;
+                }
+                _position = Math.Max(0, Math.Min(_position, _length));
+                return _position;
+            }
+
+            public override void Flush() => _base.Flush();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing) _base.Dispose();
                 base.Dispose(disposing);
             }
         }

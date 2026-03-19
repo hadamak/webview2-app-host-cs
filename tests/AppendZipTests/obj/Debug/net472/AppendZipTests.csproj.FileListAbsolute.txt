@@ -1,0 +1,11 @@
+C:\Users\btqwm\Documents\webview2-app-host-cs\tests\AppendZipTests\bin\Debug\net472\AppendZipTests.exe.config
+C:\Users\btqwm\Documents\webview2-app-host-cs\tests\AppendZipTests\bin\Debug\net472\AppendZipTests.exe
+C:\Users\btqwm\Documents\webview2-app-host-cs\tests\AppendZipTests\bin\Debug\net472\AppendZipTests.pdb
+C:\Users\btqwm\Documents\webview2-app-host-cs\tests\AppendZipTests\obj\Debug\net472\AppendZipTests.csproj.AssemblyReference.cache
+C:\Users\btqwm\Documents\webview2-app-host-cs\tests\AppendZipTests\obj\Debug\net472\AppendZipTests.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\btqwm\Documents\webview2-app-host-cs\tests\AppendZipTests\obj\Debug\net472\AppendZipTests.AssemblyInfoInputs.cache
+C:\Users\btqwm\Documents\webview2-app-host-cs\tests\AppendZipTests\obj\Debug\net472\AppendZipTests.AssemblyInfo.cs
+C:\Users\btqwm\Documents\webview2-app-host-cs\tests\AppendZipTests\obj\Debug\net472\AppendZipTests.csproj.CoreCompileInputs.cache
+C:\Users\btqwm\Documents\webview2-app-host-cs\tests\AppendZipTests\obj\Debug\net472\AppendZipTests.sourcelink.json
+C:\Users\btqwm\Documents\webview2-app-host-cs\tests\AppendZipTests\obj\Debug\net472\AppendZipTests.exe
+C:\Users\btqwm\Documents\webview2-app-host-cs\tests\AppendZipTests\obj\Debug\net472\AppendZipTests.pdb
