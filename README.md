@@ -207,7 +207,8 @@ python scripts\bundle.py bin\WebView2AppHost.exe app.zip dist\MyApp.exe
 
 | キー | 型 | デフォルト | 説明 |
 |---|---:|---:|---|
-| `title` | string | `"WebView2 App Host"` | 起動時のウィンドウタイトル |
+| `title` | string | `"WebView2 App Host"` | 起動時のウィンドウタイトルの初期値 |
+| `icon` | string | なし | 起動時に使う既定アイコンの設定値（実体は `resources/app.ico`） |
 | `width` | int | `1280` | 初期幅（ピクセル） |
 | `height` | int | `720` | 初期高さ（ピクセル） |
 | `fullscreen` | bool | `false` | フルスクリーン起動するかどうか |
@@ -222,6 +223,10 @@ python scripts\bundle.py bin\WebView2AppHost.exe app.zip dist\MyApp.exe
   "fullscreen": false
 }
 ```
+
+### HTML 側からの追従
+
+起動時のウィンドウタイトルは `app.conf.json` の `title` を初期値として使います。その後はページの `<title>` が変わるたびにウィンドウタイトルへ反映され、favicon が設定されている場合はウィンドウアイコンにも反映されます。
 
 ---
 
@@ -286,7 +291,7 @@ window.addEventListener('beforeunload', (event) => {
 ## FAQ
 
 ### アイコンを変更したい
-`resources/app.ico` を差し替えて再ビルドしてください。
+`resources/app.ico` を差し替えて再ビルドしてください。あわせて、HTML 側で favicon を設定すると、起動後のウィンドウアイコンもその内容に追従します。
 
 ### DevTools を開きたい
 Debug ビルドでは自動的に有効です。Release ビルドで有効にしたい場合は、`src/App.cs` 内の `#if DEBUG` ブロックを調整してください。
