@@ -96,7 +96,7 @@ namespace WebView2AppHost
                 var src = ZipSource.FromAppendedFile(exePath);
                 if (src != null) { _sources.Add(src); Console.WriteLine("[ZipContentProvider] Mounted Bundled Source"); }
             }
-            catch { /* Ignore */ }
+            catch (Exception ex) { AppLog.Warn("ZipContentProvider.TryAddBundledSource", "Appended ZIP の検出に失敗", ex); }
         }
 
         private void TryAddEmbeddedSource()
@@ -108,6 +108,7 @@ namespace WebView2AppHost
             {
                 var src = ZipSource.FromStream(stream);
                 if (src != null) { _sources.Add(src); Console.WriteLine("[ZipContentProvider] Mounted Embedded Source"); }
+                else { stream.Dispose(); }
             }
         }
 
@@ -189,8 +190,18 @@ namespace WebView2AppHost
 
             public static ZipSource? FromFile(string path)
             {
-                try { return new ZipSource(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)); }
-                catch { return null; }
+                FileStream? fs = null;
+                try
+                {
+                    fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    return new ZipSource(fs);
+                }
+                catch (Exception ex)
+                {
+                    fs?.Dispose();
+                    AppLog.Warn("ZipSource.FromFile", $"ZIP を開けませんでした: {path}", ex);
+                    return null;
+                }
             }
 
             public static ZipSource? FromAppendedFile(string path)
@@ -257,9 +268,10 @@ namespace WebView2AppHost
                     long zipStart = fs.Length - totalZipSize;
                     return new SubStream(fs, zipStart, totalZipSize);
                 }
-                catch
+                catch (Exception ex)
                 {
                     fs.Dispose();
+                    AppLog.Warn("ZipSource.FindAppendedZipStream", "Appended ZIP ストリームの検出に失敗", ex);
                     return null;
                 }
             }
@@ -267,7 +279,12 @@ namespace WebView2AppHost
             public static ZipSource? FromStream(Stream stream)
             {
                 try { return new ZipSource(stream); }
-                catch { return null; }
+                catch (Exception ex)
+                {
+                    stream.Dispose();
+                    AppLog.Warn("ZipSource.FromStream", "ストリームを ZIP として開けませんでした", ex);
+                    return null;
+                }
             }
 
             public Stream? OpenEntry(string virtualPath)

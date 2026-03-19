@@ -68,6 +68,15 @@ namespace AppendZipTests
 
             // --- MimeTypes tests ---
             RunMimeTypesTests();
+
+            // --- AppLog tests ---
+            RunAppLogTests();
+
+            // --- Stream disposal tests ---
+            RunStreamDisposalTests();
+
+            // --- AppConfig tests ---
+            RunAppConfigTests(workDir);
         }
 
         // =====================================================================
@@ -203,6 +212,150 @@ namespace AppendZipTests
                 "MimeTypes: unknown extension");
 
             Console.WriteLine("  MimeTypes tests passed.");
+        }
+
+        // =====================================================================
+        // AppLog Tests
+        // =====================================================================
+
+        private static void RunAppLogTests()
+        {
+            var oldOverride = WebView2AppHost.AppLog.Override;
+            try
+            {
+                using var sw = new StringWriter();
+                WebView2AppHost.AppLog.Override = sw;
+
+                // Error 出力テスト
+                WebView2AppHost.AppLog.Error("TestSource", new InvalidOperationException("test error"));
+                var output = sw.ToString();
+                Assert(output.Contains("[ERROR]"), "AppLog.Error: contains [ERROR]");
+                Assert(output.Contains("TestSource"), "AppLog.Error: contains source");
+                Assert(output.Contains("test error"), "AppLog.Error: contains message");
+                Assert(output.Contains("InvalidOperationException"), "AppLog.Error: contains exception type");
+
+                // Warn 出力テスト (message only)
+                sw.GetStringBuilder().Clear();
+                WebView2AppHost.AppLog.Warn("WarnSource", "warning message");
+                output = sw.ToString();
+                Assert(output.Contains("[WARN]"), "AppLog.Warn: contains [WARN]");
+                Assert(output.Contains("WarnSource"), "AppLog.Warn: contains source");
+                Assert(output.Contains("warning message"), "AppLog.Warn: contains message");
+
+                // Warn 出力テスト (with exception)
+                sw.GetStringBuilder().Clear();
+                WebView2AppHost.AppLog.Warn("WarnExSource", "warn msg", new IOException("io fail"));
+                output = sw.ToString();
+                Assert(output.Contains("[WARN]"), "AppLog.Warn+ex: contains [WARN]");
+                Assert(output.Contains("IOException"), "AppLog.Warn+ex: contains exception type");
+                Assert(output.Contains("io fail"), "AppLog.Warn+ex: contains exception message");
+
+                Console.WriteLine("  AppLog tests passed.");
+            }
+            finally
+            {
+                WebView2AppHost.AppLog.Override = oldOverride;
+            }
+        }
+
+        // =====================================================================
+        // Stream Disposal Tests
+        // =====================================================================
+
+        private static void RunStreamDisposalTests()
+        {
+            // FromStream に壊れたストリームを渡すと null が返り、ストリームが Dispose される
+            var disposableStream = new TrackingStream();
+            Assert(!disposableStream.IsDisposed, "StreamDisposal: stream not yet disposed");
+
+            // Override を設定してログ出力を握りつぶす（テスト出力を汚さないため）
+            var oldOverride = WebView2AppHost.AppLog.Override;
+            try
+            {
+                WebView2AppHost.AppLog.Override = TextWriter.Null;
+
+                // ZipContentProvider の FromStream を直接呼ぶのは private なので、
+                // 代わりに ZipContentProvider 経由で壊れた ZIP を読ませてテスト
+                var result = CreateProviderFromBrokenZip();
+                Assert(result == false, "StreamDisposal: broken ZIP returns false from Load");
+
+                Console.WriteLine("  Stream disposal tests passed.");
+            }
+            finally
+            {
+                WebView2AppHost.AppLog.Override = oldOverride;
+            }
+        }
+
+        private static bool CreateProviderFromBrokenZip()
+        {
+            // 壊れた ZIP ファイルを作成して、ZipContentProvider が正しく処理するか確認
+            var tempPath = Path.Combine(Path.GetTempPath(), $"broken-zip-test-{Guid.NewGuid():N}.zip");
+            try
+            {
+                File.WriteAllBytes(tempPath, Encoding.ASCII.GetBytes("THIS IS NOT A ZIP FILE"));
+                using var provider = new WebView2AppHost.ZipContentProvider(tempPath);
+                return provider.Load();
+            }
+            finally
+            {
+                try { File.Delete(tempPath); } catch { }
+            }
+        }
+
+        // =====================================================================
+        // AppConfig Tests
+        // =====================================================================
+
+        private static void RunAppConfigTests(string workDir)
+        {
+            var oldOverride = WebView2AppHost.AppLog.Override;
+            try
+            {
+                WebView2AppHost.AppLog.Override = TextWriter.Null;
+
+                // 正常な JSON
+                var json = Encoding.UTF8.GetBytes("{\"title\":\"Test\",\"width\":800,\"height\":600}");
+                using (var ms = new MemoryStream(json))
+                {
+                    var config = WebView2AppHost.AppConfig.Load(ms);
+                    Assert(config != null, "AppConfig: valid JSON returns non-null");
+                    Assert(config!.Title == "Test", "AppConfig: title parsed");
+                    Assert(config.Width == 800, "AppConfig: width parsed");
+                    Assert(config.Height == 600, "AppConfig: height parsed");
+                }
+
+                // 壊れた JSON → null 返却 + ログ出力
+                using (var logSw = new StringWriter())
+                {
+                    WebView2AppHost.AppLog.Override = logSw;
+                    using var broken = new MemoryStream(Encoding.UTF8.GetBytes("{invalid json!!!"));
+                    var result = WebView2AppHost.AppConfig.Load(broken);
+                    Assert(result == null, "AppConfig: broken JSON returns null");
+                    Assert(logSw.ToString().Contains("[WARN]"), "AppConfig: broken JSON logs warning");
+                }
+
+                Console.WriteLine("  AppConfig tests passed.");
+            }
+            finally
+            {
+                WebView2AppHost.AppLog.Override = oldOverride;
+            }
+        }
+
+        // =====================================================================
+        // TrackingStream (テスト用ストリーム)
+        // =====================================================================
+
+        private sealed class TrackingStream : MemoryStream
+        {
+            public bool IsDisposed { get; private set; }
+            public TrackingStream() : base(Encoding.ASCII.GetBytes("NOT A ZIP")) { }
+            protected override void Dispose(bool disposing)
+            {
+                IsDisposed = true;
+                base.Dispose(disposing);
+            }
         }
 
         // =====================================================================

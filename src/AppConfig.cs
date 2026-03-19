@@ -50,9 +50,9 @@ namespace WebView2AppHost
                 if (config != null) config.Sanitize();
                 return config;
             }
-            catch
+            catch (Exception ex)
             {
-                // JSON の構文エラーなどはここでキャッチして null を返す
+                AppLog.Warn("AppConfig.Load", "設定ファイルの読み込みに失敗（デフォルト値を使用）", ex);
                 return null;
             }
         }

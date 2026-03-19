@@ -63,6 +63,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
+                AppLog.Error("App.OnLoad", ex);
                 MessageBox.Show(
                     $"WebView2 の初期化に失敗しました。\n\n{ex.Message}\n\n" +
                     "WebView2 ランタイムがインストールされているか確認してください。\n" +
@@ -246,9 +247,10 @@ namespace WebView2AppHost
                             WebResourceHandler.BuildFullResponseHeaders(mime, total));
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 stream.Dispose();
+                AppLog.Error("App.HandleWebResourceRequest", ex);
                 throw;
             }
         }
@@ -287,6 +289,8 @@ namespace WebView2AppHost
             {
                 var wv = _webView.CoreWebView2;
 
+                AppLog.Warn("App.SetupFaviconTracking", $"FaviconChanged 発生, URI='{wv.FaviconUri}'");
+
                 if (string.IsNullOrEmpty(wv.FaviconUri))
                 {
                     Invoke(new Action(() =>
@@ -298,16 +302,29 @@ namespace WebView2AppHost
 
                 try
                 {
+                    AppLog.Warn("App.SetupFaviconTracking", "GetFaviconAsync 呼び出し開始");
                     using var comStream = await wv.GetFaviconAsync(
                         CoreWebView2FaviconImageFormat.Png);
+
+                    if (comStream == null)
+                    {
+                        AppLog.Warn("App.SetupFaviconTracking", "comStream が null (WebView2 が画像を返さなかった)");
+                        return;
+                    }
+
+                    AppLog.Warn("App.SetupFaviconTracking", "comStream 取得成功、PNGへコピー");
 
                     // COMStreamWrapper は Seek 不可なため MemoryStream に一度コピーする
                     using var pngMs = new System.IO.MemoryStream();
                     comStream.CopyTo(pngMs);
                     pngMs.Position = 0;
 
+                    AppLog.Warn("App.SetupFaviconTracking", $"PNG コピー完了、サイズ={pngMs.Length}。Bitmap 変換開始");
+
                     using var bmp     = new Bitmap(pngMs);
                     using var resized = new Bitmap(bmp, new Size(32, 32));
+
+                    AppLog.Warn("App.SetupFaviconTracking", "Bitmap リサイズ完了、ICO 変換開始");
 
                     // MemoryStream 経由で ICO フォーマットに変換して Icon を生成
                     using var icoMs = new System.IO.MemoryStream();
@@ -315,18 +332,20 @@ namespace WebView2AppHost
                     icoMs.Position = 0;
                     var newIcon = new Icon(icoMs);
 
+                    AppLog.Warn("App.SetupFaviconTracking", "ICO 変換成功、UIスレッド適用待ち");
+
                     Invoke(new Action(() =>
                     {
                         var oldIcon = _favicon;
                         _favicon = newIcon;
                         Icon     = newIcon;
                         oldIcon?.Dispose();
+                        AppLog.Warn("App.SetupFaviconTracking", "適用完了");
                     }));
                 }
                 catch (Exception ex)
                 {
-                    // favicon 取得・変換失敗は無視（アイコンは前の状態のまま）
-                    _ = ex;
+                    AppLog.Warn("App.SetupFaviconTracking", "favicon の取得・変換に失敗", ex);
                 }
             };
         }
@@ -359,7 +378,7 @@ namespace WebView2AppHost
                     UseShellExecute = true
                 });
             }
-            catch { }
+            catch (Exception ex) { AppLog.Warn("App.OpenInDefaultBrowser", $"ブラウザで開けませんでした: {uri}", ex); }
         }
 
         private void HandleNavigation(string uri, Action cancelAction)

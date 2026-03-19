@@ -15,7 +15,10 @@
     <Compile Include="..\..\src\WebResourceHandler.cs" />
     <Compile Include="..\..\src\NavigationPolicy.cs" />
     <Compile Include="..\..\src\MimeTypes.cs" />
+    <Compile Include="..\..\src\AppLog.cs" />
+    <Compile Include="..\..\src\AppConfig.cs" />
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Runtime.Serialization" />
   </ItemGroup>
 </Project>
