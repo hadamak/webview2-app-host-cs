@@ -23,7 +23,7 @@ jobs:
       run: msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: WebView2AppHost-${{ github.sha }}
         path: src\bin\x64\Release\
