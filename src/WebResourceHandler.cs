@@ -33,8 +33,16 @@ namespace WebView2AppHost
             }
             else
             {
-                start = long.Parse(startStr);
-                end   = string.IsNullOrEmpty(endStr) ? total - 1 : long.Parse(endStr);
+                    if (!long.TryParse(startStr, out start) || start < 0) return null;
+
+                    if (string.IsNullOrEmpty(endStr))
+                    {
+                        end = total - 1;
+                    }
+                    else
+                    {
+                        if (!long.TryParse(endStr, out end) || end < 0) return null;
+                    }
             }
 
             if (start > end) return null;

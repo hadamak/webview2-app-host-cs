@@ -216,7 +216,7 @@ namespace WebView2AppHost
             try
             {
                 var mime  = MimeTypes.FromPath(path);
-                var total = stream.Length;
+                var total = stream.Length;   // ← ここより前で例外が起きたら catch に飛ぶ
 
                 if (!string.IsNullOrEmpty(rangeHeader) && stream.CanSeek)
                 {
@@ -242,6 +242,8 @@ namespace WebView2AppHost
                 }
                 else
                 {
+                    // 成功時は WebView2 がレスポンス消費後に stream を Dispose する。
+// 失敗時（例外）のみ catch 側で明示的に Dispose する。
                     e.Response = _webView.CoreWebView2.Environment
                         .CreateWebResourceResponse(stream, 200, "OK",
                             WebResourceHandler.BuildFullResponseHeaders(mime, total));
@@ -249,7 +251,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                stream.Dispose();
+                stream.Dispose();  // catch でのみ Dispose
                 AppLog.Error("App.HandleWebResourceRequest", ex);
                 throw;
             }
