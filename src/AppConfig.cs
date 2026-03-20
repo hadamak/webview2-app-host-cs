@@ -44,7 +44,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                AppLog.Warn("AppConfig.Load", "設定ファイルの読み込みに失敗（デフォルト値を使用）", ex);
+                AppLog.Log("ERROR", "AppConfig.Load", "設定ファイルの読み込みに失敗（デフォルト値を使用）", ex);
                 return null;
             }
         }

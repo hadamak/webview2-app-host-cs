@@ -19,38 +19,23 @@ namespace WebView2AppHost
         /// </summary>
         internal static TextWriter? Override { get; set; }
 
-        /// <summary>
-        /// エラーレベルのログを出力する。
-        /// </summary>
-        public static void Error(string source, Exception ex)
+        public static void Log(string level, string source, string message, Exception? ex = null)
         {
-            var message = $"[ERROR] [{source}] {ex.GetType().Name}: {ex.Message}";
-            var detail  = $"{message}\n{ex.StackTrace}";
+            var line = ex == null
+                ? $"[{level}] [{source}] {message}"
+                : $"[{level}] [{source}] {message}: {ex.GetType().Name}: {ex.Message}";
 
-            Debug.WriteLine(detail);
-            WriteToFile(detail);
+            Write(line);
+
+            if (ex?.StackTrace != null)
+                Write(ex.StackTrace);
         }
 
-        /// <summary>
-        /// 警告レベルのログを出力する。
-        /// </summary>
-        public static void Warn(string source, string message)
+        private static void Write(string line)
         {
-            var line = $"[WARN] [{source}] {message}";
-
-            Debug.WriteLine(line);
-            WriteToFile(line);
-        }
-
-        /// <summary>
-        /// 警告レベルのログを例外付きで出力する。
-        /// </summary>
-        public static void Warn(string source, string message, Exception ex)
-        {
-            var line = $"[WARN] [{source}] {message}: {ex.GetType().Name}: {ex.Message}";
-
-            Debug.WriteLine(line);
-            WriteToFile(line);
+            var timestamped = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {line}";
+            System.Diagnostics.Debug.WriteLine(timestamped);
+            WriteToFile(timestamped);
         }
 
         private static void WriteToFile(string content)

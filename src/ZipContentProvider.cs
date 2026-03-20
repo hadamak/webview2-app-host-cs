@@ -93,7 +93,7 @@ namespace WebView2AppHost
                 var src = ZipSource.FromAppendedFile(exePath);
                 if (src != null) { _sources.Add(src); Console.WriteLine("[ZipContentProvider] Mounted Bundled Source"); }
             }
-            catch (Exception ex) { AppLog.Warn("ZipContentProvider.TryAddBundledSource", "Appended ZIP の検出に失敗", ex); }
+            catch (Exception ex) { AppLog.Log("ERROR", "ZipContentProvider.TryAddBundledSource", "Appended ZIP の検出に失敗", ex); }
         }
 
         private void TryAddEmbeddedSource()
@@ -196,7 +196,7 @@ namespace WebView2AppHost
                 catch (Exception ex)
                 {
                     fs?.Dispose();
-                    AppLog.Warn("ZipSource.FromFile", $"ZIP を開けませんでした: {path}", ex);
+                    AppLog.Log("ERROR", "ZipSource.FromFile", $"ZIP を開けませんでした: {path}", ex);
                     return null;
                 }
             }
@@ -268,7 +268,7 @@ namespace WebView2AppHost
                 catch (Exception ex)
                 {
                     fs.Dispose();
-                    AppLog.Warn("ZipSource.FindAppendedZipStream", "Appended ZIP ストリームの検出に失敗", ex);
+                    AppLog.Log("ERROR", "ZipSource.FindAppendedZipStream", "Appended ZIP ストリームの検出に失敗", ex);
                     return null;
                 }
             }
@@ -279,7 +279,7 @@ namespace WebView2AppHost
                 catch (Exception ex)
                 {
                     stream.Dispose();
-                    AppLog.Warn("ZipSource.FromStream", "ストリームを ZIP として開けませんでした", ex);
+                    AppLog.Log("ERROR", "ZipSource.FromStream", "ストリームを ZIP として開けませんでした", ex);
                     return null;
                 }
             }
