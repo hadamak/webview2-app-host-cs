@@ -263,7 +263,7 @@ namespace WebView2AppHost
                     }
 
                     long zipStart = fs.Length - totalZipSize;
-                    return new SubStream(fs, zipStart, totalZipSize);
+                    return new OffsetStream(fs, zipStart, totalZipSize);
                 }
                 catch (Exception ex)
                 {
@@ -349,14 +349,14 @@ namespace WebView2AppHost
         /// <summary>
         /// ZipArchive 用のシーク可能な部分ストリームラッパー。
         /// </summary>
-        private sealed class SubStream : Stream
+        private sealed class OffsetStream : Stream
         {
             private readonly Stream _base;
             private readonly long _offset;
             private readonly long _length;
             private long _position;
 
-            public SubStream(Stream baseStream, long offset, long length)
+            public OffsetStream(Stream baseStream, long offset, long length)
             {
                 _base = baseStream;
                 _offset = offset;
