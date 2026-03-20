@@ -14,6 +14,12 @@ namespace WebView2AppHost
         private static readonly object _lock = new object();
 
         /// <summary>
+        /// _logPath 初期化の排他制御用。_lock とは別に用意することで
+        /// Write 中の初期化呼び出しによるデッドロードを防ぐ。
+        /// </summary>
+        private static readonly object _initLock = new object();
+
+        /// <summary>
         /// volatile により GetLogPath() のスレッドセーフな二重初期化を防ぐ。
         /// </summary>
         private static volatile string? _logPath;
@@ -110,21 +116,26 @@ namespace WebView2AppHost
 
         private static string? GetLogPath()
         {
-            // volatile フィールドへの二重チェックで初期化コストを最小化する。
+            // volatile フィールドへの double-check locking で初期化を1回に限定する。
             if (_logPath != null) return _logPath;
 
-            try
+            lock (_initLock)
             {
-                var exeName = Path.GetFileNameWithoutExtension(
-                    Process.GetCurrentProcess().MainModule?.FileName ?? "WebView2AppHost");
-                var localAppData = Environment.GetFolderPath(
-                    Environment.SpecialFolder.LocalApplicationData);
-                _logPath = Path.Combine(localAppData, exeName, "app.log");
-                return _logPath;
-            }
-            catch
-            {
-                return null;
+                if (_logPath != null) return _logPath;
+
+                try
+                {
+                    var exeName = Path.GetFileNameWithoutExtension(
+                        Process.GetCurrentProcess().MainModule?.FileName ?? "WebView2AppHost");
+                    var localAppData = Environment.GetFolderPath(
+                        Environment.SpecialFolder.LocalApplicationData);
+                    _logPath = Path.Combine(localAppData, exeName, "app.log");
+                    return _logPath;
+                }
+                catch
+                {
+                    return null;
+                }
             }
         }
     }

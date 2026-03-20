@@ -231,6 +231,9 @@ namespace WebView2AppHost
 
                     // Search backwards for EOCD signature: 0x06054b50 (PK\x05\x06)
                     // In little-endian: 0x50, 0x4B, 0x05, 0x06
+                    // NOTE: ZIP64 EOCD (signature 0x06064b50) は非対応。
+                    //       エントリ数が 65535 を超えるか、個別ファイルが 4 GB を超える場合は
+                    //       正しく検出できないため、外部 ZIP ソースを使用すること。
                     int eocdIdx = -1;
                     for (int i = bytesRead - 22; i >= 0; i--)
                     {

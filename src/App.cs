@@ -113,10 +113,16 @@ namespace WebView2AppHost
             SetupFaviconTracking();
 
             // JS からのウィンドウクローズ要求 (window.close())
+            // メインフレームの window.close() は AddScriptToExecuteOnDocumentCreated で
+            // about:blank 遷移に差し替えてあるため、通常の操作でこのイベントが発火することはない。
+            // （iframe の window.close() はその iframe 自身に作用するだけでここには届かない）
+            // スクリプト注入前の極めて短い起動直後にページが window.close() を呼んだ場合など
+            // 理論上ありうる抜け道への防御として、即 Close() せず about:blank 経由で
+            // beforeunload を通す経路に統一している。
             wv.WindowCloseRequested += (s, _) =>
             {
-                _isClosingConfirmed = true;
-                Close();
+                _isClosingInProgress = true;
+                wv.Navigate("about:blank");
             };
 
             // 外部リンク・ナビゲーションのハンドリング
@@ -136,7 +142,12 @@ namespace WebView2AppHost
             // 標準のダイアログ（alert, confirm, prompt, beforeunload）を表示
             wv.ScriptDialogOpening += (s, e) => { /* デフォルト動作 */ };
 
-            // C# から JS へのイベント通知の土台 & window.close() の標準化
+            // C# から JS へのイベント通知の土台 & window.close() の標準化。
+            // NOTE: AddScriptToExecuteOnDocumentCreated はメインフレームにのみ適用される。
+            //       ただし iframe の window.close() は iframe 自身のブラウジングコンテキストに
+            //       作用するだけで、トップレベルウィンドウの WindowCloseRequested は発火しない。
+            //       クロスオリジン iframe からの window.close() がアプリ終了に直結する問題は
+            //       実際には存在しない。
             await wv.AddScriptToExecuteOnDocumentCreatedAsync(@"
                 // window.close() を about:blank への遷移に置き換える。
                 // これによりセキュリティ制限を回避し、かつ beforeunload を確実に発火させる。
@@ -234,11 +245,21 @@ namespace WebView2AppHost
                     var length = end - start + 1;
 
                     stream.Seek(start, SeekOrigin.Begin);
-                    var rangeStream = new SubStream(stream, start, length);
-
-                    e.Response = _webView.CoreWebView2.Environment
-                        .CreateWebResourceResponse(rangeStream, 206, "Partial Content",
-                            WebResourceHandler.BuildPartialResponseHeaders(mime, start, end, total));
+                    // ownsInner: false — stream の所有権は保持し、catch で一元 Dispose する。
+                    // WebView2 がレスポンスを消費し終えたら rangeStream.Dispose() が呼ばれ、
+                    // その際 ownsInner=false なので stream の二重 Dispose は起きない。
+                    var rangeStream = new SubStream(stream, start, length, ownsInner: false);
+                    try
+                    {
+                        e.Response = _webView.CoreWebView2.Environment
+                            .CreateWebResourceResponse(rangeStream, 206, "Partial Content",
+                                WebResourceHandler.BuildPartialResponseHeaders(mime, start, end, total));
+                    }
+                    catch
+                    {
+                        rangeStream.Dispose();
+                        throw;
+                    }
                 }
                 else
                 {
@@ -349,11 +370,18 @@ namespace WebView2AppHost
 
                     Invoke(new Action(() =>
                     {
-                        var oldIcon = _favicon;
-                        _favicon = newIcon;
-                        Icon     = newIcon;
-                        oldIcon?.Dispose();
-                        AppLog.Log("INFO", "App.SetupFaviconTracking", "適用完了");
+                        try
+                        {
+                            var oldIcon = _favicon;
+                            _favicon = newIcon;
+                            Icon     = newIcon;
+                            oldIcon?.Dispose();
+                            AppLog.Log("INFO", "App.SetupFaviconTracking", "適用完了");
+                        }
+                        catch (Exception invokeEx)
+                        {
+                            AppLog.Log("ERROR", "App.SetupFaviconTracking", "アイコン適用失敗", invokeEx);
+                        }
                     }));
                 }
                 catch (Exception ex)

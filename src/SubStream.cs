@@ -14,6 +14,7 @@ namespace WebView2AppHost
         private readonly long   _length;
         private readonly bool   _ownsInner;
         private          long   _position;
+        private readonly object _lock = new object();
 
         public SubStream(Stream inner, long offset, long length, bool ownsInner = true)
         {
@@ -31,10 +32,10 @@ namespace WebView2AppHost
 
         public override long Position
         {
-            get { lock (_inner) return _position; }
+            get { lock (_lock) return _position; }
             set
             {
-                lock (_inner)
+                lock (_lock)
                 {
                     _position = value;
                     _inner.Position = _offset + value;
@@ -44,7 +45,7 @@ namespace WebView2AppHost
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            lock (_inner)
+            lock (_lock)
             {
                 var remaining = _length - _position;
                 if (remaining <= 0) return 0;
@@ -58,7 +59,7 @@ namespace WebView2AppHost
 
         public override long Seek(long offset, SeekOrigin origin)
         {
-            lock (_inner)
+            lock (_lock)
             {
                 long newPos = origin switch
                 {

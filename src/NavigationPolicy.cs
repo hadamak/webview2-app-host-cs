@@ -34,7 +34,10 @@ namespace WebView2AppHost
             if (!isNewWindow && uri == "about:blank")
                 return Action.MarkClosing;
 
-            // https://app.local/ 以外の http(s) は既定のブラウザで開く
+            // https://app.local/ 以外の http(s) は既定のブラウザで開く。
+            // NOTE: http://app.local/（http、非 https）への遷移も OpenExternal になる。
+            //       これはリダイレクトや設定ミスによる意図しないアクセスを防ぐための
+            //       意図的な動作であり、アプリのコンテンツは https://app.local/ のみで提供する。
             if (!uri.StartsWith("https://app.local/") &&
                 (uri.StartsWith("http://") || uri.StartsWith("https://")))
                 return Action.OpenExternal;
