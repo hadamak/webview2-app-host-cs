@@ -1,6 +1,6 @@
 is_global = true
 build_property.RootNamespace = AppendZipTests
-build_property.ProjectDir = C:\Users\btqwm\Documents\webview2-app-host-cs\tests\AppendZipTests\
+build_property.ProjectDir = D:\Downloads\webview2-app-host-cs-fixed\webview2-app-host-cs-main\tests\AppendZipTests\
 build_property.EnableComHosting = 
 build_property.EnableGeneratedComInterfaceComImportInterop = 
 build_property.CsWinRTUseWindowsUIXamlProjections = false

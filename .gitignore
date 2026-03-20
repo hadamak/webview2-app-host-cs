@@ -3,3 +3,6 @@ src/obj/
 src/app.zip
 *.user
 .vs/
+tests/AppendZipTests/bin/
+tests/AppendZipTests/obj/
+dist/

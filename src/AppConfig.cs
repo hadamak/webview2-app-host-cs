@@ -12,10 +12,6 @@ namespace WebView2AppHost
     [DataContract]
     internal sealed class AppConfig
     {
-        /// <summary>
-        /// ストリームから JSON を読み込み、AppConfig インスタンスを生成する。
-        /// フォーマットエラーなどで失敗した場合は null を返す（フォールバック用）。
-        /// </summary>
         // ウィンドウサイズの許容範囲
         private const int MinSize   =  160;   // 操作可能な最小値
         private const int MaxWidth  = 7680;   // 8K 横
@@ -33,6 +29,10 @@ namespace WebView2AppHost
         [DataMember(Name = "fullscreen")]
         public bool Fullscreen { get; private set; } = false;
 
+        /// <summary>
+        /// ストリームから JSON を読み込み、AppConfig インスタンスを生成する。
+        /// フォーマットエラーなどで失敗した場合は null を返す（フォールバック用）。
+        /// </summary>
         public static AppConfig? Load(Stream stream)
         {
             try

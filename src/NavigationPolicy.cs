@@ -21,10 +21,17 @@ namespace WebView2AppHost
         /// <summary>
         /// URI を受け取り、アプリがとるべきアクションを返す。
         /// </summary>
-        public static Action Classify(string uri)
+        /// <param name="uri">遷移先の URI 文字列。</param>
+        /// <param name="isNewWindow">
+        /// true のとき NewWindowRequested 経由のナビゲーションとして扱う。
+        /// NewWindowRequested では about:blank が合法的に渡される場合があるため、
+        /// MarkClosing ではなく OpenExternal（ブロック）として処理する。
+        /// </param>
+        public static Action Classify(string uri, bool isNewWindow = false)
         {
-            // about:blank への遷移は終了処理の合図
-            if (uri == "about:blank")
+            // about:blank への遷移は終了処理の合図。
+            // ただし NewWindowRequested 経由の場合は終了シグナルではないため除外する。
+            if (!isNewWindow && uri == "about:blank")
                 return Action.MarkClosing;
 
             // https://app.local/ 以外の http(s) は既定のブラウザで開く

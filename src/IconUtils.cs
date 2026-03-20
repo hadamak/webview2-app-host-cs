@@ -23,8 +23,10 @@ namespace WebView2AppHost
                     w.Write((short)0);               // Reserved
                     w.Write((short)1);               // Type: 1 = ICO
                     w.Write((short)1);               // Count: 1 image
-                    w.Write((byte)bmp.Width);        // Width
-                    w.Write((byte)bmp.Height);       // Height
+                    // ICO 仕様: 256px 以上は 0 を書く（255 を超えると byte にキャストすると
+                    // 意図しない値になるため、明示的に判定する）。
+                    w.Write(bmp.Width  >= 256 ? (byte)0 : (byte)bmp.Width);   // Width
+                    w.Write(bmp.Height >= 256 ? (byte)0 : (byte)bmp.Height);  // Height
                     w.Write((byte)0);                // ColorCount
                     w.Write((byte)0);                // Reserved
                     w.Write((short)1);               // Planes

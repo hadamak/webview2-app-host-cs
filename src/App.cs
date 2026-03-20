@@ -120,7 +120,7 @@ namespace WebView2AppHost
             };
 
             // 外部リンク・ナビゲーションのハンドリング
-            wv.NewWindowRequested += (s, e) => HandleNavigation(e.Uri, () => e.Handled = true);
+            wv.NewWindowRequested += (s, e) => HandleNavigation(e.Uri, () => e.Handled = true, isNewWindow: true);
             wv.NavigationStarting += (s, e) => HandleNavigation(e.Uri, () => e.Cancel  = true);
 
             // 遷移完了時の判定（beforeunload を経て about:blank に到達した ＝ 終了承諾）
@@ -394,9 +394,9 @@ namespace WebView2AppHost
             catch (Exception ex) { AppLog.Log("ERROR", "App.OpenInDefaultBrowser", $"ブラウザで開けませんでした: {uri}", ex); }
         }
 
-        private void HandleNavigation(string uri, Action cancelAction)
+        private void HandleNavigation(string uri, Action cancelAction, bool isNewWindow = false)
         {
-            switch (NavigationPolicy.Classify(uri))
+            switch (NavigationPolicy.Classify(uri, isNewWindow))
             {
                 case NavigationPolicy.Action.MarkClosing:
                     _isClosingInProgress = true;
