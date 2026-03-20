@@ -243,7 +243,7 @@ namespace WebView2AppHost
                 else
                 {
                     // 成功時は WebView2 がレスポンス消費後に stream を Dispose する。
-// 失敗時（例外）のみ catch 側で明示的に Dispose する。
+                    // 失敗時（例外）のみ catch 側で明示的に Dispose する。
                     e.Response = _webView.CoreWebView2.Environment
                         .CreateWebResourceResponse(stream, 200, "OK",
                             WebResourceHandler.BuildFullResponseHeaders(mime, total));
@@ -291,7 +291,7 @@ namespace WebView2AppHost
             {
                 var wv = _webView.CoreWebView2;
 
-                AppLog.Warn("App.SetupFaviconTracking", $"FaviconChanged 発生, URI='{wv.FaviconUri}'");
+                AppLog.Info("App.SetupFaviconTracking", $"FaviconChanged 発生, URI='{wv.FaviconUri}'");
 
                 if (string.IsNullOrEmpty(wv.FaviconUri))
                 {
@@ -413,22 +413,6 @@ namespace WebView2AppHost
             var state = minimized ? "hidden" : "visible";
             _webView.CoreWebView2.PostWebMessageAsString(
                 $"{{\"event\":\"visibilityChange\",\"state\":\"{state}\"}}");
-        }
-
-        protected override void OnActivated(EventArgs e)
-        {
-            base.OnActivated(e);
-            if (_isMinimized || _webView.CoreWebView2 == null) return;
-            _webView.CoreWebView2.PostWebMessageAsString(
-                "{\"event\":\"visibilityChange\",\"state\":\"visible\"}");
-        }
-
-        protected override void OnDeactivate(EventArgs e)
-        {
-            base.OnDeactivate(e);
-            if (_isMinimized || _webView.CoreWebView2 == null) return;
-            _webView.CoreWebView2.PostWebMessageAsString(
-                "{\"event\":\"visibilityChange\",\"state\":\"hidden\"}");
         }
     }
 }
