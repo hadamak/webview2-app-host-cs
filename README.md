@@ -307,6 +307,8 @@ Debug ビルドでは自動的に有効です。Release ビルドで有効にし
 - `LICENSE`
 - `THIRD_PARTY_NOTICES.md`
 
+`docs/README_TEMPLATE.txt` に配布時に便利なREADMEテンプレートがあります。
+
 ### `www/` と ZIP のどちらを使うべきですか
 開発中は `www/`、配布時は ZIP か埋め込みが扱いやすいです。大きなメディアを扱う場合は `www/` が適しています。
 ファイルごとに適切な配置を選択できますので、どちらも同時に利用できます。
