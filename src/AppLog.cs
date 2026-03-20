@@ -6,7 +6,7 @@ namespace WebView2AppHost
 {
     /// <summary>
     /// アプリケーション全体の軽量ログユーティリティ。
-    /// Debug.WriteLine と %LOCALAPPDATA%\&lt;EXE名&gt;\error.log へのデュアル出力を行う。
+    /// Debug.WriteLine と %LOCALAPPDATA%\&lt;EXE名&gt;\app.log へのデュアル出力を行う。
     /// テスト時は Override プロパティで出力先を差し替え可能。
     /// </summary>
     internal static class AppLog
@@ -81,7 +81,7 @@ namespace WebView2AppHost
                     Process.GetCurrentProcess().MainModule?.FileName ?? "WebView2AppHost");
                 var localAppData = Environment.GetFolderPath(
                     Environment.SpecialFolder.LocalApplicationData);
-                _logPath = Path.Combine(localAppData, exeName, "error.log");
+                _logPath = Path.Combine(localAppData, exeName, "app.log");
                 return _logPath;
             }
             catch
