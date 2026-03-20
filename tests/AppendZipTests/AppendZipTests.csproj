@@ -10,6 +10,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\src\CloseRequestState.cs" />
+    <Compile Include="..\..\src\PopupWindowOptions.cs" />
     <Compile Include="..\..\src\ZipContentProvider.cs" />
     <Compile Include="..\..\src\SubStream.cs" />
     <Compile Include="..\..\src\WebResourceHandler.cs" />

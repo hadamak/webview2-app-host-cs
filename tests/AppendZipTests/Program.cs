@@ -63,6 +63,12 @@ namespace AppendZipTests
             // --- SubStream tests ---
             RunSubStreamTests();
 
+            // --- CloseRequestState tests ---
+            RunCloseRequestStateTests();
+
+            // --- PopupWindowOptions tests ---
+            RunPopupWindowOptionsTests();
+
             // --- NavigationPolicy tests ---
             RunNavigationPolicyTests();
 
@@ -109,9 +115,17 @@ namespace AppendZipTests
             var r5 = WebView2AppHost.WebResourceHandler.ParseRange("bytes=500-100", 1000);
             Assert(r5 == null, "ParseRange: reversed range returns null");
 
+            // Start beyond total
+            var r6 = WebView2AppHost.WebResourceHandler.ParseRange("bytes=1000-1001", 1000);
+            Assert(r6 == null, "ParseRange: start beyond total returns null");
+
+            // Open-ended start at EOF
+            var r7 = WebView2AppHost.WebResourceHandler.ParseRange("bytes=1000-", 1000);
+            Assert(r7 == null, "ParseRange: open-ended start at EOF returns null");
+
             // Invalid format
-            var r6 = WebView2AppHost.WebResourceHandler.ParseRange("invalid", 1000);
-            Assert(r6 == null, "ParseRange: invalid format returns null");
+            var r8 = WebView2AppHost.WebResourceHandler.ParseRange("invalid", 1000);
+            Assert(r8 == null, "ParseRange: invalid format returns null");
 
             Console.WriteLine("  ParseRange tests passed.");
         }
@@ -161,7 +175,145 @@ namespace AppendZipTests
                 Assert(read == 0, "SubStream: Read beyond length returns 0");
             }
 
+            // Disposing an owned SubStream should dispose the inner stream.
+            var owned = new TrackingStream();
+            using (var sub = new WebView2AppHost.SubStream(owned, 0, owned.Length))
+            {
+            }
+            Assert(owned.IsDisposed, "SubStream: disposing owned stream disposes inner");
+
+            // Disposing an unowned SubStream should leave the inner stream open.
+            using (var unowned = new TrackingStream())
+            {
+                using (var sub = new WebView2AppHost.SubStream(unowned, 0, unowned.Length, ownsInner: false))
+                {
+                }
+                Assert(!unowned.IsDisposed, "SubStream: ownsInner=false leaves inner stream open");
+            }
+
             Console.WriteLine("  SubStream tests passed.");
+        }
+
+        // =====================================================================
+        // CloseRequestState Tests
+        // =====================================================================
+
+        private static void RunCloseRequestStateTests()
+        {
+            var state = new WebView2AppHost.CloseRequestState();
+
+            Assert(!state.TryCompleteCloseNavigation(isSuccess: true),
+                "CloseRequestState: navigation without close attempt does not close");
+
+            Assert(state.ShouldConvertPageCloseRequestToHostClose(),
+                "CloseRequestState: page close request is converted when no host navigation is pending");
+
+            state.BeginHostCloseNavigation();
+            Assert(!state.ShouldConvertPageCloseRequestToHostClose(),
+                "CloseRequestState: host close navigation suppresses page-close conversion");
+            Assert(!state.TryCompleteCloseNavigation(isSuccess: false),
+                "CloseRequestState: failed close navigation does not close");
+            Assert(!state.IsClosingInProgress,
+                "CloseRequestState: failed close navigation clears in-progress state");
+            Assert(!state.IsHostCloseNavigationPending,
+                "CloseRequestState: failed close navigation clears host navigation pending state");
+            Assert(!state.IsClosingConfirmed,
+                "CloseRequestState: failed close navigation keeps confirmed state false");
+
+            state.BeginHostCloseNavigation();
+            state.CancelHostCloseNavigation();
+            Assert(!state.IsClosingInProgress,
+                "CloseRequestState: canceled host close clears in-progress state");
+            Assert(!state.IsHostCloseNavigationPending,
+                "CloseRequestState: canceled host close clears host navigation pending state");
+            Assert(state.ShouldConvertPageCloseRequestToHostClose(),
+                "CloseRequestState: canceled host close re-enables page-close conversion");
+
+            Assert(!state.TryCompleteCloseNavigation(isSuccess: true),
+                "CloseRequestState: stale state is not reused after cancellation");
+
+            state.BeginHostCloseNavigation();
+            Assert(state.TryCompleteCloseNavigation(isSuccess: true),
+                "CloseRequestState: successful host close navigation closes");
+            Assert(state.IsClosingConfirmed,
+                "CloseRequestState: successful host close navigation sets confirmed state");
+            Assert(!state.IsClosingInProgress,
+                "CloseRequestState: successful host close navigation clears in-progress state");
+            Assert(!state.IsHostCloseNavigationPending,
+                "CloseRequestState: successful host close navigation clears host navigation pending state");
+
+            Assert(!state.ShouldConvertPageCloseRequestToHostClose(),
+                "CloseRequestState: confirmed close does not re-enter page-close conversion");
+
+            Console.WriteLine("  CloseRequestState tests passed.");
+        }
+
+        // =====================================================================
+        // PopupWindowOptions Tests
+        // =====================================================================
+
+        private static void RunPopupWindowOptionsTests()
+        {
+            var requested = WebView2AppHost.PopupWindowOptions.FromRequestedFeatures(
+                hasPosition: true,
+                left: 120,
+                top: 80,
+                hasSize: true,
+                width: 640,
+                height: 360,
+                shouldDisplayMenuBar: false,
+                shouldDisplayStatus: false,
+                shouldDisplayToolbar: false,
+                shouldDisplayScrollBars: true,
+                fallbackWidth: 1280,
+                fallbackHeight: 720);
+
+            Assert(requested.HasPosition, "PopupWindowOptions: requested popup keeps position flag");
+            Assert(requested.Left == 120 && requested.Top == 80,
+                "PopupWindowOptions: requested popup keeps position");
+            Assert(requested.Width == 640 && requested.Height == 360,
+                "PopupWindowOptions: requested popup keeps size");
+            Assert(!requested.ShouldDisplayMenuBar && !requested.ShouldDisplayStatus && !requested.ShouldDisplayToolbar,
+                "PopupWindowOptions: requested popup keeps chrome flags");
+            Assert(requested.ShouldDisplayScrollBars,
+                "PopupWindowOptions: requested popup keeps scrollbar flag");
+
+            var fallback = WebView2AppHost.PopupWindowOptions.FromRequestedFeatures(
+                hasPosition: false,
+                left: 0,
+                top: 0,
+                hasSize: false,
+                width: 0,
+                height: 0,
+                shouldDisplayMenuBar: true,
+                shouldDisplayStatus: true,
+                shouldDisplayToolbar: true,
+                shouldDisplayScrollBars: true,
+                fallbackWidth: 1280,
+                fallbackHeight: 720);
+
+            Assert(!fallback.HasPosition, "PopupWindowOptions: fallback popup has no position");
+            Assert(fallback.Width == 1280 && fallback.Height == 720,
+                "PopupWindowOptions: fallback popup uses config size");
+
+            var zeroSize = WebView2AppHost.PopupWindowOptions.FromRequestedFeatures(
+                hasPosition: true,
+                left: 20,
+                top: 30,
+                hasSize: true,
+                width: 0,
+                height: 0,
+                shouldDisplayMenuBar: true,
+                shouldDisplayStatus: true,
+                shouldDisplayToolbar: true,
+                shouldDisplayScrollBars: false,
+                fallbackWidth: 800,
+                fallbackHeight: 600);
+
+            Assert(zeroSize.Width == 800 && zeroSize.Height == 600,
+                "PopupWindowOptions: zero size falls back to config size");
+
+            Console.WriteLine("  PopupWindowOptions tests passed.");
         }
 
         // =====================================================================
@@ -189,6 +341,18 @@ namespace AppendZipTests
                 WebView2AppHost.NavigationPolicy.Classify("http://example.com")
                     == WebView2AppHost.NavigationPolicy.Action.OpenExternal,
                 "NavigationPolicy: external http -> OpenExternal");
+
+            Assert(
+                WebView2AppHost.NavigationPolicy.ShouldOpenHostPopup("https://app.local/manual-popup.html"),
+                "NavigationPolicy: app.local popup stays in host");
+
+            Assert(
+                WebView2AppHost.NavigationPolicy.ShouldOpenHostPopup("about:blank"),
+                "NavigationPolicy: about:blank popup stays in host");
+
+            Assert(
+                !WebView2AppHost.NavigationPolicy.ShouldOpenHostPopup("https://example.com"),
+                "NavigationPolicy: external https popup does not stay in host");
 
             Console.WriteLine("  NavigationPolicy tests passed.");
         }
@@ -227,7 +391,8 @@ namespace AppendZipTests
                 WebView2AppHost.AppLog.Override = sw;
 
                 // Error 出力テスト
-                WebView2AppHost.AppLog.Error("TestSource", new InvalidOperationException("test error"));
+                WebView2AppHost.AppLog.Log(
+                    "ERROR", "TestSource", "test error", new InvalidOperationException("test error"));
                 var output = sw.ToString();
                 Assert(output.Contains("[ERROR]"), "AppLog.Error: contains [ERROR]");
                 Assert(output.Contains("TestSource"), "AppLog.Error: contains source");
@@ -236,7 +401,7 @@ namespace AppendZipTests
 
                 // Warn 出力テスト (message only)
                 sw.GetStringBuilder().Clear();
-                WebView2AppHost.AppLog.Warn("WarnSource", "warning message");
+                WebView2AppHost.AppLog.Log("WARN", "WarnSource", "warning message");
                 output = sw.ToString();
                 Assert(output.Contains("[WARN]"), "AppLog.Warn: contains [WARN]");
                 Assert(output.Contains("WarnSource"), "AppLog.Warn: contains source");
@@ -244,7 +409,8 @@ namespace AppendZipTests
 
                 // Warn 出力テスト (with exception)
                 sw.GetStringBuilder().Clear();
-                WebView2AppHost.AppLog.Warn("WarnExSource", "warn msg", new IOException("io fail"));
+                WebView2AppHost.AppLog.Log(
+                    "WARN", "WarnExSource", "warn msg", new IOException("io fail"));
                 output = sw.ToString();
                 Assert(output.Contains("[WARN]"), "AppLog.Warn+ex: contains [WARN]");
                 Assert(output.Contains("IOException"), "AppLog.Warn+ex: contains exception type");
@@ -332,7 +498,7 @@ namespace AppendZipTests
                     using var broken = new MemoryStream(Encoding.UTF8.GetBytes("{invalid json!!!"));
                     var result = WebView2AppHost.AppConfig.Load(broken);
                     Assert(result == null, "AppConfig: broken JSON returns null");
-                    Assert(logSw.ToString().Contains("[WARN]"), "AppConfig: broken JSON logs warning");
+                    Assert(logSw.ToString().Contains("[ERROR]"), "AppConfig: broken JSON logs error");
                 }
 
                 Console.WriteLine("  AppConfig tests passed.");

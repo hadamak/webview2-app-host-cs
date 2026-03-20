@@ -16,7 +16,9 @@ namespace WebView2AppHost
         /// </summary>
         public static (long start, long end)? ParseRange(string header, long total)
         {
-            var m = Regex.Match(header, @"bytes=(\d*)-(\d*)");
+            if (total <= 0) return null;
+
+            var m = Regex.Match(header, @"^bytes=(\d*)-(\d*)$");
             if (!m.Success) return null;
 
             var startStr = m.Groups[1].Value;
@@ -45,10 +47,11 @@ namespace WebView2AppHost
                 }
             }
 
-            if (start > end) return null;
-
             // end のクランプは維持（ブラウザが total を超えた end を送ることがある）
-            return (Math.Max(0, start), Math.Min(end, total - 1));
+            end = Math.Min(end, total - 1);
+            if (start >= total || start > end) return null;
+
+            return (Math.Max(0, start), end);
         }
 
         /// <summary>

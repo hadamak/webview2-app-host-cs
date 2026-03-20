@@ -19,6 +19,18 @@ namespace WebView2AppHost
         }
 
         /// <summary>
+        /// アプリ内コンテンツとして扱う URI かどうかを返す。
+        /// </summary>
+        public static bool IsAppLocalUri(string uri)
+            => uri.StartsWith("https://app.local/", System.StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// NewWindowRequested をホスト内の新規 WebView ウィンドウで受けるべき URI かどうかを返す。
+        /// </summary>
+        public static bool ShouldOpenHostPopup(string uri)
+            => uri == "about:blank" || IsAppLocalUri(uri);
+
+        /// <summary>
         /// URI を受け取り、アプリがとるべきアクションを返す。
         /// </summary>
         /// <param name="uri">遷移先の URI 文字列。</param>
@@ -38,7 +50,7 @@ namespace WebView2AppHost
             // NOTE: http://app.local/（http、非 https）への遷移も OpenExternal になる。
             //       これはリダイレクトや設定ミスによる意図しないアクセスを防ぐための
             //       意図的な動作であり、アプリのコンテンツは https://app.local/ のみで提供する。
-            if (!uri.StartsWith("https://app.local/") &&
+            if (!IsAppLocalUri(uri) &&
                 (uri.StartsWith("http://") || uri.StartsWith("https://")))
                 return Action.OpenExternal;
 

@@ -28,6 +28,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ManualWwwContent Include="$(MSBuildProjectDirectory)\..\web-content\manual-range.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Runtime.Serialization" />
@@ -40,6 +44,13 @@
   <!-- WPF は使用しないので出力から除外 -->
   <Target Name="RemoveWpfDll" AfterTargets="Build">
     <Delete Files="$(OutputPath)Microsoft.Web.WebView2.Wpf.dll" />
+  </Target>
+
+  <Target Name="CopyManualWwwContent" AfterTargets="Build">
+    <MakeDir Directories="$(TargetDir)www" />
+    <Copy SourceFiles="@(ManualWwwContent)"
+          DestinationFolder="$(TargetDir)www"
+          SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

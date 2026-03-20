@@ -12,13 +12,15 @@ namespace WebView2AppHost
         private readonly WebView2         _webView  = new WebView2();
         private readonly ZipContentProvider _zip;
         private readonly AppConfig        _config;
+        private readonly string           _initialUri;
+        private readonly bool             _disposeZipOnClose;
+        private readonly PopupWindowOptions? _popupWindowOptions;
 
         // visibilitychange 用
         private bool _isMinimized = false;
 
         // 終了確認用
-        private bool _isClosingConfirmed = false;
-        private bool _isClosingInProgress = false;
+        private readonly CloseRequestState _closeState = new CloseRequestState();
 
         // フルスクリーン用
         private bool             _isFullscreen    = false;
@@ -32,15 +34,25 @@ namespace WebView2AppHost
         // コンストラクタ
         // ---------------------------------------------------------------------------
 
-        public App(ZipContentProvider zip, AppConfig config)
+        public App(
+            ZipContentProvider zip,
+            AppConfig config,
+            string initialUri = "https://app.local/index.html",
+            bool disposeZipOnClose = false,
+            PopupWindowOptions? popupWindowOptions = null)
         {
-            _zip    = zip;
-            _config = config;
+            _zip               = zip;
+            _config            = config;
+            _initialUri        = initialUri;
+            _disposeZipOnClose = disposeZipOnClose;
+            _popupWindowOptions = popupWindowOptions;
 
             // ウィンドウ基本設定
             Text            = config.Title;
-            ClientSize      = new Size(config.Width, config.Height);
-            StartPosition   = FormStartPosition.CenterScreen;
+            ClientSize      = new Size(_popupWindowOptions?.Width ?? config.Width, _popupWindowOptions?.Height ?? config.Height);
+            StartPosition   = (_popupWindowOptions?.HasPosition == true) ? FormStartPosition.Manual : FormStartPosition.CenterScreen;
+            if (_popupWindowOptions?.HasPosition == true)
+                Location = new Point(_popupWindowOptions.Left, _popupWindowOptions.Top);
 
             // アイコン（EXE に埋め込まれたアイコンをそのまま使う）
             Icon = IconUtils.GetAppIcon();
@@ -121,26 +133,25 @@ namespace WebView2AppHost
             // beforeunload を通す経路に統一している。
             wv.WindowCloseRequested += (s, _) =>
             {
-                _isClosingInProgress = true;
+                if (_closeState.IsClosingConfirmed || _closeState.IsHostCloseNavigationPending)
+                    return;
+
+                _closeState.BeginHostCloseNavigation();
                 wv.Navigate("about:blank");
             };
 
             // 外部リンク・ナビゲーションのハンドリング
-            wv.NewWindowRequested += (s, e) => HandleNavigation(e.Uri, () => e.Handled = true, isNewWindow: true);
+            wv.NewWindowRequested += (s, e) => HandleNewWindowRequest(e);
             wv.NavigationStarting += (s, e) => HandleNavigation(e.Uri, () => e.Cancel  = true);
 
             // 遷移完了時の判定（beforeunload を経て about:blank に到達した ＝ 終了承諾）
             wv.NavigationCompleted += (s, e) =>
             {
-                if (_isClosingInProgress && wv.Source == "about:blank")
+                if (_closeState.TryCompleteCloseNavigation(e.IsSuccess))
                 {
-                    _isClosingConfirmed = true;
                     Close();
                 }
             };
-
-            // 標準のダイアログ（alert, confirm, prompt, beforeunload）を表示
-            wv.ScriptDialogOpening += (s, e) => { /* デフォルト動作 */ };
 
             // C# から JS へのイベント通知の土台 & window.close() の標準化。
             // NOTE: AddScriptToExecuteOnDocumentCreated はメインフレームにのみ適用される。
@@ -151,20 +162,69 @@ namespace WebView2AppHost
             await wv.AddScriptToExecuteOnDocumentCreatedAsync(@"
                 // window.close() を about:blank への遷移に置き換える。
                 // これによりセキュリティ制限を回避し、かつ beforeunload を確実に発火させる。
-                window.close = function() {
+                const __wv2HostClose = function() {
                     location.href = 'about:blank';
                 };
+                const __wv2InstallCloseOverride = function(target, propertyName) {
+                    if (!target) {
+                        return;
+                    }
+
+                    try {
+                        Object.defineProperty(target, propertyName, {
+                            value: __wv2HostClose,
+                            writable: false,
+                            configurable: true
+                        });
+                    } catch {
+                        try { target[propertyName] = __wv2HostClose; } catch {}
+                    }
+                };
+
+                __wv2InstallCloseOverride(window, 'close');
+                __wv2InstallCloseOverride(globalThis, 'close');
+                try { __wv2InstallCloseOverride(Window.prototype, 'close'); } catch {}
+
+                const __wv2VisibilityDeduper = {
+                    lastState: document.visibilityState,
+                    lastTick: 0
+                };
+
+                document.addEventListener('visibilitychange', function(event) {
+                    const now = Date.now();
+                    const state = document.visibilityState;
+
+                    // WebView2 の標準イベントとホスト補完イベントが近接して二重発火する場合、
+                    // 同一 state の後続イベントだけを capture 段階で止める。
+                    if (state === __wv2VisibilityDeduper.lastState &&
+                        (now - __wv2VisibilityDeduper.lastTick) < 250) {
+                        event.stopImmediatePropagation();
+                        event.stopPropagation();
+                        return;
+                    }
+
+                    __wv2VisibilityDeduper.lastState = state;
+                    __wv2VisibilityDeduper.lastTick = now;
+                }, true);
 
                 window.chrome.webview.addEventListener('message', function(e) {
                     let data;
                     try { data = JSON.parse(e.data); } catch { return; }
 
                     if (data.event === 'visibilityChange') {
+                        const desiredState = data.state === 'hidden' ? 'hidden' : 'visible';
+                        const desiredHidden = desiredState === 'hidden';
+
+                        // 既に同じ state に同期済みなら何もしない。
+                        if (document.visibilityState === desiredState && document.hidden === desiredHidden) {
+                            return;
+                        }
+
                         Object.defineProperty(document, 'visibilityState', {
-                            value: data.state, writable: true, configurable: true
+                            value: desiredState, writable: true, configurable: true
                         });
                         Object.defineProperty(document, 'hidden', {
-                            value: data.state === 'hidden', writable: true, configurable: true
+                            value: desiredHidden, writable: true, configurable: true
                         });
                         document.dispatchEvent(new Event('visibilitychange'));
                     }
@@ -185,7 +245,7 @@ namespace WebView2AppHost
             };
 
             // index.html へナビゲート
-            wv.Navigate("https://app.local/index.html");
+            wv.Navigate(_initialUri);
 
             // 起動時フルスクリーン
             if (_config.Fullscreen)
@@ -245,10 +305,9 @@ namespace WebView2AppHost
                     var length = end - start + 1;
 
                     stream.Seek(start, SeekOrigin.Begin);
-                    // ownsInner: false — stream の所有権は保持し、catch で一元 Dispose する。
-                    // WebView2 がレスポンスを消費し終えたら rangeStream.Dispose() が呼ばれ、
-                    // その際 ownsInner=false なので stream の二重 Dispose は起きない。
-                    var rangeStream = new SubStream(stream, start, length, ownsInner: false);
+                    // rangeStream がレスポンスの所有者となり、WebView2 により消費後 Dispose される。
+                    // 失敗時は下の catch で rangeStream.Dispose() を呼び、内側の stream まで閉じる。
+                    var rangeStream = new SubStream(stream, start, length);
                     try
                     {
                         e.Response = _webView.CoreWebView2.Environment
@@ -397,10 +456,11 @@ namespace WebView2AppHost
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            if (!_isClosingConfirmed && _webView.CoreWebView2 != null)
+            if (!_closeState.IsClosingConfirmed && _webView.CoreWebView2 != null)
             {
                 e.Cancel = true;
-                _isClosingInProgress = true;
+                if (!_closeState.IsHostCloseNavigationPending)
+                    _closeState.BeginHostCloseNavigation();
                 // about:blank への遷移を試みることで beforeunload を発火させる。
                 // ユーザーが承諾すれば遷移が完了し、NavigationCompleted でアプリを閉じる。
                 _webView.CoreWebView2.Navigate("about:blank");
@@ -422,12 +482,79 @@ namespace WebView2AppHost
             catch (Exception ex) { AppLog.Log("ERROR", "App.OpenInDefaultBrowser", $"ブラウザで開けませんでした: {uri}", ex); }
         }
 
+        private void OpenHostPopup(string uri, PopupWindowOptions popupOptions)
+        {
+            ZipContentProvider? popupZip = null;
+            try
+            {
+                popupZip = new ZipContentProvider();
+                if (!popupZip.Load())
+                {
+                    popupZip.Dispose();
+                    OpenInDefaultBrowser(uri);
+                    return;
+                }
+
+                var popup = new App(
+                    popupZip,
+                    _config,
+                    initialUri: uri,
+                    disposeZipOnClose: true,
+                    popupWindowOptions: popupOptions);
+                popup.Show();
+                popupZip = null;
+            }
+            catch (Exception ex)
+            {
+                popupZip?.Dispose();
+                AppLog.Log("ERROR", "App.OpenHostPopup", $"ホスト内ポップアップを開けませんでした: {uri}", ex);
+                OpenInDefaultBrowser(uri);
+            }
+        }
+
+        private void HandleNewWindowRequest(CoreWebView2NewWindowRequestedEventArgs e)
+        {
+            var uri = string.IsNullOrEmpty(e.Uri) ? "about:blank" : e.Uri;
+            var popupOptions = PopupWindowOptions.FromRequestedFeatures(
+                hasPosition: e.WindowFeatures.HasPosition,
+                left: e.WindowFeatures.Left,
+                top: e.WindowFeatures.Top,
+                hasSize: e.WindowFeatures.HasSize,
+                width: e.WindowFeatures.Width,
+                height: e.WindowFeatures.Height,
+                shouldDisplayMenuBar: e.WindowFeatures.ShouldDisplayMenuBar,
+                shouldDisplayStatus: e.WindowFeatures.ShouldDisplayStatus,
+                shouldDisplayToolbar: e.WindowFeatures.ShouldDisplayToolbar,
+                shouldDisplayScrollBars: e.WindowFeatures.ShouldDisplayScrollBars,
+                fallbackWidth: _config.Width,
+                fallbackHeight: _config.Height);
+
+            switch (NavigationPolicy.Classify(uri, isNewWindow: true))
+            {
+                case NavigationPolicy.Action.OpenExternal:
+                    e.Handled = true;
+                    OpenInDefaultBrowser(uri);
+                    break;
+                case NavigationPolicy.Action.Allow:
+                    if (NavigationPolicy.ShouldOpenHostPopup(uri))
+                    {
+                        e.Handled = true;
+                        OpenHostPopup(uri, popupOptions);
+                    }
+                    break;
+                case NavigationPolicy.Action.MarkClosing:
+                default:
+                    break;
+            }
+        }
+
         private void HandleNavigation(string uri, Action cancelAction, bool isNewWindow = false)
         {
             switch (NavigationPolicy.Classify(uri, isNewWindow))
             {
                 case NavigationPolicy.Action.MarkClosing:
-                    _isClosingInProgress = true;
+                    if (!_closeState.IsClosingConfirmed && !_closeState.IsHostCloseNavigationPending)
+                        _closeState.BeginHostCloseNavigation();
                     break;
                 case NavigationPolicy.Action.OpenExternal:
                     cancelAction();
@@ -452,6 +579,17 @@ namespace WebView2AppHost
             var state = minimized ? "hidden" : "visible";
             _webView.CoreWebView2.PostWebMessageAsString(
                 $"{{\"event\":\"visibilityChange\",\"state\":\"{state}\"}}");
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _favicon?.Dispose();
+                if (_disposeZipOnClose)
+                    _zip.Dispose();
+            }
+            base.Dispose(disposing);
         }
     }
 }
