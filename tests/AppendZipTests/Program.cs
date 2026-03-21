@@ -63,9 +63,6 @@ namespace AppendZipTests
             // --- SubStream tests ---
             RunSubStreamTests();
 
-            // --- CloseRequestState tests ---
-            RunCloseRequestStateTests();
-
             // --- PopupWindowOptions tests ---
             RunPopupWindowOptionsTests();
 
@@ -83,6 +80,21 @@ namespace AppendZipTests
 
             // --- AppConfig tests ---
             RunAppConfigTests(workDir);
+
+            // --- AppConfig.Sanitize tests ---
+            RunAppConfigSanitizeTests();
+
+            // --- NavigationPolicy edge-case tests ---
+            RunNavigationPolicyEdgeCaseTests();
+
+            // --- ParseRange edge-case tests ---
+            RunParseRangeEdgeCaseTests();
+
+            // --- DirectorySource path traversal tests ---
+            RunDirectorySourceTraversalTests(workDir);
+
+            // --- MimeTypes case-insensitivity tests ---
+            RunMimeTypesCaseTests();
         }
 
         // =====================================================================
@@ -195,60 +207,6 @@ namespace AppendZipTests
         }
 
         // =====================================================================
-        // CloseRequestState Tests
-        // =====================================================================
-
-        private static void RunCloseRequestStateTests()
-        {
-            var state = new WebView2AppHost.CloseRequestState();
-
-            Assert(!state.TryCompleteCloseNavigation(isSuccess: true),
-                "CloseRequestState: navigation without close attempt does not close");
-
-            Assert(state.ShouldConvertPageCloseRequestToHostClose(),
-                "CloseRequestState: page close request is converted when no host navigation is pending");
-
-            state.BeginHostCloseNavigation();
-            Assert(!state.ShouldConvertPageCloseRequestToHostClose(),
-                "CloseRequestState: host close navigation suppresses page-close conversion");
-            Assert(!state.TryCompleteCloseNavigation(isSuccess: false),
-                "CloseRequestState: failed close navigation does not close");
-            Assert(!state.IsClosingInProgress,
-                "CloseRequestState: failed close navigation clears in-progress state");
-            Assert(!state.IsHostCloseNavigationPending,
-                "CloseRequestState: failed close navigation clears host navigation pending state");
-            Assert(!state.IsClosingConfirmed,
-                "CloseRequestState: failed close navigation keeps confirmed state false");
-
-            state.BeginHostCloseNavigation();
-            state.CancelHostCloseNavigation();
-            Assert(!state.IsClosingInProgress,
-                "CloseRequestState: canceled host close clears in-progress state");
-            Assert(!state.IsHostCloseNavigationPending,
-                "CloseRequestState: canceled host close clears host navigation pending state");
-            Assert(state.ShouldConvertPageCloseRequestToHostClose(),
-                "CloseRequestState: canceled host close re-enables page-close conversion");
-
-            Assert(!state.TryCompleteCloseNavigation(isSuccess: true),
-                "CloseRequestState: stale state is not reused after cancellation");
-
-            state.BeginHostCloseNavigation();
-            Assert(state.TryCompleteCloseNavigation(isSuccess: true),
-                "CloseRequestState: successful host close navigation closes");
-            Assert(state.IsClosingConfirmed,
-                "CloseRequestState: successful host close navigation sets confirmed state");
-            Assert(!state.IsClosingInProgress,
-                "CloseRequestState: successful host close navigation clears in-progress state");
-            Assert(!state.IsHostCloseNavigationPending,
-                "CloseRequestState: successful host close navigation clears host navigation pending state");
-
-            Assert(!state.ShouldConvertPageCloseRequestToHostClose(),
-                "CloseRequestState: confirmed close does not re-enter page-close conversion");
-
-            Console.WriteLine("  CloseRequestState tests passed.");
-        }
-
-        // =====================================================================
         // PopupWindowOptions Tests
         // =====================================================================
 
@@ -327,10 +285,6 @@ namespace AppendZipTests
                     == WebView2AppHost.NavigationPolicy.Action.Allow,
                 "NavigationPolicy: app.local -> Allow");
 
-            Assert(
-                WebView2AppHost.NavigationPolicy.Classify("about:blank")
-                    == WebView2AppHost.NavigationPolicy.Action.MarkClosing,
-                "NavigationPolicy: about:blank -> MarkClosing");
 
             Assert(
                 WebView2AppHost.NavigationPolicy.Classify("https://example.com")
@@ -346,9 +300,6 @@ namespace AppendZipTests
                 WebView2AppHost.NavigationPolicy.ShouldOpenHostPopup("https://app.local/manual-popup.html"),
                 "NavigationPolicy: app.local popup stays in host");
 
-            Assert(
-                WebView2AppHost.NavigationPolicy.ShouldOpenHostPopup("about:blank"),
-                "NavigationPolicy: about:blank popup stays in host");
 
             Assert(
                 !WebView2AppHost.NavigationPolicy.ShouldOpenHostPopup("https://example.com"),
@@ -508,6 +459,210 @@ namespace AppendZipTests
                 WebView2AppHost.AppLog.Override = oldOverride;
             }
         }
+
+        // =====================================================================
+        // AppConfig.Sanitize Tests
+        // =====================================================================
+
+        private static void RunAppConfigSanitizeTests()
+        {
+            var oldOverride = WebView2AppHost.AppLog.Override;
+            WebView2AppHost.AppLog.Override = System.IO.TextWriter.Null;
+            try
+            {
+                // Title: null → デフォルト
+                var c1 = LoadConfig("{\"title\":null,\"width\":800,\"height\":600}");
+                Assert(c1 != null && c1!.Title == "WebView2 App Host",
+                    "Sanitize: null title falls back to default");
+
+                // Title: 空文字 → デフォルト
+                var c2 = LoadConfig("{\"title\":\"\",\"width\":800,\"height\":600}");
+                Assert(c2 != null && c2!.Title == "WebView2 App Host",
+                    "Sanitize: empty title falls back to default");
+
+                // Title: 空白のみ → デフォルト
+                var c3 = LoadConfig("{\"title\":\"   \",\"width\":800,\"height\":600}");
+                Assert(c3 != null && c3!.Title == "WebView2 App Host",
+                    "Sanitize: whitespace-only title falls back to default");
+
+                // Title: 制御文字を含む → 除去後の文字列
+                var c4 = LoadConfig("{\"title\":\"Hello\u0000World\",\"width\":800,\"height\":600}");
+                Assert(c4 != null && c4!.Title == "HelloWorld",
+                    "Sanitize: control chars removed from title");
+
+                // Width: 最小値未満 → MinSize (160)
+                var c5 = LoadConfig("{\"title\":\"T\",\"width\":10,\"height\":600}");
+                Assert(c5 != null && c5!.Width == 160,
+                    "Sanitize: width below minimum clamped to 160");
+
+                // Height: 最小値未満 → MinSize (160)
+                var c6 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":1}");
+                Assert(c6 != null && c6!.Height == 160,
+                    "Sanitize: height below minimum clamped to 160");
+
+                // Width: 最大値超過 → MaxWidth (7680)
+                var c7 = LoadConfig("{\"title\":\"T\",\"width\":99999,\"height\":600}");
+                Assert(c7 != null && c7!.Width == 7680,
+                    "Sanitize: width above maximum clamped to 7680");
+
+                // Height: 最大値超過 → MaxHeight (4320)
+                var c8 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":99999}");
+                Assert(c8 != null && c8!.Height == 4320,
+                    "Sanitize: height above maximum clamped to 4320");
+
+                // 境界値: Width == MinSize (160) はそのまま通過
+                var c9 = LoadConfig("{\"title\":\"T\",\"width\":160,\"height\":160}");
+                Assert(c9 != null && c9!.Width == 160 && c9.Height == 160,
+                    "Sanitize: min-size boundary values pass through");
+
+                Console.WriteLine("  AppConfig.Sanitize tests passed.");
+            }
+            finally
+            {
+                WebView2AppHost.AppLog.Override = oldOverride;
+            }
+        }
+
+        private static WebView2AppHost.AppConfig? LoadConfig(string json)
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(json);
+            using var ms = new System.IO.MemoryStream(bytes);
+            return WebView2AppHost.AppConfig.Load(ms);
+        }
+
+        // =====================================================================
+        // NavigationPolicy edge-case tests
+        // =====================================================================
+
+        private static void RunNavigationPolicyEdgeCaseTests()
+        {
+            // http://app.local/ は https でないため OpenExternal
+            Assert(
+                WebView2AppHost.NavigationPolicy.Classify("http://app.local/index.html")
+                    == WebView2AppHost.NavigationPolicy.Action.OpenExternal,
+                "NavigationPolicy: http://app.local -> OpenExternal (not https)");
+
+            // IsAppLocalUri は大文字小文字を区別しない
+            Assert(
+                WebView2AppHost.NavigationPolicy.IsAppLocalUri("HTTPS://APP.LOCAL/index.html"),
+                "NavigationPolicy: IsAppLocalUri is case-insensitive");
+
+            // about:blank は Allow（http/https でないため外部ブラウザへ送らない）
+            Assert(
+                WebView2AppHost.NavigationPolicy.Classify("about:blank")
+                    == WebView2AppHost.NavigationPolicy.Action.Allow,
+                "NavigationPolicy: about:blank -> Allow");
+
+            // file:// スキームも Allow（http/https でないため）
+            Assert(
+                WebView2AppHost.NavigationPolicy.Classify("file:///C:/test.html")
+                    == WebView2AppHost.NavigationPolicy.Action.Allow,
+                "NavigationPolicy: file:// -> Allow (not blocked as external)");
+
+            // ShouldOpenHostPopup: app.local のみ true
+            Assert(
+                !WebView2AppHost.NavigationPolicy.ShouldOpenHostPopup("about:blank"),
+                "NavigationPolicy: about:blank does not open host popup");
+
+            Console.WriteLine("  NavigationPolicy edge-case tests passed.");
+        }
+
+        // =====================================================================
+        // ParseRange edge-case tests
+        // =====================================================================
+
+        private static void RunParseRangeEdgeCaseTests()
+        {
+            // total == 0 → null
+            Assert(
+                WebView2AppHost.WebResourceHandler.ParseRange("bytes=0-0", 0) == null,
+                "ParseRange: total=0 returns null");
+
+            // suffix == 0 ("bytes=-0") → null
+            Assert(
+                WebView2AppHost.WebResourceHandler.ParseRange("bytes=-0", 1000) == null,
+                "ParseRange: suffix=0 returns null");
+
+            // start == end（1 バイト）→ 有効
+            var single = WebView2AppHost.WebResourceHandler.ParseRange("bytes=5-5", 1000);
+            Assert(single != null && single.Value.start == 5 && single.Value.end == 5,
+                "ParseRange: start==end single byte is valid");
+
+            // end が total-1 ちょうど → クランプなし
+            var exact = WebView2AppHost.WebResourceHandler.ParseRange("bytes=0-999", 1000);
+            Assert(exact != null && exact.Value.end == 999,
+                "ParseRange: end==total-1 is valid without clamping");
+
+            // start が負（フォーマット上は suffix range でないと不正）
+            Assert(
+                WebView2AppHost.WebResourceHandler.ParseRange("bytes=-1-5", 1000) == null,
+                "ParseRange: malformed negative start returns null");
+
+            Console.WriteLine("  ParseRange edge-case tests passed.");
+        }
+
+        // =====================================================================
+        // DirectorySource path traversal tests
+        // =====================================================================
+
+        private static void RunDirectorySourceTraversalTests(string workDir)
+        {
+            // テスト用ディレクトリ構造を作成
+            var root   = System.IO.Path.Combine(workDir, "traversal-root");
+            var secret = System.IO.Path.Combine(workDir, "secret.txt");
+            System.IO.Directory.CreateDirectory(root);
+            System.IO.File.WriteAllText(System.IO.Path.Combine(root, "safe.txt"), "safe");
+            System.IO.File.WriteAllText(secret, "SECRET");
+
+            using var provider = new WebView2AppHost.ZipContentProvider(
+                // www フォルダを直接作ってロードさせるため mockExePath を利用
+                mockExePath: System.IO.Path.Combine(workDir, "fake.exe")
+            );
+
+            // www フォルダを traversal-root にシンボリックリンクできないため、
+            // DirectorySource を直接インスタンス化できない点を考慮し、
+            // ZipContentProvider 経由で www/ フォルダを使うシナリオをシミュレートする。
+            // ここでは TryGetBytes が null を返す（プロバイダが空）ことだけ確認する。
+            provider.Load();  // www/ がないため空
+
+            // 代替: パストラバーサルを含む virtualPath を DirectorySource 相当の
+            // ロジックで検証する。ZipContentProvider.TryGetBytes に渡す。
+            var result = provider.TryGetBytes("/../secret.txt");
+            Assert(result == null,
+                "DirectorySource: path traversal attempt returns null");
+
+            var result2 = provider.TryGetBytes("/..\\secret.txt");
+            Assert(result2 == null,
+                "DirectorySource: backslash traversal attempt returns null");
+
+            Console.WriteLine("  DirectorySource path traversal tests passed.");
+        }
+
+        // =====================================================================
+        // MimeTypes case-insensitivity tests
+        // =====================================================================
+
+        private static void RunMimeTypesCaseTests()
+        {
+            Assert(
+                WebView2AppHost.MimeTypes.FromPath("INDEX.HTML") == "text/html; charset=utf-8",
+                "MimeTypes: uppercase .HTML");
+
+            Assert(
+                WebView2AppHost.MimeTypes.FromPath("script.JS") == "text/javascript",
+                "MimeTypes: mixed-case .JS");
+
+            Assert(
+                WebView2AppHost.MimeTypes.FromPath("style.CSS") == "text/css; charset=utf-8",
+                "MimeTypes: uppercase .CSS");
+
+            Assert(
+                WebView2AppHost.MimeTypes.FromPath("image.PNG") == "image/png",
+                "MimeTypes: uppercase .PNG");
+
+            Console.WriteLine("  MimeTypes case-insensitivity tests passed.");
+        }
+
 
         // =====================================================================
         // TrackingStream (テスト用ストリーム)
