@@ -207,7 +207,6 @@ cmd /c copy /b src\bin\x64\Release\net472\WebView2AppHost.exe + src\app.zip src\
 | キー | 型 | デフォルト | 説明 |
 |---|---:|---:|---|
 | `title` | string | `"WebView2 App Host"` | 起動時のウィンドウタイトルの初期値 |
-| `icon` | string | なし | 起動時に使う既定アイコンの設定値（実体は `resources/app.ico`） |
 | `width` | int | `1280` | 初期幅（ピクセル） |
 | `height` | int | `720` | 初期高さ（ピクセル） |
 | `fullscreen` | bool | `false` | フルスクリーン起動するかどうか |
