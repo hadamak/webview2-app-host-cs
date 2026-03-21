@@ -42,10 +42,15 @@
     <Delete Files="$(OutputPath)Microsoft.Web.WebView2.Wpf.dll" />
   </Target>
 
+  <!-- Debug ビルド時のみ test-www/ をそのまま出力先 www/ へコピーする -->
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <ManualWwwContent Include="$(MSBuildProjectDirectory)\..\test-www\**\*" />
+  </ItemGroup>
+
   <Target Name="CopyManualWwwContent" AfterTargets="Build">
     <MakeDir Directories="$(TargetDir)www" />
     <Copy SourceFiles="@(ManualWwwContent)"
-          DestinationFolder="$(TargetDir)www"
+          DestinationFiles="@(ManualWwwContent->'$(TargetDir)www\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 

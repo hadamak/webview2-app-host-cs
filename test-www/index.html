@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ホストテスト</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 13px;
+    background: #f5f5f5;
+    color: #222;
+    padding: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+    align-items: start;
+  }
+
+  h1 {
+    grid-column: 1 / -1;
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  .card {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 12px 14px;
+  }
+
+  .card h2 {
+    font-size: 12px;
+    font-weight: 600;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 8px;
+    margin-bottom: 10px;
+  }
+
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .row:last-child { margin-bottom: 0; }
+
+  label { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+
+  button {
+    padding: 4px 12px;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    background: #fafafa;
+    cursor: pointer;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  button:hover { background: #f0f0f0; }
+  button:active { background: #e8e8e8; }
+  button.danger { border-color: #e57; color: #c33; }
+  button.danger:hover { background: #fff0f3; }
+
+  .result {
+    font-size: 11px;
+    color: #666;
+    background: #f9f9f9;
+    border: 1px solid #eee;
+    border-radius: 3px;
+    padding: 4px 7px;
+    min-height: 22px;
+    word-break: break-all;
+    margin-top: 8px;
+  }
+  .result.ok   { color: #27a; border-color: #bde; background: #f0f8ff; }
+  .result.warn { color: #a70; border-color: #ed9; background: #fffbf0; }
+  .result.err  { color: #c33; border-color: #fbb; background: #fff5f5; }
+
+  #favicon-preview {
+    width: 24px; height: 24px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    image-rendering: pixelated;
+    flex-shrink: 0;
+  }
+
+  input[type="text"], input[type="color"] {
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    padding: 3px 7px;
+    font-size: 12px;
+  }
+  input[type="text"] { width: 180px; }
+  input[type="color"] { width: 40px; height: 26px; padding: 1px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<h1 id="page-title">WebView2 ホストテスト
+  <span id="window-tag" style="font-weight:400;color:#888;margin-left:8px;"></span>
+</h1>
+
+
+<!-- ① beforeunload / ウィンドウクローズ -->
+<div class="card">
+  <h2>① beforeunload / クローズ</h2>
+  <div class="row">
+    <label><input type="checkbox" id="chk-beforeunload"> beforeunload 有効</label>
+  </div>
+  <div class="row">
+    <button onclick="doClose()">window.close()</button>
+    <button onclick="doCloseViaBlank()">about:blank → close</button>
+  </div>
+  <div class="result" id="res-close">—</div>
+</div>
+
+
+<!-- ② window.open ポップアップ / 外部リンク -->
+<div class="card" id="card-popup">
+  <h2>② ポップアップ / 外部リンク</h2>
+  <div class="row">
+    <button onclick="openPopup()">app.local ポップアップ</button>
+    <span style="font-size:11px;color:#888">→ ホスト内新ウィンドウ</span>
+  </div>
+  <div class="row">
+    <button onclick="openExternal()">外部 URL を開く</button>
+    <span style="font-size:11px;color:#888">→ 既定ブラウザ</span>
+  </div>
+  <div class="result" id="res-popup">—</div>
+</div>
+
+
+<!-- ③ ドキュメントタイトル -->
+<div class="card">
+  <h2>③ ドキュメントタイトル</h2>
+  <div class="row">
+    <input type="text" id="inp-title" value="カスタムタイトル" placeholder="タイトル文字列">
+    <button onclick="applyTitle()">適用</button>
+    <button onclick="resetTitle()">リセット</button>
+  </div>
+  <div class="result" id="res-title">ウィンドウタイトルが変化することを確認してください</div>
+</div>
+
+
+<!-- ④ favicon -->
+<div class="card">
+  <h2>④ Favicon</h2>
+  <div class="row">
+    <label>色:<input type="color" id="inp-favicon-color" value="#0078d4"></label>
+    <button onclick="applyFavicon()">Canvas で生成して適用</button>
+    <button onclick="clearFavicon()">クリア</button>
+    <img id="favicon-preview" alt="favicon">
+  </div>
+  <div class="result" id="res-favicon">ウィンドウアイコンが変化することを確認してください</div>
+</div>
+
+
+<!-- ⑤ フルスクリーン -->
+<div class="card">
+  <h2>⑤ フルスクリーン</h2>
+  <div class="row">
+    <button onclick="requestFullscreen()">requestFullscreen()</button>
+    <button onclick="exitFullscreen()">exitFullscreen()</button>
+  </div>
+  <div class="result" id="res-fs">document.fullscreenElement: なし</div>
+</div>
+
+
+<!-- ⑥ visibilityState（最小化） -->
+<div class="card">
+  <h2>⑥ visibilityState（最小化連動）</h2>
+  <div class="row">
+    <span style="font-size:11px;color:#888">ウィンドウを最小化・復元してください</span>
+  </div>
+  <div class="result" id="res-visibility">visibilityState: <b id="vs-state">—</b></div>
+  <div style="margin-top:8px;font-size:11px;color:#777;">
+    変化ログ（最新5件）：
+    <div id="vs-log" style="font-family:monospace;margin-top:4px;line-height:1.6;"></div>
+  </div>
+</div>
+
+
+<!-- ⑦ ナビゲーション -->
+<div class="card" id="card-nav">
+  <h2>⑦ ナビゲーション</h2>
+  <div class="row">
+    <a href="page2.html">page2.html へ遷移（同一オリジン）</a>
+  </div>
+  <div class="row">
+    <a href="https://example.com" target="_self">外部 URL を _self で開く</a>
+    <span style="font-size:11px;color:#888">→ 既定ブラウザへ</span>
+  </div>
+</div>
+
+
+<script>
+// ---------------------------------------------------------------------------
+// 初期設定
+// ---------------------------------------------------------------------------
+const isPopup = !!window.opener;
+document.getElementById('window-tag').textContent = isPopup ? '（子ウィンドウ）' : '（メインウィンドウ）';
+if (isPopup) {
+  document.getElementById('card-popup').remove();
+  document.getElementById('card-nav').remove();
+}
+
+// ---------------------------------------------------------------------------
+// ① beforeunload / クローズ
+// ---------------------------------------------------------------------------
+const chk = document.getElementById('chk-beforeunload');
+function onBeforeUnload(e) { e.preventDefault(); e.returnValue = ''; }
+chk.addEventListener('change', function () {
+  if (this.checked) {
+    window.addEventListener('beforeunload', onBeforeUnload);
+    setResult('res-close', 'beforeunload ハンドラ登録済み', 'ok');
+  } else {
+    window.removeEventListener('beforeunload', onBeforeUnload);
+    setResult('res-close', 'beforeunload ハンドラ解除', '');
+  }
+});
+
+function doClose() {
+  setResult('res-close', 'window.close() 呼び出し', 'warn');
+  window.close();
+}
+function doCloseViaBlank() {
+  setResult('res-close', 'about:blank 遷移 → window.close()', 'warn');
+  window.open('about:blank', '_self');
+  window.close();
+}
+
+// ---------------------------------------------------------------------------
+// ② ポップアップ / 外部リンク
+// ---------------------------------------------------------------------------
+function openPopup() {
+  const popup = window.open(
+    location.href, '_blank',
+    'width=480,height=400,left=120,top=120'
+  );
+  setResult('res-popup', popup ? '子ウィンドウ open 成功' : 'open が null を返した', popup ? 'ok' : 'err');
+}
+function openExternal() {
+  const w = window.open('https://example.com', '_blank');
+  setResult('res-popup', '外部 URL を open — 既定ブラウザで開かれるはず', 'warn');
+}
+
+// ---------------------------------------------------------------------------
+// ③ タイトル
+// ---------------------------------------------------------------------------
+const originalTitle = document.title;
+function applyTitle() {
+  const v = document.getElementById('inp-title').value.trim();
+  if (!v) return;
+  document.title = v;
+  setResult('res-title', `title を "${v}" に変更 — ウィンドウタイトルを確認`, 'ok');
+}
+function resetTitle() {
+  document.title = originalTitle;
+  setResult('res-title', `title を "${originalTitle}" にリセット`, '');
+}
+
+// ---------------------------------------------------------------------------
+// ④ Favicon
+// ---------------------------------------------------------------------------
+let faviconLink = document.querySelector('link[rel="icon"]');
+if (!faviconLink) {
+  faviconLink = document.createElement('link');
+  faviconLink.rel = 'icon';
+  document.head.appendChild(faviconLink);
+}
+function applyFavicon() {
+  const color = document.getElementById('inp-favicon-color').value;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(16, 16, 14, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.font = 'bold 18px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('T', 16, 17);
+  const dataUrl = canvas.toDataURL('image/png');
+  faviconLink.href = dataUrl;
+  document.getElementById('favicon-preview').src = dataUrl;
+  setResult('res-favicon', `favicon を ${color} の円で更新 — ウィンドウアイコンを確認`, 'ok');
+}
+function clearFavicon() {
+  faviconLink.href = '';
+  document.getElementById('favicon-preview').src = '';
+  setResult('res-favicon', 'favicon をクリア — ウィンドウアイコンが EXE アイコンに戻ることを確認', '');
+}
+
+// ---------------------------------------------------------------------------
+// ⑤ フルスクリーン
+// ---------------------------------------------------------------------------
+function requestFullscreen() {
+  document.documentElement.requestFullscreen().then(() => {
+    setResult('res-fs', 'requestFullscreen() 成功 — ウィンドウが全画面になることを確認', 'ok');
+  }).catch(e => {
+    setResult('res-fs', 'requestFullscreen() 失敗: ' + e.message, 'err');
+  });
+}
+function exitFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+    setResult('res-fs', 'exitFullscreen() 呼び出し', '');
+  } else {
+    setResult('res-fs', 'フルスクリーンではありません', 'warn');
+  }
+}
+document.addEventListener('fullscreenchange', () => {
+  const el = document.fullscreenElement;
+  setResult('res-fs', 'fullscreenElement: ' + (el ? el.tagName : 'なし'), el ? 'ok' : '');
+});
+
+// ---------------------------------------------------------------------------
+// ⑥ visibilityState
+// ---------------------------------------------------------------------------
+const vsLog = [];
+function logVs(state) {
+  const t = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+  vsLog.unshift(`${t}  ${state}`);
+  if (vsLog.length > 5) vsLog.pop();
+  document.getElementById('vs-log').textContent = vsLog.join('\n');
+  document.getElementById('vs-state').textContent = state;
+  document.getElementById('res-visibility').className = 'result ' + (state === 'hidden' ? 'warn' : 'ok');
+}
+document.addEventListener('visibilitychange', () => {
+  logVs(document.visibilityState);
+});
+// 初期状態
+logVs(document.visibilityState);
+
+// ---------------------------------------------------------------------------
+// ユーティリティ
+// ---------------------------------------------------------------------------
+function setResult(id, msg, type) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'result' + (type ? ' ' + type : '');
+}
+</script>
+
+</body>
+</html>

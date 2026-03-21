@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ページ2（遷移後）</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; font-size: 13px; background: #f5f5f5; color: #222; padding: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+  h1 { grid-column: 1 / -1; font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 12px 14px; }
+  .card h2 { font-size: 12px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 10px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .row:last-child { margin-bottom: 0; }
+  label { display: flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+  button { padding: 4px 12px; border: 1px solid #bbb; border-radius: 4px; background: #fafafa; cursor: pointer; font-size: 12px; white-space: nowrap; }
+  button:hover { background: #f0f0f0; }
+  .result { font-size: 11px; color: #666; background: #f9f9f9; border: 1px solid #eee; border-radius: 3px; padding: 4px 7px; min-height: 22px; margin-top: 8px; }
+  .result.ok { color: #27a; border-color: #bde; background: #f0f8ff; }
+  .result.warn { color: #a70; border-color: #ed9; background: #fffbf0; }
+  .note { font-size: 11px; color: #888; grid-column: 1 / -1; }
+</style>
+</head>
+<body>
+
+<h1>ページ2 — ユーザー遷移後のクローズ確認</h1>
+<p class="note">
+  index.html からリンクで遷移してきたページです。<br>
+  この状態（ユーザー操作による遷移後）での window.close() の動作を確認します。
+</p>
+
+<!-- beforeunload / クローズ（index.html と同じ構成） -->
+<div class="card">
+  <h2>beforeunload / クローズ</h2>
+  <div class="row">
+    <label><input type="checkbox" id="chk-beforeunload"> beforeunload 有効</label>
+  </div>
+  <div class="row">
+    <button onclick="doClose()">window.close()</button>
+    <button onclick="doCloseViaBlank()">about:blank → close</button>
+  </div>
+  <div class="result" id="res-close">—</div>
+</div>
+
+<!-- ナビゲーション履歴 -->
+<div class="card">
+  <h2>ナビゲーション</h2>
+  <div class="row">
+    <button onclick="history.back()">← history.back()</button>
+    <a href="index.html">index.html へ戻る</a>
+  </div>
+  <div class="result" id="res-nav">history.length: <span id="hl">—</span></div>
+</div>
+
+<script>
+document.getElementById('hl').textContent = history.length;
+
+const chk = document.getElementById('chk-beforeunload');
+function onBeforeUnload(e) { e.preventDefault(); e.returnValue = ''; }
+chk.addEventListener('change', function () {
+  if (this.checked) {
+    window.addEventListener('beforeunload', onBeforeUnload);
+    setResult('res-close', 'beforeunload ハンドラ登録済み', 'ok');
+  } else {
+    window.removeEventListener('beforeunload', onBeforeUnload);
+    setResult('res-close', 'beforeunload ハンドラ解除', '');
+  }
+});
+function doClose() {
+  setResult('res-close', 'window.close() 呼び出し（ユーザー遷移後 → 通常は何も起きない）', 'warn');
+  window.close();
+}
+function doCloseViaBlank() {
+  setResult('res-close', 'about:blank 遷移 → window.close()', 'warn');
+  window.open('about:blank', '_self');
+  window.close();
+}
+function setResult(id, msg, type) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'result' + (type ? ' ' + type : '');
+}
+</script>
+
+</body>
+</html>
