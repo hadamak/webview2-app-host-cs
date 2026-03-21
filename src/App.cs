@@ -19,8 +19,13 @@ namespace WebView2AppHost
         // visibilitychange 用
         private bool _isMinimized = false;
 
-        // 終了確認用
-        private readonly CloseRequestState _closeState = new CloseRequestState();
+        // 終了シーケンス管理
+        // _closeNavExpected : Navigate("about:blank") 発行済み、NavigationStarting 待ち
+        // _closeNavId       : NavigationStarting 受信後の NavigationId（0 = なし）
+        // _closeConfirmed   : about:blank 到達確認済み → Close() 発行可
+        private bool  _closeNavExpected = false;
+        private ulong _closeNavId       = 0;
+        private bool  _closeConfirmed   = false;
 
         // フルスクリーン用
         private bool             _isFullscreen    = false;
@@ -125,66 +130,48 @@ namespace WebView2AppHost
             SetupFaviconTracking();
 
             // JS からのウィンドウクローズ要求 (window.close())
-            // メインフレームの window.close() は AddScriptToExecuteOnDocumentCreated で
-            // about:blank 遷移に差し替えてあるため、通常の操作でこのイベントが発火することはない。
-            // （iframe の window.close() はその iframe 自身に作用するだけでここには届かない）
-            // スクリプト注入前の極めて短い起動直後にページが window.close() を呼んだ場合など
-            // 理論上ありうる抜け道への防御として、即 Close() せず about:blank 経由で
-            // beforeunload を通す経路に統一している。
+            // WindowCloseRequested は WebView2 が beforeunload を処理し終えた後に発火する。
+            // そのため _closeConfirmed を立ててから Close() し、OnFormClosing での
+            // Navigate("about:blank") 再発行（= beforeunload の二重発火）を防ぐ。
             wv.WindowCloseRequested += (s, _) =>
             {
-                if (_closeState.IsClosingConfirmed || _closeState.IsHostCloseNavigationPending)
-                    return;
-
-                _closeState.BeginHostCloseNavigation();
-                wv.Navigate("about:blank");
+                _closeConfirmed = true;
+                Close();
             };
 
-            // 外部リンク・ナビゲーションのハンドリング
-            wv.NewWindowRequested += (s, e) => HandleNewWindowRequest(e);
-            wv.NavigationStarting += (s, e) => HandleNavigation(e.Uri, () => e.Cancel  = true);
+            // NavigationStarting で終了ナビゲーションの ID を確定する。
+            // 外部リンク・ポップアップのハンドリングも同イベントで行う。
+            wv.NavigationStarting += (s, e) =>
+            {
+                if (_closeNavExpected && e.Uri == "about:blank")
+                {
+                    _closeNavExpected = false;
+                    _closeNavId = e.NavigationId;
+                }
+                HandleNavigation(e.Uri, () => e.Cancel = true);
+            };
 
-            // 遷移完了時の判定（beforeunload を経て about:blank に到達した ＝ 終了承諾）
+            // NavigationId 照合で終了ナビゲーションの完了のみを処理する。
+            // NavigationId 不一致（別ナビゲーション）は無視することで
+            // 複数ナビゲーションの競合を防ぐ。
             wv.NavigationCompleted += (s, e) =>
             {
-                if (_closeState.TryCompleteCloseNavigation(e.IsSuccess))
+                if (_closeNavId == 0 || e.NavigationId != _closeNavId) return;
+                _closeNavId = 0;
+                if (e.IsSuccess && wv.Source == "about:blank")
                 {
+                    _closeConfirmed = true;
                     Close();
                 }
+                // else: beforeunload でキャンセル or 失敗 → フラグリセット済み
             };
 
-            // C# から JS へのイベント通知の土台 & window.close() の標準化。
+            // 外部リンク・ポップアップのハンドリング
+            wv.NewWindowRequested += (s, e) => HandleNewWindowRequest(e);
+
+            // C# から JS へのイベント通知の土台。
             // NOTE: AddScriptToExecuteOnDocumentCreated はメインフレームにのみ適用される。
-            //       ただし iframe の window.close() は iframe 自身のブラウジングコンテキストに
-            //       作用するだけで、トップレベルウィンドウの WindowCloseRequested は発火しない。
-            //       クロスオリジン iframe からの window.close() がアプリ終了に直結する問題は
-            //       実際には存在しない。
             await wv.AddScriptToExecuteOnDocumentCreatedAsync(@"
-                // window.close() を about:blank への遷移に置き換える。
-                // これによりセキュリティ制限を回避し、かつ beforeunload を確実に発火させる。
-                const __wv2HostClose = function() {
-                    location.href = 'about:blank';
-                };
-                const __wv2InstallCloseOverride = function(target, propertyName) {
-                    if (!target) {
-                        return;
-                    }
-
-                    try {
-                        Object.defineProperty(target, propertyName, {
-                            value: __wv2HostClose,
-                            writable: false,
-                            configurable: true
-                        });
-                    } catch {
-                        try { target[propertyName] = __wv2HostClose; } catch {}
-                    }
-                };
-
-                __wv2InstallCloseOverride(window, 'close');
-                __wv2InstallCloseOverride(globalThis, 'close');
-                try { __wv2InstallCloseOverride(Window.prototype, 'close'); } catch {}
-
                 const __wv2VisibilityDeduper = {
                     lastState: document.visibilityState,
                     lastTick: 0
@@ -338,7 +325,6 @@ namespace WebView2AppHost
         }
 
 
-
         // ---------------------------------------------------------------------------
         // フルスクリーン
         // ---------------------------------------------------------------------------
@@ -375,10 +361,11 @@ namespace WebView2AppHost
 
                 if (string.IsNullOrEmpty(wv.FaviconUri))
                 {
-                    Invoke(new Action(() =>
-                    {
-                        Icon = IconUtils.GetAppIcon();
-                    }));
+                    if (!IsDisposed && IsHandleCreated)
+                        Invoke(new Action(() =>
+                        {
+                            if (!IsDisposed) Icon = IconUtils.GetAppIcon();
+                        }));
                     return;
                 }
 
@@ -427,21 +414,23 @@ namespace WebView2AppHost
                     AppLog.Log("DEBUG", "App.SetupFaviconTracking", "ICO 変換成功、UIスレッド適用待ち");
                     #endif
 
-                    Invoke(new Action(() =>
-                    {
-                        try
+                    if (!IsDisposed && IsHandleCreated)
+                        Invoke(new Action(() =>
                         {
-                            var oldIcon = _favicon;
-                            _favicon = newIcon;
-                            Icon     = newIcon;
-                            oldIcon?.Dispose();
-                            AppLog.Log("INFO", "App.SetupFaviconTracking", "適用完了");
-                        }
-                        catch (Exception invokeEx)
-                        {
-                            AppLog.Log("ERROR", "App.SetupFaviconTracking", "アイコン適用失敗", invokeEx);
-                        }
-                    }));
+                            try
+                            {
+                                if (IsDisposed) return;
+                                var oldIcon = _favicon;
+                                _favicon = newIcon;
+                                Icon     = newIcon;
+                                oldIcon?.Dispose();
+                                AppLog.Log("INFO", "App.SetupFaviconTracking", "適用完了");
+                            }
+                            catch (Exception invokeEx)
+                            {
+                                AppLog.Log("ERROR", "App.SetupFaviconTracking", "アイコン適用失敗", invokeEx);
+                            }
+                        }));
                 }
                 catch (Exception ex)
                 {
@@ -451,23 +440,8 @@ namespace WebView2AppHost
         }
 
         // ---------------------------------------------------------------------------
-        // ウィンドウメッセージ処理
+        // ナビゲーション・ポップアップ処理
         // ---------------------------------------------------------------------------
-
-        protected override void OnFormClosing(FormClosingEventArgs e)
-        {
-            if (!_closeState.IsClosingConfirmed && _webView.CoreWebView2 != null)
-            {
-                e.Cancel = true;
-                if (!_closeState.IsHostCloseNavigationPending)
-                    _closeState.BeginHostCloseNavigation();
-                // about:blank への遷移を試みることで beforeunload を発火させる。
-                // ユーザーが承諾すれば遷移が完了し、NavigationCompleted でアプリを閉じる。
-                _webView.CoreWebView2.Navigate("about:blank");
-                return;
-            }
-            base.OnFormClosing(e);
-        }
 
         private void OpenInDefaultBrowser(string uri)
         {
@@ -529,7 +503,7 @@ namespace WebView2AppHost
                 fallbackWidth: _config.Width,
                 fallbackHeight: _config.Height);
 
-            switch (NavigationPolicy.Classify(uri, isNewWindow: true))
+            switch (NavigationPolicy.Classify(uri))
             {
                 case NavigationPolicy.Action.OpenExternal:
                     e.Handled = true;
@@ -542,20 +516,15 @@ namespace WebView2AppHost
                         OpenHostPopup(uri, popupOptions);
                     }
                     break;
-                case NavigationPolicy.Action.MarkClosing:
                 default:
                     break;
             }
         }
 
-        private void HandleNavigation(string uri, Action cancelAction, bool isNewWindow = false)
+        private void HandleNavigation(string uri, Action cancelAction)
         {
-            switch (NavigationPolicy.Classify(uri, isNewWindow))
+            switch (NavigationPolicy.Classify(uri))
             {
-                case NavigationPolicy.Action.MarkClosing:
-                    if (!_closeState.IsClosingConfirmed && !_closeState.IsHostCloseNavigationPending)
-                        _closeState.BeginHostCloseNavigation();
-                    break;
                 case NavigationPolicy.Action.OpenExternal:
                     cancelAction();
                     OpenInDefaultBrowser(uri);
@@ -565,6 +534,10 @@ namespace WebView2AppHost
                     break;
             }
         }
+
+        // ---------------------------------------------------------------------------
+        // ウィンドウメッセージ処理
+        // ---------------------------------------------------------------------------
 
         protected override void OnResize(EventArgs e)
         {
@@ -579,6 +552,41 @@ namespace WebView2AppHost
             var state = minimized ? "hidden" : "visible";
             _webView.CoreWebView2.PostWebMessageAsString(
                 $"{{\"event\":\"visibilityChange\",\"state\":\"{state}\"}}");
+        }
+
+        // ---------------------------------------------------------------------------
+        // 終了ナビゲーション（beforeunload 発火）
+        // ---------------------------------------------------------------------------
+
+        /// <summary>
+        /// about:blank へのナビゲーションを開始し、beforeunload を発火させる。
+        /// OnFormClosing の進行中ガードを通過した場合にのみ呼ばれる。
+        /// </summary>
+        private void StartCloseNavigation()
+        {
+            _closeNavExpected = true;
+            _closeNavId       = 0;
+            _webView.CoreWebView2.Navigate("about:blank");
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            // _closeConfirmed: NavigationCompleted で about:blank 到達を確認済み → 閉じてよい。
+            // CoreWebView2 未初期化時も素通り（初期化失敗時の Application.Exit() など）。
+            if (_closeConfirmed || _webView.CoreWebView2 == null)
+            {
+                base.OnFormClosing(e);
+                return;
+            }
+
+            e.Cancel = true;
+
+            // 既にナビゲーションが進行中なら再起動しない。
+            // NavigationCompleted でリセットされるまで待機する。
+            if (_closeNavExpected || _closeNavId != 0)
+                return;
+
+            StartCloseNavigation();
         }
 
         protected override void Dispose(bool disposing)
