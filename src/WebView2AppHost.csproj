@@ -28,10 +28,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ManualWwwContent Include="$(MSBuildProjectDirectory)\..\web-content\manual-range.txt" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Runtime.Serialization" />
