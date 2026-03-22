@@ -110,7 +110,6 @@
   </div>
   <div class="row">
     <button onclick="doClose()">window.close()</button>
-    <button onclick="doCloseViaBlank()">about:blank → close</button>
   </div>
   <div class="result" id="res-close">—</div>
 </div>
@@ -160,10 +159,12 @@
 <div class="card">
   <h2>⑤ フルスクリーン</h2>
   <div class="row">
-    <button onclick="requestFullscreen()">requestFullscreen()</button>
-    <button onclick="exitFullscreen()">exitFullscreen()</button>
+    <button id="btn-fs" onclick="toggleFullscreen()">requestFullscreen()</button>
   </div>
   <div class="result" id="res-fs">document.fullscreenElement: なし</div>
+</div>
+<div id="fs-overlay" style="display:none;position:fixed;top:12px;right:12px;z-index:9999;">
+  <button onclick="toggleFullscreen()" style="padding:6px 14px;font-size:13px;">exitFullscreen()</button>
 </div>
 
 
@@ -186,6 +187,9 @@
   <h2>⑦ ナビゲーション</h2>
   <div class="row">
     <a href="page2.html">page2.html へ遷移（同一オリジン）</a>
+  </div>
+  <div class="row">
+    <a href="permissions.html">permissions.html（権限テスト）</a>
   </div>
   <div class="row">
     <a href="https://example.com" target="_self">外部 URL を _self で開く</a>
@@ -222,11 +226,6 @@ chk.addEventListener('change', function () {
 
 function doClose() {
   setResult('res-close', 'window.close() 呼び出し', 'warn');
-  window.close();
-}
-function doCloseViaBlank() {
-  setResult('res-close', 'about:blank 遷移 → window.close()', 'warn');
-  window.open('about:blank', '_self');
   window.close();
 }
 
@@ -291,30 +290,34 @@ function applyFavicon() {
 function clearFavicon() {
   faviconLink.href = '';
   document.getElementById('favicon-preview').src = '';
-  setResult('res-favicon', 'favicon をクリア — ウィンドウアイコンが EXE アイコンに戻ることを確認', '');
+  setResult('res-favicon', 'favicon をクリア — キャッシュが残るためすぐには戻らない場合があります', 'warn');
 }
 
 // ---------------------------------------------------------------------------
 // ⑤ フルスクリーン
 // ---------------------------------------------------------------------------
-function requestFullscreen() {
-  document.documentElement.requestFullscreen().then(() => {
-    setResult('res-fs', 'requestFullscreen() 成功 — ウィンドウが全画面になることを確認', 'ok');
-  }).catch(e => {
-    setResult('res-fs', 'requestFullscreen() 失敗: ' + e.message, 'err');
-  });
-}
-function exitFullscreen() {
-  if (document.fullscreenElement) {
-    document.exitFullscreen();
-    setResult('res-fs', 'exitFullscreen() 呼び出し', '');
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(e => {
+      setResult('res-fs', 'requestFullscreen() 失敗: ' + e.message, 'err');
+    });
   } else {
-    setResult('res-fs', 'フルスクリーンではありません', 'warn');
+    document.exitFullscreen();
   }
 }
 document.addEventListener('fullscreenchange', () => {
   const el = document.fullscreenElement;
-  setResult('res-fs', 'fullscreenElement: ' + (el ? el.tagName : 'なし'), el ? 'ok' : '');
+  const overlay = document.getElementById('fs-overlay');
+  const btn = document.getElementById('btn-fs');
+  if (el) {
+    overlay.style.display = 'block';
+    btn.textContent = 'exitFullscreen()';
+    setResult('res-fs', 'fullscreenElement: ' + el.tagName, 'ok');
+  } else {
+    overlay.style.display = 'none';
+    btn.textContent = 'requestFullscreen()';
+    setResult('res-fs', 'fullscreenElement: なし', '');
+  }
 });
 
 // ---------------------------------------------------------------------------

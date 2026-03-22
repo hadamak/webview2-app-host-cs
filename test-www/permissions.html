@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>権限テスト</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; font-size: 13px; background: #f5f5f5; color: #222; padding: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+  h1 { grid-column: 1 / -1; font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .note { grid-column: 1 / -1; font-size: 11px; color: #888; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 12px 14px; }
+  .card h2 { font-size: 12px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 10px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .row:last-child { margin-bottom: 0; }
+  button { padding: 4px 12px; border: 1px solid #bbb; border-radius: 4px; background: #fafafa; cursor: pointer; font-size: 12px; }
+  button:hover { background: #f0f0f0; }
+  .result { font-size: 11px; color: #666; background: #f9f9f9; border: 1px solid #eee; border-radius: 3px; padding: 4px 7px; min-height: 22px; margin-top: 8px; word-break: break-all; }
+  .result.ok   { color: #27a; border-color: #bde; background: #f0f8ff; }
+  .result.warn { color: #a70; border-color: #ed9; background: #fffbf0; }
+  .result.err  { color: #c33; border-color: #fbb; background: #fff5f5; }
+  video { width: 100%; max-height: 140px; background: #000; border-radius: 4px; display: block; margin-top: 8px; }
+  a { font-size: 11px; }
+</style>
+</head>
+<body>
+
+<h1>権限テスト</h1>
+<p class="note">
+  権限要求はブラウザと同様に許可ダイアログが表示されます。各ボタンを押すと権限要求が発生します。<br>
+  <a href="index.html">← index.html へ戻る</a>
+</p>
+
+<!-- カメラ -->
+<div class="card">
+  <h2>カメラ（getUserMedia video）</h2>
+  <div class="row">
+    <button onclick="testCamera()">カメラを起動</button>
+    <button onclick="stopCamera()">停止</button>
+  </div>
+  <div class="result" id="res-camera">—</div>
+  <video id="video-camera" autoplay muted playsinline style="display:none"></video>
+</div>
+
+<!-- マイク -->
+<div class="card">
+  <h2>マイク（getUserMedia audio）</h2>
+  <div class="row">
+    <button onclick="testMic()">マイクを起動</button>
+    <button onclick="stopMic()">停止</button>
+  </div>
+  <div class="result" id="res-mic">—</div>
+  <div id="mic-level" style="height:8px;background:#eee;border-radius:4px;margin-top:8px;overflow:hidden;">
+    <div id="mic-bar" style="height:100%;width:0%;background:#27a;transition:width 0.05s;"></div>
+  </div>
+</div>
+
+<!-- 通知 -->
+<div class="card">
+  <h2>Notification API</h2>
+  <div class="row">
+    <button onclick="testNotification()">通知を送信</button>
+  </div>
+  <div class="result" id="res-notification">—</div>
+</div>
+
+<!-- 位置情報 -->
+<div class="card">
+  <h2>Geolocation API</h2>
+  <div class="row">
+    <button onclick="testGeolocation()">位置情報を取得</button>
+  </div>
+  <div class="result" id="res-geo">—</div>
+</div>
+
+<!-- Permissions API -->
+<div class="card">
+  <h2>Permissions API（権限状態の照会）</h2>
+  <div class="row">
+    <button onclick="queryPermissions()">すべての権限状態を照会</button>
+  </div>
+  <div class="result" id="res-permissions">—</div>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// カメラ
+// ---------------------------------------------------------------------------
+let cameraStream = null;
+
+async function testCamera() {
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    const v = document.getElementById('video-camera');
+    v.srcObject = cameraStream;
+    v.style.display = 'block';
+    setResult('res-camera', '✓ カメラストリーム取得成功', 'ok');
+  } catch (e) {
+    setResult('res-camera', '✗ ' + e.name + ': ' + e.message, 'err');
+  }
+}
+
+function stopCamera() {
+  if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+  const v = document.getElementById('video-camera');
+  v.srcObject = null;
+  v.style.display = 'none';
+  setResult('res-camera', '停止しました', '');
+}
+
+// ---------------------------------------------------------------------------
+// マイク
+// ---------------------------------------------------------------------------
+let micStream = null;
+let audioCtx = null;
+let analyser = null;
+let micRaf = null;
+
+async function testMic() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    audioCtx = new AudioContext();
+    const src = audioCtx.createMediaStreamSource(micStream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    src.connect(analyser);
+    drawMicLevel();
+    setResult('res-mic', '✓ マイクストリーム取得成功（レベルメーター確認）', 'ok');
+  } catch (e) {
+    setResult('res-mic', '✗ ' + e.name + ': ' + e.message, 'err');
+  }
+}
+
+function drawMicLevel() {
+  if (!analyser) return;
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(buf);
+  const avg = buf.reduce((a, b) => a + b, 0) / buf.length;
+  document.getElementById('mic-bar').style.width = Math.min(100, avg * 2) + '%';
+  micRaf = requestAnimationFrame(drawMicLevel);
+}
+
+function stopMic() {
+  if (micRaf) { cancelAnimationFrame(micRaf); micRaf = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  if (audioCtx) { audioCtx.close(); audioCtx = null; analyser = null; }
+  document.getElementById('mic-bar').style.width = '0%';
+  setResult('res-mic', '停止しました', '');
+}
+
+// ---------------------------------------------------------------------------
+// 通知
+// ---------------------------------------------------------------------------
+async function testNotification() {
+  try {
+    // 既に許可済みなら requestPermission() を呼ばず直接送信する。
+    // ブラウザ同様、毎回 requestPermission() を呼ぶと許可済みでもダイアログが出る実装になるため。
+    let perm = Notification.permission;
+    if (perm === 'default') {
+      perm = await Notification.requestPermission();
+    }
+    if (perm === 'granted') {
+      new Notification('WebView2 テスト通知', {
+        body: 'ホストからの通知が正常に表示されました。',
+      });
+      setResult('res-notification', '✓ 通知を送信しました（permission: ' + perm + '）', 'ok');
+    } else {
+      setResult('res-notification', '✗ 通知が許可されませんでした（permission: ' + perm + '）', 'err');
+    }
+  } catch (e) {
+    setResult('res-notification', '✗ ' + e.name + ': ' + e.message, 'err');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 位置情報
+// ---------------------------------------------------------------------------
+function testGeolocation() {
+  setResult('res-geo', '取得中…', 'warn');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const { latitude, longitude, accuracy } = pos.coords;
+      setResult('res-geo',
+        `✓ lat: ${latitude.toFixed(5)}, lng: ${longitude.toFixed(5)}, accuracy: ${accuracy.toFixed(0)}m`,
+        'ok');
+    },
+    err => {
+      setResult('res-geo', '✗ ' + err.code + ': ' + err.message, 'err');
+    },
+    { timeout: 10000 }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Permissions API
+// ---------------------------------------------------------------------------
+async function queryPermissions() {
+  const names = ['camera', 'microphone', 'notifications', 'geolocation'];
+  const results = [];
+  for (const name of names) {
+    try {
+      const status = await navigator.permissions.query({ name });
+      results.push(`${name}: ${status.state}`);
+    } catch (e) {
+      results.push(`${name}: (query不可) ${e.message}`);
+    }
+  }
+  setResult('res-permissions', results.join(' / '), 'ok');
+}
+
+// ---------------------------------------------------------------------------
+// ユーティリティ
+// ---------------------------------------------------------------------------
+function setResult(id, msg, type) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.className = 'result' + (type ? ' ' + type : '');
+}
+</script>
+
+</body>
+</html>

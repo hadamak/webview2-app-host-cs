@@ -36,7 +36,6 @@
   </div>
   <div class="row">
     <button onclick="doClose()">window.close()</button>
-    <button onclick="doCloseViaBlank()">about:blank → close</button>
   </div>
   <div class="result" id="res-close">—</div>
 </div>
@@ -67,11 +66,6 @@ chk.addEventListener('change', function () {
 });
 function doClose() {
   setResult('res-close', 'window.close() 呼び出し（ユーザー遷移後 → 通常は何も起きない）', 'warn');
-  window.close();
-}
-function doCloseViaBlank() {
-  setResult('res-close', 'about:blank 遷移 → window.close()', 'warn');
-  window.open('about:blank', '_self');
   window.close();
 }
 function setResult(id, msg, type) {
