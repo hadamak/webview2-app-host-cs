@@ -4,7 +4,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 
-namespace AppendZipTests
+namespace HostTests
 {
     internal static class Program
     {
@@ -18,7 +18,7 @@ namespace AppendZipTests
                 try
                 {
                     RunTests(workDir);
-                    Console.WriteLine("All append-zip tests passed.");
+                    Console.WriteLine("All tests passed.");
                     return 0;
                 }
                 finally
@@ -83,6 +83,15 @@ namespace AppendZipTests
 
             // --- AppConfig.Sanitize tests ---
             RunAppConfigSanitizeTests();
+
+            // --- AppConfig.ApplyUserConfig tests ---
+            RunAppConfigUserConfigTests(workDir);
+
+            // --- AppConfig.IsProxyAllowed tests ---
+            RunAppConfigProxyTests();
+
+            // --- AppConfig.ProxyOrigins parsing tests ---
+            RunAppConfigProxyParsingTests();
 
             // --- NavigationPolicy edge-case tests ---
             RunNavigationPolicyEdgeCaseTests();
@@ -486,7 +495,7 @@ namespace AppendZipTests
                     "Sanitize: whitespace-only title falls back to default");
 
                 // Title: 制御文字を含む → 除去後の文字列
-                var c4 = LoadConfig("{\"title\":\"Hello\u0000World\",\"width\":800,\"height\":600}");
+                var c4 = LoadConfig("{\"title\":\"Hello\\u0000World\",\"width\":800,\"height\":600}");
                 Assert(c4 != null && c4!.Title == "HelloWorld",
                     "Sanitize: control chars removed from title");
 
@@ -529,6 +538,164 @@ namespace AppendZipTests
             using var ms = new System.IO.MemoryStream(bytes);
             return WebView2AppHost.AppConfig.Load(ms);
         }
+        private static void RunAppConfigProxyParsingTests()
+        {
+            var oldOverride = WebView2AppHost.AppLog.Override;
+            WebView2AppHost.AppLog.Override = System.IO.TextWriter.Null;
+            try
+            {
+                // proxyOrigins が JSON で正しくパースされる
+                var cfg = LoadConfig(
+                    "{\"title\":\"T\",\"width\":800,\"height\":600,"
+                    + "\"proxyOrigins\":[\"https://api.example.com\",\"https://other.example.com\"]}"
+                )!;
+                Assert(cfg.ProxyOrigins.Length == 2,
+                    "ProxyParsing: two origins parsed");
+                Assert(cfg.ProxyOrigins[0] == "https://api.example.com",
+                    "ProxyParsing: first origin correct");
+                Assert(cfg.ProxyOrigins[1] == "https://other.example.com",
+                    "ProxyParsing: second origin correct");
+
+                // proxyOrigins が省略された場合は空配列
+                var cfg2 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600}")!;
+                Assert(cfg2.ProxyOrigins.Length == 0,
+                    "ProxyParsing: absent proxyOrigins defaults to empty array");
+
+                // 空配列を明示した場合も空配列
+                var cfg3 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600,\"proxyOrigins\":[]}")!;
+                Assert(cfg3.ProxyOrigins.Length == 0,
+                    "ProxyParsing: explicit empty array is empty");
+
+                Console.WriteLine("  AppConfig.ProxyOrigins parsing tests passed.");
+            }
+            finally
+            {
+                WebView2AppHost.AppLog.Override = oldOverride;
+            }
+        }
+
+        private static void RunAppConfigProxyTests()
+        {
+            var oldOverride = WebView2AppHost.AppLog.Override;
+            WebView2AppHost.AppLog.Override = System.IO.TextWriter.Null;
+            try
+            {
+                // proxyOrigins が空の場合はすべて拒否
+                var cfg1 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600}")!;
+                Assert(!cfg1.IsProxyAllowed(new Uri("https://api.example.com/v1/data")),
+                    "ProxyAllowed: empty proxyOrigins denies all");
+
+                // 許可オリジンが一致する場合は許可
+                var cfg2 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600,\"proxyOrigins\":[\"https://api.example.com\"]}")!;
+                Assert(cfg2.IsProxyAllowed(new Uri("https://api.example.com/v1/data")),
+                    "ProxyAllowed: matching origin is allowed");
+
+                // 別オリジンは拒否
+                Assert(!cfg2.IsProxyAllowed(new Uri("https://other.example.com/v1/data")),
+                    "ProxyAllowed: non-matching origin is denied");
+
+                // 末尾スラッシュがあっても一致する
+                var cfg3 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600,\"proxyOrigins\":[\"https://api.example.com/\"]}")!;
+                Assert(cfg3.IsProxyAllowed(new Uri("https://api.example.com/v1/data")),
+                    "ProxyAllowed: trailing slash in config is normalized");
+
+                // 大文字小文字を区別しない
+                var cfg4 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600,\"proxyOrigins\":[\"HTTPS://API.EXAMPLE.COM\"]}")!;
+                Assert(cfg4.IsProxyAllowed(new Uri("https://api.example.com/v1/data")),
+                    "ProxyAllowed: case-insensitive origin matching");
+
+                // 非標準ポートはポート番号込みで比較
+                var cfg5 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600,\"proxyOrigins\":[\"https://api.example.com:8443\"]}")!;
+                Assert(cfg5.IsProxyAllowed(new Uri("https://api.example.com:8443/v1/data")),
+                    "ProxyAllowed: non-default port matches");
+                Assert(!cfg5.IsProxyAllowed(new Uri("https://api.example.com/v1/data")),
+                    "ProxyAllowed: default port does not match non-default port config");
+
+                Console.WriteLine("  AppConfig.IsProxyAllowed tests passed.");
+            }
+            finally
+            {
+                WebView2AppHost.AppLog.Override = oldOverride;
+            }
+        }
+
+        private static void RunAppConfigUserConfigTests(string workDir)
+        {
+            var oldOverride = WebView2AppHost.AppLog.Override;
+            WebView2AppHost.AppLog.Override = System.IO.TextWriter.Null;
+            try
+            {
+                // user.conf.json が存在しない場合は app.conf.json の値をそのまま使う
+                var dir1 = System.IO.Path.Combine(workDir, "userconf-absent");
+                System.IO.Directory.CreateDirectory(dir1);
+                var cfg1 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600}")!;
+                cfg1.ApplyUserConfig(dir1);
+                Assert(cfg1.Width == 800 && cfg1.Height == 600,
+                    "UserConfig: absent user.conf.json leaves values unchanged");
+
+                // width・height を上書き
+                var dir2 = System.IO.Path.Combine(workDir, "userconf-size");
+                System.IO.Directory.CreateDirectory(dir2);
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(dir2, "user.conf.json"),
+                    "{\"width\":1920,\"height\":1080}");
+                var cfg2 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600}")!;
+                cfg2.ApplyUserConfig(dir2);
+                Assert(cfg2.Width == 1920 && cfg2.Height == 1080,
+                    "UserConfig: width and height overridden by user.conf.json");
+
+                // fullscreen を上書き
+                var dir3 = System.IO.Path.Combine(workDir, "userconf-fs");
+                System.IO.Directory.CreateDirectory(dir3);
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(dir3, "user.conf.json"),
+                    "{\"fullscreen\":true}");
+                var cfg3 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600,\"fullscreen\":false}")!;
+                cfg3.ApplyUserConfig(dir3);
+                Assert(cfg3.Fullscreen == true,
+                    "UserConfig: fullscreen overridden by user.conf.json");
+
+                // title は上書きできない（user.conf.json に書いても無視される）
+                var dir4 = System.IO.Path.Combine(workDir, "userconf-title");
+                System.IO.Directory.CreateDirectory(dir4);
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(dir4, "user.conf.json"),
+                    "{\"width\":1280,\"height\":720}");
+                var cfg4 = LoadConfig("{\"title\":\"MyApp\",\"width\":800,\"height\":600}")!;
+                cfg4.ApplyUserConfig(dir4);
+                Assert(cfg4.Title == "MyApp",
+                    "UserConfig: title cannot be overridden by user.conf.json");
+
+                // 範囲外の値はクランプされる
+                var dir5 = System.IO.Path.Combine(workDir, "userconf-clamp");
+                System.IO.Directory.CreateDirectory(dir5);
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(dir5, "user.conf.json"),
+                    "{\"width\":99999,\"height\":1}");
+                var cfg5 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600}")!;
+                cfg5.ApplyUserConfig(dir5);
+                Assert(cfg5.Width == 7680 && cfg5.Height == 160,
+                    "UserConfig: out-of-range values are clamped");
+
+                // 壊れた JSON は無視される
+                var dir6 = System.IO.Path.Combine(workDir, "userconf-broken");
+                System.IO.Directory.CreateDirectory(dir6);
+                System.IO.File.WriteAllText(
+                    System.IO.Path.Combine(dir6, "user.conf.json"),
+                    "{invalid json");
+                var cfg6 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600}")!;
+                cfg6.ApplyUserConfig(dir6);
+                Assert(cfg6.Width == 800,
+                    "UserConfig: broken user.conf.json is ignored");
+
+                Console.WriteLine("  AppConfig.ApplyUserConfig tests passed.");
+            }
+            finally
+            {
+                WebView2AppHost.AppLog.Override = oldOverride;
+            }
+        }
+
 
         // =====================================================================
         // NavigationPolicy edge-case tests
@@ -607,6 +774,10 @@ namespace AppendZipTests
 
         private static void RunDirectorySourceTraversalTests(string workDir)
         {
+            var oldOverride = WebView2AppHost.AppLog.Override;
+            WebView2AppHost.AppLog.Override = System.IO.TextWriter.Null;
+            try
+            {
             // テスト用ディレクトリ構造を作成
             var root   = System.IO.Path.Combine(workDir, "traversal-root");
             var secret = System.IO.Path.Combine(workDir, "secret.txt");
@@ -636,6 +807,11 @@ namespace AppendZipTests
                 "DirectorySource: backslash traversal attempt returns null");
 
             Console.WriteLine("  DirectorySource path traversal tests passed.");
+            }
+            finally
+            {
+                WebView2AppHost.AppLog.Override = oldOverride;
+            }
         }
 
         // =====================================================================
