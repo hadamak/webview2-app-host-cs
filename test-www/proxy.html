@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>CORS プロキシテスト</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; font-size: 13px; background: #f5f5f5; color: #222; padding: 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; align-items: start; }
+  h1 { grid-column: 1 / -1; font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .note { grid-column: 1 / -1; font-size: 11px; color: #888; line-height: 1.6; }
+  .card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 12px 14px; }
+  .card h2 { font-size: 12px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid #eee; padding-bottom: 8px; margin-bottom: 10px; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .row:last-child { margin-bottom: 0; }
+  button { padding: 4px 12px; border: 1px solid #bbb; border-radius: 4px; background: #fafafa; cursor: pointer; font-size: 12px; white-space: nowrap; }
+  button:hover { background: #f0f0f0; }
+  code { font-size: 11px; background: #f0f0f0; padding: 1px 5px; border-radius: 3px; word-break: break-all; }
+  .result { font-size: 11px; color: #666; background: #f9f9f9; border: 1px solid #eee; border-radius: 3px; padding: 6px 8px; min-height: 22px; margin-top: 8px; white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow-y: auto; }
+  .result.ok   { color: #27a; border-color: #bde; background: #f0f8ff; }
+  .result.warn { color: #a70; border-color: #ed9; background: #fffbf0; }
+  .result.err  { color: #c33; border-color: #fbb; background: #fff5f5; }
+  a { font-size: 11px; }
+</style>
+</head>
+<body>
+
+<h1>CORS プロキシテスト</h1>
+<p class="note">
+  ホストの <code>proxyOrigins</code> に登録された外部オリジンへの <code>fetch()</code> が、コンテンツ側の URL 変更なしに動作することを確認します。<br>
+  ブラウザで開いた場合はネットワーク接続があれば通常の CORS リクエストが試みられ、CORS エラーになります（プロキシは機能しません）。<br>
+  <a href="index.html">← index.html へ戻る</a>
+</p>
+
+<!-- GET リクエスト -->
+<div class="card">
+  <h2>① GET — JSON データ取得</h2>
+  <div class="row">
+    <code>fetch('https://jsonplaceholder.typicode.com/todos/1')</code>
+  </div>
+  <div class="row">
+    <button onclick="testGet()">実行</button>
+  </div>
+  <div class="result" id="res-get">—</div>
+</div>
+
+<!-- GET クエリパラメータ -->
+<div class="card">
+  <h2>② GET — クエリパラメータ付き</h2>
+  <div class="row">
+    <code>fetch('https://httpbin.org/get?foo=bar&baz=123')</code>
+  </div>
+  <div class="row">
+    <button onclick="testGetQuery()">実行</button>
+  </div>
+  <div class="result" id="res-query">—</div>
+</div>
+
+<!-- POST リクエスト（制限確認） -->
+<div class="card">
+  <h2>③ POST — 制限確認（ボディ非対応）</h2>
+  <div class="row">
+    <code>fetch('https://httpbin.org/post', { method: 'POST', body: '{...}' })</code>
+    <span style="font-size:11px;color:#888">→ WebView2 制限によりボディ転送不可</span>
+  </div>
+  <div class="row">
+    <button onclick="testPost()">実行</button>
+  </div>
+  <div class="result" id="res-post">—</div>
+</div>
+
+<!-- 未登録オリジン -->
+<div class="card">
+  <h2>④ 未登録オリジン（ブロック確認）</h2>
+  <div class="row">
+    <code>fetch('https://example.com/')</code>
+    <span style="font-size:11px;color:#888">→ proxyOrigins 未登録</span>
+  </div>
+  <div class="row">
+    <button onclick="testBlocked()">実行</button>
+  </div>
+  <div class="result" id="res-blocked">—</div>
+</div>
+
+<script>
+async function testGet() {
+  await run('res-get', async () => {
+    const res = await fetch('https://jsonplaceholder.typicode.com/todos/1');
+    const json = await res.json();
+    return { status: res.status, body: json };
+  });
+}
+
+async function testGetQuery() {
+  await run('res-query', async () => {
+    const res = await fetch('https://httpbin.org/get?foo=bar&baz=123');
+    const json = await res.json();
+    return { status: res.status, args: json.args };
+  });
+}
+
+async function testPost() {
+  const el = document.getElementById('res-post');
+  el.className = 'result warn';
+  el.textContent = '実行中…';
+  try {
+    const res = await fetch('https://httpbin.org/post', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'hello from WebView2' })
+    });
+    const json = await res.json();
+    // ボディが転送されていない場合 json.json は null になる
+    const bodyReceived = json.json !== null && json.json !== undefined;
+    el.textContent = (bodyReceived ? '⚠ ボディあり（予期しない動作）' : '✓ ステータス ' + res.status + ' — ボディは未転送（想定通り）') + '\n' + JSON.stringify(json.json, null, 2);
+    el.className = bodyReceived ? 'result warn' : 'result ok';
+  } catch (e) {
+    el.textContent = '✗ ' + e.name + ': ' + e.message;
+    el.className = 'result err';
+  }
+}
+
+async function testBlocked() {
+  const el = document.getElementById('res-blocked');
+  el.textContent = '実行中…';
+  el.className = 'result warn';
+  try {
+    const res = await fetch('https://example.com/');
+    // ホストはフィルタ登録していないので WebView2 がそのままリクエストを処理。
+    // CORS ポリシーによりエラーになるかレスポンスを得る（環境依存）。
+    el.textContent = `status: ${res.status} — プロキシを経由していません`;
+    el.className = 'result warn';
+  } catch (e) {
+    el.textContent = `✓ エラー（CORS ブロック）: ${e.message}`;
+    el.className = 'result ok';
+  }
+}
+
+async function run(id, fn) {
+  const el = document.getElementById(id);
+  el.textContent = '実行中…';
+  el.className = 'result warn';
+  try {
+    const result = await fn();
+    el.textContent = '✓ ' + JSON.stringify(result, null, 2);
+    el.className = 'result ok';
+  } catch (e) {
+    el.textContent = '✗ ' + e.name + ': ' + e.message;
+    el.className = 'result err';
+  }
+}
+</script>
+
+</body>
+</html>

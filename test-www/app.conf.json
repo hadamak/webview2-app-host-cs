@@ -2,5 +2,9 @@
   "title": "WebView2 ホストテスト",
   "width": 900,
   "height": 640,
-  "fullscreen": false
+  "fullscreen": false,
+  "proxyOrigins": [
+    "https://httpbin.org",
+    "https://jsonplaceholder.typicode.com"
+  ]
 }

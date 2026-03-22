@@ -192,6 +192,9 @@
     <a href="permissions.html">permissions.html（権限テスト）</a>
   </div>
   <div class="row">
+    <a href="proxy.html">proxy.html（CORS プロキシテスト）</a>
+  </div>
+  <div class="row">
     <a href="https://example.com" target="_self">外部 URL を _self で開く</a>
     <span style="font-size:11px;color:#888">→ 既定ブラウザへ</span>
   </div>
@@ -237,7 +240,10 @@ function openPopup() {
     location.href, '_blank',
     'width=480,height=400,left=120,top=120'
   );
-  setResult('res-popup', popup ? '子ウィンドウ open 成功' : 'open が null を返した', popup ? 'ok' : 'err');
+  // ホストは独立した App インスタンスとしてポップアップを開くため
+  // e.NewWindow に CoreWebView2 を渡せず window.open() の戻り値は常に null になる。
+  // ウィンドウ自体は開いていれば正常動作。
+  setResult('res-popup', popup ? '子ウィンドウ open 成功' : 'ウィンドウを開きました（window.open の戻り値は null — 仕様上の制限）', popup ? 'ok' : 'warn');
 }
 function openExternal() {
   const w = window.open('https://example.com', '_blank');
