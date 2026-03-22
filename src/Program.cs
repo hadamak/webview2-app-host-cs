@@ -30,7 +30,14 @@ namespace WebView2AppHost
         {
             using (var stream = zip.OpenEntry("/app.conf.json"))
             {
-                return (stream != null) ? (AppConfig.Load(stream) ?? new AppConfig()) : new AppConfig();
+                var config = (stream != null) ? (AppConfig.Load(stream) ?? new AppConfig()) : new AppConfig();
+
+                // EXE 隣接の user.conf.json でエンドユーザーの設定を上書き
+                var exeDir = System.IO.Path.GetDirectoryName(
+                    System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName!) ?? ".";
+                config.ApplyUserConfig(exeDir);
+
+                return config;
             }
         }
 

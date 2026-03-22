@@ -293,60 +293,17 @@ namespace WebView2AppHost
                 var entry     = _archive.GetEntry(entryName);
                 if (entry == null) return null;
 
-                // entry.Open() は呼び出しのたびに新しい解凍ストリームを返す
-                var stream = entry.Open();
-                if (stream == null) return null;
-
-                return new ReadOnlyStream(stream, entry.Length);
+                // エントリ全体を MemoryStream に展開して返す。
+                // シーク可能になるため Range Request に対応できる。
+                // 大きなファイル（動画・音声等）はメモリを圧迫するため www/ への個別配置を推奨。
+                using var entryStream = entry.Open();
+                var ms = new MemoryStream((int)entry.Length);
+                entryStream.CopyTo(ms);
+                ms.Position = 0;
+                return ms;
             }
 
             public void Dispose() { _archive.Dispose(); }
-        }
-
-        /// <summary>
-        /// シーク不可な解凍ストリームに Length を付与するラッパー。
-        /// WebView2 のリソースレスポンス作成に必要。
-        /// </summary>
-        private sealed class ReadOnlyStream : Stream
-        {
-            private readonly Stream _inner;
-            private readonly long   _length;
-            private          long   _position = 0;
-
-            public ReadOnlyStream(Stream inner, long length)
-            {
-                _inner  = inner ?? throw new ArgumentNullException(nameof(inner));
-                _length = length;
-            }
-
-            public override bool CanRead  => true;
-            public override bool CanSeek  => false;
-            public override bool CanWrite => false;
-            public override long Length   => _length;
-
-            public override long Position
-            {
-                get => _position;
-                set => throw new NotSupportedException();
-            }
-
-            public override int Read(byte[] buffer, int offset, int count)
-            {
-                var read = _inner.Read(buffer, offset, count);
-                _position += read;
-                return read;
-            }
-
-            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-            public override void Flush() { }
-            public override void SetLength(long value) => throw new NotSupportedException();
-            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-
-            protected override void Dispose(bool disposing)
-            {
-                if (disposing) _inner.Dispose();
-                base.Dispose(disposing);
-            }
         }
 
         /// <summary>

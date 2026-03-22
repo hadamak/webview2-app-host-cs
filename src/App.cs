@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Net.Http;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -10,6 +11,7 @@ namespace WebView2AppHost
     internal sealed class App : Form
     {
         private readonly WebView2         _webView  = new WebView2();
+        private static readonly HttpClient _httpClient = new HttpClient();
         private readonly ZipContentProvider _zip;
         private readonly AppConfig        _config;
         private readonly string           _initialUri;
@@ -273,6 +275,16 @@ namespace WebView2AppHost
                 "https://app.local/*",
                 CoreWebView2WebResourceContext.All);
 
+            // proxyOrigins に登録された外部オリジンへのリクエストも横取りする。
+            // コンテンツ側は通常の URL で fetch でき、ブラウザとの互換性が保たれる。
+            foreach (var origin in _config.ProxyOrigins ?? Array.Empty<string>())
+            {
+                var normalized = origin.TrimEnd('/');
+                _webView.CoreWebView2.AddWebResourceRequestedFilter(
+                    normalized + "/*",
+                    CoreWebView2WebResourceContext.All);
+            }
+
             _webView.CoreWebView2.WebResourceRequested += (s, e) =>
                 HandleWebResourceRequest(e);
         }
@@ -281,6 +293,14 @@ namespace WebView2AppHost
         {
             var uri  = new Uri(e.Request.Uri);
             var path = Uri.UnescapeDataString(uri.AbsolutePath);
+
+            // proxyOrigins に登録された外部オリジンへのリクエストはプロキシ転送する。
+            if (_config.IsProxyAllowed(uri))
+            {
+                HandleProxyRequest(e, uri);
+                return;
+            }
+
 
             var rangeHeader = e.Request.Headers.Contains("Range")
                 ? e.Request.Headers.GetHeader("Range")
@@ -345,6 +365,67 @@ namespace WebView2AppHost
                 stream.Dispose();  // catch でのみ Dispose
                 AppLog.Log("ERROR", "App.HandleWebResourceRequest", ex.Message, ex);
                 throw;
+            }
+        }
+
+        private async void HandleProxyRequest(CoreWebView2WebResourceRequestedEventArgs e, Uri targetUri)
+        {
+            // コンテンツ側は通常の URL で fetch する。ホストが透過的に転送する。
+            var targetUrl = targetUri.AbsoluteUri;
+
+            try
+            {
+                var deferral = e.GetDeferral();
+                try
+                {
+                    var method  = new HttpMethod(e.Request.Method ?? "GET");
+                    var request = new HttpRequestMessage(method, targetUri);
+
+                    // NOTE: WebView2 の WebResourceRequested では e.Request.Content が常に null のため
+                    // POST ボディの転送は非対応。GET / HEAD 等のボディなしリクエストのみ機能する。
+
+                    // リクエストヘッダを転送（Host・Origin・Referer は除く）
+                    foreach (var header in e.Request.Headers)
+                    {
+                        var name = header.Key;
+                        if (name.Equals("Host",    StringComparison.OrdinalIgnoreCase) ||
+                            name.Equals("Origin",  StringComparison.OrdinalIgnoreCase) ||
+                            name.Equals("Referer", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        try { request.Headers.TryAddWithoutValidation(name, header.Value); } catch { }
+                    }
+
+                    var response = await _httpClient.SendAsync(
+                        request, HttpCompletionOption.ResponseContentRead);
+
+                    var body = await response.Content.ReadAsByteArrayAsync();
+                    var ms   = new MemoryStream(body);
+
+                    // レスポンスヘッダを組み立て（CORS ヘッダを付与）
+                    var contentType = response.Content.Headers.ContentType?.ToString()
+                        ?? "application/octet-stream";
+                    var headers = $"Content-Type: {contentType}\r\n"
+                        + $"Content-Length: {body.Length}\r\n"
+                        + "Access-Control-Allow-Origin: *\r\n"
+                        + "Cache-Control: no-store";
+
+                    e.Response = _webView.CoreWebView2.Environment
+                        .CreateWebResourceResponse(
+                            ms,
+                            (int)response.StatusCode,
+                            response.ReasonPhrase ?? "OK",
+                            headers);
+                }
+                finally
+                {
+                    deferral.Complete();
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLog.Log("ERROR", "App.HandleProxyRequest", $"プロキシ転送失敗: {targetUri.AbsoluteUri}", ex);
+                e.Response = _webView.CoreWebView2.Environment
+                    .CreateWebResourceResponse(null, 502, "Bad Gateway", "Content-Type: text/plain");
             }
         }
 
