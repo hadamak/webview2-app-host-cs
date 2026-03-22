@@ -64,6 +64,7 @@ Web コンテンツは、用途に応じて次の形で扱えます。
 - `element.requestFullscreen()` / `document.exitFullscreen()` によるフルスクリーン制御
 - `beforeunload` による終了確認
 - `target="_blank"` や `window.open()` による外部リンク起動
+- `visibilityState` / `visibilitychange` によるウィンドウ最小化の検知
 
 ### 4. 生成コストを抑えやすい
 本ホストは、通常の .NET ビルドに加えて、既存の実行ファイルへ ZIP を連結する方法や、ZIP / ローカルファイルをそのまま参照する方法を持っています。用途によっては、配布物の再生成にほぼ時間をかけずに運用できます。
@@ -236,7 +237,7 @@ cmd /c copy /b src\bin\x64\Release\net472\WebView2AppHost.exe + src\app.zip src\
 ```js
 window.close();
 ```
-`window.close()` でアプリを終了できます。
+`window.close()` でアプリを終了できます。ただし、ブラウザの仕様に従い、ユーザー操作によるページ遷移が発生していない状態（ホストが直接ナビゲートしたページ）でのみ有効です。
 
 ### フルスクリーン
 ```js
@@ -270,7 +271,6 @@ window.addEventListener('beforeunload', (event) => {
 
 ## 制限事項
 
-- Notification API は UI 実装がないため、デフォルトでは表示されません
 - `https://app.local/` ベースのため、一部の Service Worker などでは追加設定が必要になる場合があります
 - ZIP 内のファイルは Range Request に対応しません
 - 動画・音声・WASM など、Range Request が必要なファイルは `www/` フォルダに個別配置してください
@@ -279,10 +279,21 @@ window.addEventListener('beforeunload', (event) => {
 
 ## ショートカットキー
 
-| キー | 動作 |
-|---|---|
-| `F11` | フルスクリーン切り替え |
-| `ESC` | フルスクリーン解除 |
+フルスクリーンの切り替えは `requestFullscreen()` / `exitFullscreen()` で制御します。
+
+### ブラウザ組み込みキーの扱い
+
+ホストはブラウザと同様の動作を提供するため、F5 リロード・Ctrl+F・Ctrl+P 等のショートカットキーはデフォルトで有効です。
+コンテンツ側で特定のキーを抑制したい場合は、ブラウザと同様に JS の `keydown` イベントで処理できます。
+
+```js
+window.addEventListener('keydown', (e) => {
+    // F5 / Ctrl+R によるリロードを抑制する例
+    if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
+        e.preventDefault();
+    }
+});
+```
 
 ---
 

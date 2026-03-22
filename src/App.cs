@@ -106,14 +106,10 @@ namespace WebView2AppHost
             var wv = _webView.CoreWebView2;
 
             // WebView2 設定
-            wv.Settings.AreDefaultContextMenusEnabled = false;
-            wv.Settings.IsZoomControlEnabled          = false;
 #if DEBUG
-            wv.Settings.IsStatusBarEnabled  = true;
-            wv.Settings.AreDevToolsEnabled  = true;
+            wv.Settings.AreDevToolsEnabled = true;
 #else
-            wv.Settings.IsStatusBarEnabled  = false;
-            wv.Settings.AreDevToolsEnabled  = false;
+            wv.Settings.AreDevToolsEnabled = false;
 #endif
 
             // カスタムスキームの登録（https://app.local/*）
@@ -168,6 +164,34 @@ namespace WebView2AppHost
 
             // 外部リンク・ポップアップのハンドリング
             wv.NewWindowRequested += (s, e) => HandleNewWindowRequest(e);
+
+            // 通知権限: WebView2 はデフォルトで拒否するため、GetDeferral() でいったん処理を
+            // 保留し、ホスト側でダイアログを表示してからユーザーの選択を反映する。
+            // e は STA スレッド専用の COM オブジェクトのため Task.Run は使わない。
+            wv.PermissionRequested += (s, e) =>
+            {
+                if (e.PermissionKind != CoreWebView2PermissionKind.Notifications) return;
+
+                var deferral = e.GetDeferral();
+                try
+                {
+                    var result = MessageBox.Show(
+                        $"{e.Uri} が通知の送信を求めています。\n\n許可しますか？",
+                        "通知の許可",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+
+                    e.State = result == DialogResult.Yes
+                        ? CoreWebView2PermissionState.Allow
+                        : CoreWebView2PermissionState.Deny;
+                    // 選択をプロファイルに保存し、次回以降同じオリジンではダイアログを出さない。
+                    e.SavesInProfile = true;
+                }
+                finally
+                {
+                    deferral.Complete();
+                }
+            };
 
             // C# から JS へのイベント通知の土台。
             // NOTE: AddScriptToExecuteOnDocumentCreated はメインフレームにのみ適用される。

@@ -6,7 +6,7 @@
 
 ### App.cs — 標準 Web API への完全移行
 - **フルスクリーン**: `ContainsFullScreenElementChanged` によるウィンドウ状態の自動同期を導入。`requestFullscreen()` 等の標準 API がそのまま機能します。
-- **アプリ終了**: `WindowCloseRequested` をハンドルし、`window.close()` での終了に対応。コンテンツ側は `window.open('about:blank','_self')` 等で `about:blank` へ遷移してから `window.close()` を呼ぶことで、`beforeunload` を自前で発火させることができます。ホスト側は標準的な動作（`Close()` 呼び出し）のみを行います。
+- **アプリ終了**: `WindowCloseRequested` をハンドルし、`window.close()` での終了に対応。ホスト側は標準的な動作（`Close()` 呼び出し）のみを行います。
 - **外部リンク**: `NavigationStarting` / `NewWindowRequested` をフックし、`app.local` 以外の `http(s)` リンクを既定のブラウザで開く機能を実装。
 
 ### App.cs — コードの責務分離と整理
