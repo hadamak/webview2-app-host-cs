@@ -9,4 +9,5 @@ ZIPファイルに含まれている内容について
 - README.md: 本アプリケーションの概要
 - LICENSE: 本アプリケーションのライセンス
 - THIRD_PARTY_NOTICES.md: サードパーティ製ライブラリの通知
-- README_TEMPLATE.txt: アプリケーション配布時のREADMEテンプレート
+- README_TEMPLATE.txt: アプリケーション配布時のREADMEテンプレート (日本語)
+- README_TEMPLATE.en.txt: アプリケーション配布時のREADMEテンプレート (英語)
