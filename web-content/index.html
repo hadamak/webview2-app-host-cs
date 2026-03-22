@@ -141,7 +141,7 @@
 
             <div class="controls">
                 <!-- READMEに記載された標準Web APIによるネイティブ制御のデモ -->
-                <button class="btn-primary" onclick="toggleFullscreen()" id="fs-btn">FULLSCREEN [F11]</button>
+                <button class="btn-primary" onclick="toggleFullscreen()" id="fs-btn">FULLSCREEN</button>
                 <button class="btn-danger" onclick="window.close()">SHUTDOWN</button>
             </div>
         </div>
@@ -176,7 +176,7 @@
 
         document.addEventListener('fullscreenchange', () => {
             const btn = document.getElementById('fs-btn');
-            btn.innerText = document.fullscreenElement ? 'EXIT FULLSCREEN [ESC]' : 'FULLSCREEN[F11]';
+            btn.innerText = document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN';
         });
 
         setInterval(updateClock, 1000);
