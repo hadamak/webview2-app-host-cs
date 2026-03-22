@@ -45,6 +45,7 @@ jobs:
 
           # ドキュメント・ライセンス類
           Copy-Item "README.md" $outDir
+          Copy-Item "README.ja.md" $outDir
           Copy-Item "LICENSE" $outDir
           Copy-Item "THIRD_PARTY_NOTICES.md" $outDir
           Copy-Item "docs/README_TEMPLATE.txt" $outDir
