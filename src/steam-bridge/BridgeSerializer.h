@@ -45,6 +45,7 @@ inline ParsedParams ParseJsonArrayToParams(const char* paramsJson)
         if (!j.is_array()) return result;
 
         result.params.reserve(j.size());
+        result.strStorage.reserve(j.size());
 
         for (const auto& item : j)
         {
