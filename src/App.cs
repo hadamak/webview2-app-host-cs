@@ -280,7 +280,7 @@ namespace WebView2AppHost
             {
                 try
                 {
-                    _steamBridge?.HandleWebMessage(e.WebMessageAsJson);
+                    _steamBridge?.HandleWebMessage(e.TryGetWebMessageAsString());
                 }
                 catch (Exception ex)
                 {

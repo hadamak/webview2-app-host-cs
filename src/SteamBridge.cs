@@ -16,11 +16,12 @@ namespace WebView2AppHost
     /// steam_bridge.dll と WebView2 を繋ぐ C# 側ブリッジ。
     /// DLL が存在しない場合は何もしない（Steam なし環境でも動作する）。
     ///
-    /// JS↔C# 間のメッセージフォーマット（params は生の JSON 値として送受信する）:
-    ///   JS → C#: { "source": "steam", "messageId": "...", "params": [...], "asyncId": 1 }
+    /// JS↔C# 間のメッセージフォーマット（JS→C# は JSON 文字列で送る）:
+    ///   JS → C#: "{\"source\":\"steam\",\"messageId\":\"...\",\"params\":[...],\"asyncId\":1}"
     ///   C# → JS: { "source": "steam", "messageId": "...", "params": {...}, "asyncId": 1 }
     ///
-    /// DataContractJsonSerializer は source / messageId / asyncId のエンベロープ解析にのみ使用する。
+    /// DataContractJsonSerializer は JS から届いた JSON 文字列の
+    /// source / messageId / asyncId のエンベロープ解析にのみ使用する。
     /// params は JSON の生テキストとして ExtractParamsJson() で抽出し、
     /// 送信側は BuildOutgoingJson() で直接埋め込む。
     /// </summary>

@@ -48,8 +48,8 @@ class WebViewMock {
         this._listeners[event].push(fn);
     }
 
-    postMessage(str) {
-        this.sent.push(JSON.parse(str));
+    postMessage(message) {
+        this.sent.push(message);
     }
 
     // Simulate an incoming message from C#.
@@ -59,7 +59,8 @@ class WebViewMock {
         for (const fn of this._listeners['message'] || []) fn(event);
     }
 
-    lastSent() { return this.sent[this.sent.length - 1]; }
+    lastSentRaw() { return this.sent[this.sent.length - 1]; }
+    lastSent() { return JSON.parse(this.lastSentRaw()); }
     clearSent() { this.sent = []; }
 }
 
@@ -134,26 +135,18 @@ function test_isAvailable_false_without_host() {
     expect(Steam.isAvailable() === false, 'isAvailable() == false without webview');
 }
 
-// -- Outgoing message format: params must be a raw array (no double-encoding) --
+// -- Outgoing message format: JSON string envelope with raw params array --
 
 function test_init_sends_correct_message() {
     const mock = new WebViewMock();
     const { Steam } = loadSteam(mock);
     Steam.init();
+    expect(typeof mock.lastSentRaw() === 'string', 'init message is sent as JSON string');
     const msg = mock.lastSent();
     expectEq(msg.source,    'steam', 'init source');
     expectEq(msg.messageId, 'init',  'init messageId');
     expect(typeof msg.asyncId === 'number' && msg.asyncId >= 1, 'init asyncId >= 1');
     expectEq(msg.params, [], 'init params is raw empty array');
-}
-
-function test_params_is_raw_array_not_string() {
-    const mock = new WebViewMock();
-    const { Steam } = loadSteam(mock);
-    Steam.unlockAchievement('FIRST_CLEAR');
-    const msg = mock.lastSent();
-    expect(Array.isArray(msg.params), 'params is a raw array, not a string');
-    expect(typeof msg.params !== 'string', 'params is NOT double-encoded as string');
 }
 
 function test_unlockAchievement_message_format() {
@@ -396,13 +389,15 @@ function test_malformed_json_ignored() {
     }
 }
 
-// -- Encoding contract (no double-encoding) --
+// -- Encoding contract --
 
 function test_outgoing_params_is_not_string() {
-    // JS must send params as a raw array, NOT JSON.stringify(array)
+    // JS must send a JSON string payload, but params inside it must remain a raw array.
     const mock = new WebViewMock();
     const { Steam } = loadSteam(mock);
     Steam.unlockAchievement('TEST');
+    expect(typeof mock.lastSentRaw() === 'string',
+        'outgoing message payload is a JSON string');
     const msg = mock.lastSent();
     expect(Array.isArray(msg.params),
         'outgoing params is a raw array (not double-encoded string)');
@@ -498,9 +493,8 @@ async function main() {
     test_isAvailable_true_when_host_present();
     test_isAvailable_false_without_host();
 
-    console.log('\n-- Outgoing message format (no double-encoding) --');
+    console.log('\n-- Outgoing message format --');
     test_init_sends_correct_message();
-    test_params_is_raw_array_not_string();
     test_unlockAchievement_message_format();
     test_clearAchievement_message_format();
     test_showOverlay_achievements_index();
@@ -527,7 +521,7 @@ async function main() {
     test_non_steam_messages_ignored();
     test_malformed_json_ignored();
 
-    console.log('\n-- Encoding contract (no double-encoding) --');
+    console.log('\n-- Encoding contract --');
     test_outgoing_params_is_not_string();
     await test_incoming_params_is_not_double_encoded();
 

@@ -65,19 +65,24 @@ const Steam = (() => {
 
     // ----------------------------------------------------------------
     // 非同期呼び出し（結果を await で受け取る）
-    // params は生の配列として送る（C# 側が ExtractParamsJson で抽出するため）
+    // メッセージ全体を JSON 文字列として送る。
+    // params 自体は JSON 配列として埋め込まれ、C# 側がそのまま抽出する。
     // ----------------------------------------------------------------
+    function postSteamMessage(messageId, params, asyncId) {
+        window.chrome.webview.postMessage(JSON.stringify({
+            source: 'steam',
+            messageId,
+            params,
+            asyncId
+        }));
+    }
+
     function callAsync(messageId, params = []) {
         if (!_isHost) return Promise.resolve({ isAvailable: false });
         return new Promise(resolve => {
             const id = ++_asyncId;
             _pending.set(id, resolve);
-            window.chrome.webview.postMessage(JSON.stringify({
-                source: 'steam',
-                messageId,
-                params,
-                asyncId: id
-            }));
+            postSteamMessage(messageId, params, id);
         });
     }
 
@@ -86,12 +91,7 @@ const Steam = (() => {
     // ----------------------------------------------------------------
     function callSync(messageId, params = []) {
         if (!_isHost) return;
-        window.chrome.webview.postMessage(JSON.stringify({
-            source: 'steam',
-            messageId,
-            params,
-            asyncId: -1
-        }));
+        postSteamMessage(messageId, params, -1);
     }
 
     // ----------------------------------------------------------------

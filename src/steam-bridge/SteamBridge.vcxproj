@@ -50,15 +50,17 @@
   <!-- Debug x64 -->
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <TargetName>steam_bridge</TargetName>
-    <OutDir>$(SolutionDir)..\bin\x64\Debug\net472\</OutDir>
+    <OutDir>$(ProjectDir)bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(Platform)\$(Configuration)\</IntDir>
+    <DeployDir>$(SolutionDir)..\bin\x64\Debug\net472\</DeployDir>
   </PropertyGroup>
 
   <!-- Release x64: output next to WebView2AppHost.exe -->
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <TargetName>steam_bridge</TargetName>
-    <OutDir>$(SolutionDir)..\bin\x64\Release\net472\</OutDir>
+    <OutDir>$(ProjectDir)bin\$(Platform)\$(Configuration)\</OutDir>
     <IntDir>$(Platform)\$(Configuration)\</IntDir>
+    <DeployDir>$(SolutionDir)..\bin\x64\Release\net472\</DeployDir>
   </PropertyGroup>
 
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -124,6 +126,14 @@
     <ClCompile Include="Utils.cpp" />
     <ClCompile Include="WrapperExtension.cpp" />
   </ItemGroup>
+
+  <Target Name="DeploySteamBridgeDll" AfterTargets="Build">
+    <MakeDir Directories="$(DeployDir)" />
+    <Delete Files="$(DeployDir)steam_bridge.exp;$(DeployDir)steam_bridge.lib;$(DeployDir)steam_bridge.pdb;$(DeployDir)steam_bridge.ilk" />
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(DeployDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
 
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />
