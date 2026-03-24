@@ -46,6 +46,10 @@
             Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <SteamworksSdkDir Condition="'$(SteamworksSdkDir)' == '' and '$(STEAMWORKS_SDK_ROOT)' != ''">$(STEAMWORKS_SDK_ROOT)</SteamworksSdkDir>
+    <SteamworksSdkDir Condition="'$(SteamworksSdkDir)' == ''">$(ProjectDir)steamworks-sdk</SteamworksSdkDir>
+  </PropertyGroup>
 
   <!-- Debug x64 -->
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -72,12 +76,14 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>$(SteamworksSdkDir)\public;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- /utf-8: treat source and execution charset as UTF-8.
            Suppresses C4819 on Japanese Windows (CP932) without altering semantics. -->
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
+      <AdditionalLibraryDirectories>$(SteamworksSdkDir)\redistributable_bin\win64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
     </Link>
@@ -94,11 +100,13 @@
       <PrecompiledHeader>Use</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>$(SteamworksSdkDir)\public;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <!-- /utf-8: treat source and execution charset as UTF-8. -->
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
+      <AdditionalLibraryDirectories>$(SteamworksSdkDir)\redistributable_bin\win64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>

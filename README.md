@@ -31,12 +31,13 @@ A lightweight host for distributing HTML/CSS/JavaScript web apps as Windows desk
 8. [Distribution Methods](#distribution-methods)
 9. [Configuration](#configuration)
 10. [Web API Integration](#web-api-integration)
-11. [Limitations](#limitations)
-12. [Keyboard Shortcuts](#keyboard-shortcuts)
-13. [FAQ](#faq)
-14. [Project Structure](#project-structure)
-15. [Development Notes](#development-notes)
-16. [License](#license)
+11. [Steam Integration](#steam-integration)
+12. [Limitations](#limitations)
+13. [Keyboard Shortcuts](#keyboard-shortcuts)
+14. [FAQ](#faq)
+15. [Project Structure](#project-structure)
+16. [Development Notes](#development-notes)
+17. [License](#license)
 
 ---
 
@@ -320,6 +321,22 @@ Not provided. The design intent is to stay close to standard Web APIs rather tha
 
 ---
 
+## Steam Integration
+
+Steamworks support is optional. The host itself is designed around standard Web APIs, but Steam integration necessarily uses a proprietary API surface exposed through `steam.js`.
+
+For that reason, this README only points to dedicated, audience-specific documents.
+
+- App developers: `docs/steam/app-integration.md`
+- Bridge maintainers: `docs/steam/bridge-build.md`
+- Bundled sample: `samples/steam-complete/`
+
+Normal distribution files and Steam-related files are intended to be shipped separately. Add the Steam support bundle only when your app actually needs Steamworks.
+
+Downloading the Steamworks SDK should only be necessary for people who build or modify `steam_bridge.dll`. Regular app developers can use the prebuilt Steam support package as-is.
+
+---
+
 ## Limitations
 
 - Because the origin is `https://app.local/`, some Service Worker configurations may require additional setup
@@ -355,6 +372,9 @@ Replace `resources/app.ico` and rebuild. You can also set a favicon in your HTML
 
 ### How do I open DevTools?
 DevTools is enabled automatically in Debug builds. To enable it in a Release build, adjust the `#if DEBUG` block in `src/App.cs`.
+
+### How do I use Steamworks?
+The main README intentionally keeps Steam coverage brief. App developers should use `docs/steam/app-integration.md`, while bridge maintainers should use `docs/steam/bridge-build.md`.
 
 ### What files do I need to distribute?
 This depends on your distribution method, but the typical set is:

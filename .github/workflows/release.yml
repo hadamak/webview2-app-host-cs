@@ -28,22 +28,18 @@ jobs:
         shell: pwsh
         run: |
           $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "manual-${{ github.run_number }}" }
+          $base = "src/bin/x64/Release/net472"
+
           $outDir = "dist/WebView2AppHost-$version-win-x64"
           New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
-          $base = "src/bin/x64/Release/net472"
-
-          # 実行ファイル・DLL 類をルートに展開
+          # 通常版パッケージ
           Copy-Item "$base/WebView2AppHost.exe" $outDir
           Copy-Item "$base/WebView2AppHost.exe.config" $outDir
           Copy-Item "$base/Microsoft.Web.WebView2.Core.dll" $outDir
           Copy-Item "$base/Microsoft.Web.WebView2.WinForms.dll" $outDir
           Copy-Item "$base/WebView2Loader.dll" $outDir
-
-          # デモコンテンツ (www/ として同梱)
           Copy-Item "web-content" "$outDir/www" -Recurse
-
-          # ドキュメント・ライセンス類
           Copy-Item "README.md" $outDir
           Copy-Item "README.ja.md" $outDir
           Copy-Item "LICENSE" $outDir
@@ -69,6 +65,8 @@ jobs:
           path: |
             dist/*.zip
             dist/*.sha256
+            steam-support/*.zip
+            steam-support/*.sha256
 
       - name: Create GitHub Release
         if: github.ref_type == 'tag'
@@ -78,3 +76,5 @@ jobs:
           files: |
             dist/*.zip
             dist/*.sha256
+            steam-support/*.zip
+            steam-support/*.sha256

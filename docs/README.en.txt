@@ -11,3 +11,6 @@ Contents of this ZIP
 - THIRD_PARTY_NOTICES.md: Third-party library notices
 - README_TEMPLATE.txt: README template for app distribution (Japanese)
 - README_TEMPLATE.en.txt: README template for app distribution (English)
+
+Note:
+This standard package is the basis for end-user distribution and does not include Steam DLLs, the Steam sample, or Steam API documentation.

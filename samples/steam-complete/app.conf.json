@@ -1,0 +1,8 @@
+{
+  "title": "Steam Complete Sample",
+  "width": 1280,
+  "height": 800,
+  "fullscreen": false,
+  "steamAppId": "480",
+  "steamDevMode": true
+}

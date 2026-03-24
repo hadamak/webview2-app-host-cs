@@ -29,12 +29,13 @@ WebView2 を使って、HTML / CSS / JavaScript で作った Web アプリを Wi
 8. [配布方法](#配布方法)
 9. [設定](#設定)
 10. [Web API との連携](#web-api-との連携)
-11. [制限事項](#制限事項)
-12. [ショートカットキー](#ショートカットキー)
-13. [FAQ](#faq)
-14. [プロジェクト構成](#プロジェクト構成)
-15. [開発メモ](#開発メモ)
-16. [ライセンス](#ライセンス)
+11. [Steam 連携](#steam-連携)
+12. [制限事項](#制限事項)
+13. [ショートカットキー](#ショートカットキー)
+14. [FAQ](#faq)
+15. [プロジェクト構成](#プロジェクト構成)
+16. [開発メモ](#開発メモ)
+17. [ライセンス](#ライセンス)
 
 ---
 
@@ -317,6 +318,22 @@ window.addEventListener('beforeunload', (event) => {
 
 ---
 
+## Steam 連携
+
+Steamworks 連携はオプションです。ホスト本体の基本方針は標準 Web API 中心ですが、Steam 連携は `steam.js` を介した独自 API になります。
+
+そのため、本 README では詳細を展開せず、対象別の別文書にまとめています。
+
+- アプリ開発者向け: `docs/steam/app-integration.md`
+- ブリッジビルド担当向け: `docs/steam/bridge-build.md`
+- 付属サンプル: `samples/steam-complete/`
+
+通常配布物と Steam 関連配布物は分離する想定です。Steam 対応が必要な場合のみ、別配布の Steam サポート一式を追加してください。
+
+Steamworks SDK のダウンロードが必要なのは `steam_bridge.dll` をビルド・改修する人だけです。通常のアプリ開発者は、ビルド済みの Steam サポート配布物を追加するだけで利用できます。
+
+---
+
 ## 制限事項
 
 - `https://app.local/` ベースのため、一部の Service Worker などでは追加設定が必要になる場合があります
@@ -351,6 +368,9 @@ window.addEventListener('keydown', (e) => {
 
 ### DevTools を開きたい
 Debug ビルドでは自動的に有効です。Release ビルドで有効にしたい場合は、`src/App.cs` 内の `#if DEBUG` ブロックを調整してください。
+
+### Steamworks を使いたい
+本体 README では概要のみに留めています。アプリ開発者向けには `docs/steam/app-integration.md`、ブリッジビルド担当向けには `docs/steam/bridge-build.md` を参照してください。
 
 ### どのファイルを配布すればよいですか
 配布方式によって異なりますが、基本的には次が必要です。

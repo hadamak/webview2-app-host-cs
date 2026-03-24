@@ -58,9 +58,9 @@
         </div>
     </div>
 
-    <!-- オーバーレイテスト -->
+    <!-- Steam UI テスト -->
     <div class="card">
-        <h2>オーバーレイ (Overlay)</h2>
+        <h2>Steam UI (Overlay API)</h2>
         <div class="controls">
             <button class="secondary" onclick="Steam.showOverlay('friends')">フレンド</button>
             <button class="secondary" onclick="Steam.showOverlay('achievements')">実績</button>
@@ -71,6 +71,7 @@
             <input type="text" id="ovl-url" value="https://google.com">
             <button onclick="openOvlUrl()">URL を開く</button>
         </div>
+        <p style="font-size:11px; color:#ccc;">WebView2 の上に重なるオーバーレイではなく、Steam 側 UI の起動確認です。</p>
     </div>
 
     <!-- DLC / その他 -->
@@ -147,10 +148,10 @@
         log(res.isOk ? "成功" : "失敗");
     }
 
-    // URLをオーバーレイで開く
+    // URLを Steam 側 UI で開く
     function openOvlUrl() {
         const url = document.getElementById('ovl-url').value;
-        log(`オーバーレイでURLを開く: ${url}`);
+        log(`Steam UI でURLを開く: ${url}`);
         Steam.showOverlayURL(url);
     }
 
@@ -164,7 +165,7 @@
 
     // イベント購読
     Steam.on('on-game-overlay-activated', ({ isShowing }) => {
-        log(`オーバーレイ状態変化: ${isShowing ? "表示" : "非表示"}`);
+        log(`Steam UI 状態変化イベント: ${isShowing ? "表示" : "非表示"}`);
     });
 
     Steam.on('on-dlc-installed', ({ appId }) => {

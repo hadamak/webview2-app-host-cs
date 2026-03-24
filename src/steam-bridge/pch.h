@@ -18,24 +18,24 @@
 #define DLLEXPORT __declspec(dllexport)
 
 // Include Steamworks SDK for Windows.
-// Add a compile check for the header as it's not shipped with this codebase.
-// The SDK should be extracted in a subfolder named "steamworks-sdk", such that the include path below exists.
-#if __has_include("steamworks-sdk\\public\\steam\\steam_api.h")
+// The include/library search paths are configured by the project file and should point
+// to a locally provisioned Steamworks SDK, typically via STEAMWORKS_SDK_ROOT.
+#if __has_include(<steam/steam_api.h>)
 
 	// NOTE: the project properties define _CRT_SECURE_NO_WARNINGS to suppress security errors in the Steamworks SDK
-	#include "steamworks-sdk\\public\\steam\\steam_api.h"
+	#include <steam/steam_api.h>
 
-	// Link Steamworks lib file 
+	// Link Steamworks lib file
 	#if defined(_M_X64)
-		#pragma comment(lib, "steamworks-sdk\\redistributable_bin\\win64\\steam_api64.lib")
+		#pragma comment(lib, "steam_api64.lib")
 	#elif defined(_M_IX86)
-		#pragma comment(lib, "steamworks-sdk\\redistributable_bin\\steam_api.lib")
+		#pragma comment(lib, "steam_api.lib")
 	#else
 		#error "Unable to identify architecture for Steamworks lib file"
 	#endif
 
 #else
-	#error "Unable to find steam_api.h. Make sure the Steamworks SDK is extracted in the steamworks-sdk subfolder such that the file 'steamworks-sdk\\public\\steam\\steam_api.h' exists."
+	#error "Unable to find steam/steam_api.h. Configure Steamworks SDK include paths (for example via STEAMWORKS_SDK_ROOT)."
 #endif
 
 #else
@@ -45,12 +45,12 @@
 #define DLLEXPORT
 
 // Include Steamworks SDK for macOS/Linux.
-#if __has_include("steamworks-sdk/public/steam/steam_api.h")
+#if __has_include(<steam/steam_api.h>)
 
-	#include "steamworks-sdk/public/steam/steam_api.h"
+	#include <steam/steam_api.h>
 
 #else
-	#error "Unable to find steam_api.h. Make sure the Steamworks SDK is extracted in the steamworks-sdk subfolder such that the file 'steamworks-sdk/public/steam/steam_api.h' exists."
+	#error "Unable to find steam/steam_api.h. Configure Steamworks SDK include paths."
 #endif
 
 #endif

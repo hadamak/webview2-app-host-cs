@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Steam Complete Sample</title>
+    <style>
+        :root {
+            --bg: #0f1720;
+            --panel: #162331;
+            --panel-2: #203447;
+            --line: #2f506d;
+            --text: #edf5ff;
+            --muted: #8eb0ca;
+            --accent: #54c7ec;
+            --ok: #66d17a;
+            --warn: #f7ca5a;
+            --bad: #ff7f7f;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            font-family: "Segoe UI", sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at top, #21435d, transparent 38%),
+                linear-gradient(180deg, #091019 0%, #0f1720 100%);
+            min-height: 100vh;
+        }
+
+        main {
+            width: min(1180px, calc(100% - 32px));
+            margin: 24px auto 40px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 28px;
+        }
+
+        p.lead {
+            margin: 0 0 20px;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .statusbar {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .pill {
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .pill strong { color: var(--text); }
+        .pill.ok strong { color: var(--ok); }
+        .pill.bad strong { color: var(--bad); }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 16px;
+        }
+
+        .card {
+            background: linear-gradient(180deg, rgba(32, 52, 71, 0.95), rgba(18, 35, 49, 0.95));
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 18px;
+            box-shadow: 0 14px 40px rgba(0, 0, 0, 0.24);
+        }
+
+        .card h2 {
+            margin: 0 0 14px;
+            font-size: 18px;
+        }
+
+        .row {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        .info {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 6px 10px;
+            font-size: 14px;
+        }
+
+        .info .label { color: var(--muted); }
+
+        input {
+            flex: 1 1 160px;
+            min-width: 0;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--line);
+            background: #0d1822;
+            color: var(--text);
+        }
+
+        button {
+            padding: 10px 14px;
+            border: 0;
+            border-radius: 10px;
+            background: var(--accent);
+            color: #072031;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button.subtle {
+            background: #29485f;
+            color: var(--text);
+        }
+
+        pre {
+            margin: 0;
+            padding: 14px;
+            min-height: 220px;
+            border-radius: 12px;
+            border: 1px solid #203748;
+            background: #081018;
+            color: #bfe5ff;
+            overflow: auto;
+            font-family: Consolas, monospace;
+            font-size: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>Steam Complete Sample</h1>
+    <p class="lead">
+        `steam.js` を使った Steamworks 連携の完全サンプルです。初期化、Steam UI 呼び出し、実績、
+        DLC 確認、リッチプレゼンス、スクリーンショット、Web API チケット取得をひと通り確認できます。
+    </p>
+
+    <div class="statusbar">
+        <div class="pill" id="host-pill">Host: <strong>checking</strong></div>
+        <div class="pill" id="steam-pill">Steam: <strong>not initialized</strong></div>
+        <div class="pill" id="user-pill">User: <strong>---</strong></div>
+    </div>
+
+    <div class="grid">
+        <section class="card">
+            <h2>Init</h2>
+            <div class="row">
+                <button id="init-btn">Steam.init()</button>
+            </div>
+            <div class="info">
+                <div class="label">Persona</div><div id="persona-name">---</div>
+                <div class="label">SteamID64</div><div id="steam-id">---</div>
+                <div class="label">AppID</div><div id="app-id">---</div>
+                <div class="label">Steam Deck</div><div id="steam-deck">---</div>
+                <div class="label">Game Lang</div><div id="game-lang">---</div>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Steam UI</h2>
+            <div class="row">
+                <button data-overlay="friends">Friends</button>
+                <button data-overlay="achievements">Achievements</button>
+                <button data-overlay="stats">Stats</button>
+                <button data-overlay="settings">Settings</button>
+            </div>
+            <div class="row">
+                <input id="overlay-url" value="https://store.steampowered.com" />
+                <button id="overlay-url-btn" class="subtle">Open URL</button>
+            </div>
+            <div class="row" style="color:#8eb0ca;font-size:12px;">
+                WebView2 画面上に重なるオーバーレイではなく、Steam 側の UI を開きます。
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Achievements</h2>
+            <div class="row">
+                <input id="achievement-id" value="ACHIEVEMENT_1" />
+                <button id="achievement-set-btn">Unlock</button>
+                <button id="achievement-clear-btn" class="subtle">Clear</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>DLC / Presence</h2>
+            <div class="row">
+                <input id="dlc-id" value="1000" />
+                <button id="dlc-check-btn">Check DLC</button>
+            </div>
+            <div class="row">
+                <input id="presence-value" value="Testing steam sample" />
+                <button id="presence-set-btn">Set Presence</button>
+                <button id="presence-clear-btn" class="subtle">Clear</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Auth / Screenshot</h2>
+            <div class="row">
+                <input id="identity" value="sample-web-api" />
+                <button id="ticket-btn">Get Ticket</button>
+            </div>
+            <div class="row">
+                <button id="screenshot-btn" class="subtle">Trigger Screenshot</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Log</h2>
+            <pre id="log"></pre>
+        </section>
+    </div>
+</main>
+
+<script src="steam.js"></script>
+<script>
+const logEl = document.getElementById('log');
+let lastTicket = null;
+
+function log(message, data) {
+    const line = `[${new Date().toLocaleTimeString()}] ${message}`;
+    logEl.textContent += data === undefined
+        ? `${line}\n`
+        : `${line} ${JSON.stringify(data)}\n`;
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+function setStatus(id, text, className) {
+    const el = document.getElementById(id);
+    el.className = `pill ${className || ''}`.trim();
+    el.innerHTML = el.innerHTML.replace(/<strong>.*<\/strong>/, `<strong>${text}</strong>`);
+}
+
+function applyInitInfo(info) {
+    document.getElementById('persona-name').textContent = info.personaName ?? '---';
+    document.getElementById('steam-id').textContent = info.steamId64Bit ?? '---';
+    document.getElementById('app-id').textContent = info.appId ?? '---';
+    document.getElementById('steam-deck').textContent = String(info.isRunningOnSteamDeck ?? '---');
+    document.getElementById('game-lang').textContent = info.currentGameLanguage ?? '---';
+    setStatus('user-pill', info.personaName || '---', 'ok');
+}
+
+async function initSteam() {
+    log('Steam.init() start');
+    const info = await Steam.init();
+    log('Steam.init() result', info);
+
+    if (!info.isAvailable) {
+        setStatus('steam-pill', 'unavailable', 'bad');
+        return null;
+    }
+
+    setStatus('steam-pill', 'available', 'ok');
+    applyInitInfo(info);
+    return info;
+}
+
+document.getElementById('host-pill').className = Steam.isAvailable() ? 'pill ok' : 'pill bad';
+document.getElementById('host-pill').innerHTML = `Host: <strong>${Steam.isAvailable() ? 'webview' : 'browser'}</strong>`;
+
+document.getElementById('init-btn').addEventListener('click', initSteam);
+
+for (const button of document.querySelectorAll('[data-overlay]')) {
+    button.addEventListener('click', () => {
+        const option = button.getAttribute('data-overlay');
+        log(`Steam.showOverlay(${option})`);
+        Steam.showOverlay(option);
+    });
+}
+
+document.getElementById('overlay-url-btn').addEventListener('click', () => {
+    const url = document.getElementById('overlay-url').value;
+    log('Steam.showOverlayURL()', { url });
+    Steam.showOverlayURL(url, false);
+});
+
+document.getElementById('achievement-set-btn').addEventListener('click', async () => {
+    const id = document.getElementById('achievement-id').value;
+    const result = await Steam.unlockAchievement(id);
+    log('unlockAchievement()', result);
+});
+
+document.getElementById('achievement-clear-btn').addEventListener('click', async () => {
+    const id = document.getElementById('achievement-id').value;
+    const result = await Steam.clearAchievement(id);
+    log('clearAchievement()', result);
+});
+
+document.getElementById('dlc-check-btn').addEventListener('click', async () => {
+    const appId = Number(document.getElementById('dlc-id').value);
+    const result = await Steam.checkDlcInstalled([appId]);
+    log('checkDlcInstalled()', result);
+});
+
+document.getElementById('presence-set-btn').addEventListener('click', () => {
+    const value = document.getElementById('presence-value').value;
+    Steam.setRichPresence('status', value);
+    log('setRichPresence()', { key: 'status', value });
+});
+
+document.getElementById('presence-clear-btn').addEventListener('click', () => {
+    Steam.clearRichPresence();
+    log('clearRichPresence()');
+});
+
+document.getElementById('ticket-btn').addEventListener('click', async () => {
+    if (lastTicket !== null) {
+        Steam.cancelAuthTicket(lastTicket);
+        log('cancelAuthTicket()', { authTicket: lastTicket });
+        lastTicket = null;
+    }
+
+    const identity = document.getElementById('identity').value;
+    const result = await Steam.getAuthTicketForWebApi(identity);
+    log('getAuthTicketForWebApi()', result);
+    if (result.isOk) lastTicket = result.authTicket;
+});
+
+document.getElementById('screenshot-btn').addEventListener('click', () => {
+    log('triggerScreenshot()');
+    Steam.triggerScreenshot();
+});
+
+Steam.on('on-game-overlay-activated', ({ isShowing }) => {
+    log('event:on-game-overlay-activated', { isShowing });
+});
+
+Steam.on('on-dlc-installed', ({ appId }) => {
+    log('event:on-dlc-installed', { appId });
+});
+
+Steam.on('screenshot-requested', () => {
+    log('event:screenshot-requested');
+});
+
+if (Steam.isAvailable()) {
+    initSteam().catch(err => log('init failed', { message: String(err) }));
+} else {
+    log('window.chrome.webview is not available. Open this inside WebView2AppHost.');
+}
+</script>
+</body>
+</html>

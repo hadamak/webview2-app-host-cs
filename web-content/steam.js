@@ -14,16 +14,20 @@
  *   // 実績解除
  *   await Steam.unlockAchievement('FIRST_CLEAR');
  *
- *   // オーバーレイ
+ *   // Steam 側 UI を開く
  *   Steam.showOverlay('achievements');
  *
  *   // イベント
  *   Steam.on('on-game-overlay-activated', ({ isShowing }) => {
- *     if (isShowing) pause(); else resume();
+ *     console.log('steam ui state changed:', isShowing);
  *   });
  *
  * ブラウザで直接開いた場合: isAvailable() が false を返すだけで、
  * エラーにならない（開発中はブラウザで動かし続けられる）。
+ *
+ * 注意:
+ * WebView2 上に Steam オーバーレイが重なるわけではない。
+ * showOverlay 系 API は Steam 側の関連 UI を開く用途として扱う。
  */
 const Steam = (() => {
     // ホスト上で動作しているかどうか
@@ -56,7 +60,7 @@ const Steam = (() => {
                 }
             }
 
-            // イベント通知（オーバーレイ・DLC インストール等）
+            // イベント通知（Steam UI 状態・DLC インストール等）
             window.dispatchEvent(
                 new CustomEvent(`steam:${msg.messageId}`, { detail: params })
             );
@@ -95,7 +99,7 @@ const Steam = (() => {
     }
 
     // ----------------------------------------------------------------
-    // オーバーレイオプション（Construct の定義に準拠）
+    // Steam UI オプション（Construct の定義に準拠）
     // ----------------------------------------------------------------
     const OVERLAY_OPTIONS = [
         'friends', 'community', 'players', 'settings',
@@ -138,24 +142,25 @@ const Steam = (() => {
         clearAchievement: (name) =>
             callAsync('clear-achievement', [name]),
 
-        // ---- オーバーレイ ----
+        // ---- Steam UI ----
 
         /**
-         * Steam オーバーレイを開く。
+         * Steam 側の UI を開く。
+         * WebView2 の画面上に重なるオーバーレイ表示ではない点に注意。
          * @param {'friends'|'community'|'players'|'settings'|
          *         'official-game-group'|'stats'|'achievements'} option
          */
         showOverlay: (option = 'achievements') => {
             const index = OVERLAY_OPTIONS.indexOf(option);
             if (index === -1) {
-                console.warn(`[Steam] 不明なオーバーレイオプション: ${option}`);
+                console.warn(`[Steam] 不明な UI オプション: ${option}`);
                 return;
             }
             callSync('show-overlay', [index]);
         },
 
         /**
-         * Steam オーバーレイで URL を開く。
+         * Steam 側の UI で URL を開く。
          * @param {string} url
          * @param {boolean} modal
          */

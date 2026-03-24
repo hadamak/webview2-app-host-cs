@@ -11,3 +11,6 @@ ZIPファイルに含まれている内容について
 - THIRD_PARTY_NOTICES.md: サードパーティ製ライブラリの通知
 - README_TEMPLATE.txt: アプリケーション配布時のREADMEテンプレート (日本語)
 - README_TEMPLATE.en.txt: アプリケーション配布時のREADMEテンプレート (英語)
+
+注意:
+この通常パッケージはエンドユーザー向け配布の土台であり、Steam 関連 DLL、Steam サンプル、Steam API 文書は含まれていません。
