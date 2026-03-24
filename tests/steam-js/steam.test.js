@@ -52,6 +52,8 @@ class WebViewMock {
         this.sent.push(JSON.parse(str));
     }
 
+    // Simulate an incoming message from C#.
+    // msgObj.params is a raw JS value (object/array), NOT a JSON string.
     deliver(msgObj) {
         const event = { data: JSON.stringify(msgObj) };
         for (const fn of this._listeners['message'] || []) fn(event);
@@ -96,25 +98,21 @@ class CustomEventMock {
 
 function loadSteam(webviewMock) {
     const win = makeWindowMock(webviewMock);
-    const fn = new Function('window', 'CustomEvent', `${steamSrc}\nreturn Steam;`);
+    const fn  = new Function('window', 'CustomEvent', `${steamSrc}\nreturn Steam;`);
     const Steam = fn(win, CustomEventMock);
     return { Steam, win };
 }
 
-// Deliver a response and flush microtasks
+// Deliver a response and flush microtasks.
+// paramsObj is a raw JS value (delivered as JSON, no double-encoding).
 async function deliverResponse(mock, asyncId, paramsObj) {
     mock.deliver({
         source:    'steam',
         messageId: '',
-        params:    JSON.stringify(paramsObj),
+        params:    paramsObj,   // raw value, not JSON.stringify(paramsObj)
         asyncId:   asyncId,
     });
-    // Flush pending microtasks (Promise.then callbacks)
     await Promise.resolve();
-}
-
-function parsedParams(msg) {
-    return JSON.parse(msg.params);
 }
 
 // ---------------------------------------------------------------------------
@@ -130,16 +128,13 @@ function test_isAvailable_true_when_host_present() {
 }
 
 function test_isAvailable_false_without_host() {
-    const win = {
-        addEventListener: () => {},
-        dispatchEvent:    () => {},
-    };
-    const fn = new Function('window', 'CustomEvent', `${steamSrc}\nreturn Steam;`);
+    const win = { addEventListener: () => {}, dispatchEvent: () => {} };
+    const fn  = new Function('window', 'CustomEvent', `${steamSrc}\nreturn Steam;`);
     const Steam = fn(win, CustomEventMock);
     expect(Steam.isAvailable() === false, 'isAvailable() == false without webview');
 }
 
-// -- Outgoing message format --
+// -- Outgoing message format: params must be a raw array (no double-encoding) --
 
 function test_init_sends_correct_message() {
     const mock = new WebViewMock();
@@ -149,7 +144,16 @@ function test_init_sends_correct_message() {
     expectEq(msg.source,    'steam', 'init source');
     expectEq(msg.messageId, 'init',  'init messageId');
     expect(typeof msg.asyncId === 'number' && msg.asyncId >= 1, 'init asyncId >= 1');
-    expectEq(parsedParams(msg), [], 'init params is empty array');
+    expectEq(msg.params, [], 'init params is raw empty array');
+}
+
+function test_params_is_raw_array_not_string() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+    Steam.unlockAchievement('FIRST_CLEAR');
+    const msg = mock.lastSent();
+    expect(Array.isArray(msg.params), 'params is a raw array, not a string');
+    expect(typeof msg.params !== 'string', 'params is NOT double-encoded as string');
 }
 
 function test_unlockAchievement_message_format() {
@@ -159,7 +163,7 @@ function test_unlockAchievement_message_format() {
     const msg = mock.lastSent();
     expectEq(msg.source,    'steam',           'unlock source');
     expectEq(msg.messageId, 'set-achievement', 'unlock messageId');
-    expectEq(parsedParams(msg), ['FIRST_CLEAR'], 'unlock params');
+    expectEq(msg.params,    ['FIRST_CLEAR'],   'unlock params');
 }
 
 function test_clearAchievement_message_format() {
@@ -168,7 +172,7 @@ function test_clearAchievement_message_format() {
     Steam.clearAchievement('FIRST_CLEAR');
     const msg = mock.lastSent();
     expectEq(msg.messageId, 'clear-achievement', 'clearAchievement messageId');
-    expectEq(parsedParams(msg), ['FIRST_CLEAR'], 'clearAchievement params');
+    expectEq(msg.params,    ['FIRST_CLEAR'],     'clearAchievement params');
 }
 
 function test_showOverlay_achievements_index() {
@@ -176,30 +180,30 @@ function test_showOverlay_achievements_index() {
     const { Steam } = loadSteam(mock);
     Steam.showOverlay('achievements');
     const msg = mock.lastSent();
-    expectEq(msg.messageId,     'show-overlay', 'showOverlay messageId');
-    expectEq(parsedParams(msg), [6],            'achievements -> index 6');
-    expectEq(msg.asyncId,       -1,             'fire-and-forget asyncId == -1');
+    expectEq(msg.messageId, 'show-overlay', 'showOverlay messageId');
+    expectEq(msg.params,    [6],            'achievements -> index 6');
+    expectEq(msg.asyncId,   -1,             'fire-and-forget asyncId == -1');
 }
 
 function test_showOverlay_friends_index() {
     const mock = new WebViewMock();
     const { Steam } = loadSteam(mock);
     Steam.showOverlay('friends');
-    expectEq(parsedParams(mock.lastSent()), [0], 'friends -> index 0');
+    expectEq(mock.lastSent().params, [0], 'friends -> index 0');
 }
 
 function test_showOverlay_community_index() {
     const mock = new WebViewMock();
     const { Steam } = loadSteam(mock);
     Steam.showOverlay('community');
-    expectEq(parsedParams(mock.lastSent()), [1], 'community -> index 1');
+    expectEq(mock.lastSent().params, [1], 'community -> index 1');
 }
 
 function test_showOverlay_stats_index() {
     const mock = new WebViewMock();
     const { Steam } = loadSteam(mock);
     Steam.showOverlay('stats');
-    expectEq(parsedParams(mock.lastSent()), [5], 'stats -> index 5');
+    expectEq(mock.lastSent().params, [5], 'stats -> index 5');
 }
 
 function test_showOverlay_invalid_does_not_send() {
@@ -216,7 +220,7 @@ function test_showOverlayURL_format() {
     Steam.showOverlayURL('https://store.steampowered.com', true);
     const msg = mock.lastSent();
     expectEq(msg.messageId, 'show-overlay-url', 'showOverlayURL messageId');
-    expectEq(parsedParams(msg), ['https://store.steampowered.com', true], 'showOverlayURL params');
+    expectEq(msg.params, ['https://store.steampowered.com', true], 'showOverlayURL params');
 }
 
 function test_setRichPresence_format() {
@@ -224,8 +228,8 @@ function test_setRichPresence_format() {
     const { Steam } = loadSteam(mock);
     Steam.setRichPresence('status', 'In battle');
     const msg = mock.lastSent();
-    expectEq(msg.messageId, 'set-rich-presence', 'setRichPresence messageId');
-    expectEq(parsedParams(msg), ['status', 'In battle'], 'setRichPresence params');
+    expectEq(msg.messageId, 'set-rich-presence',   'setRichPresence messageId');
+    expectEq(msg.params,    ['status', 'In battle'], 'setRichPresence params');
 }
 
 function test_clearRichPresence_format() {
@@ -234,7 +238,7 @@ function test_clearRichPresence_format() {
     Steam.clearRichPresence();
     const msg = mock.lastSent();
     expectEq(msg.messageId, 'clear-rich-presence', 'clearRichPresence messageId');
-    expectEq(parsedParams(msg), [], 'clearRichPresence params');
+    expectEq(msg.params,    [],                    'clearRichPresence params');
 }
 
 function test_checkDlcInstalled_comma_joined() {
@@ -243,7 +247,7 @@ function test_checkDlcInstalled_comma_joined() {
     Steam.checkDlcInstalled([123, 456]);
     const msg = mock.lastSent();
     expectEq(msg.messageId, 'is-dlc-installed', 'checkDlcInstalled messageId');
-    expectEq(parsedParams(msg), ['123,456'], 'appIds comma-joined as string');
+    expectEq(msg.params, ['123,456'], 'appIds comma-joined as string');
 }
 
 function test_getAuthTicketForWebApi_format() {
@@ -252,7 +256,7 @@ function test_getAuthTicketForWebApi_format() {
     Steam.getAuthTicketForWebApi('myservice');
     const msg = mock.lastSent();
     expectEq(msg.messageId, 'get-auth-ticket-for-web-api', 'getAuthTicket messageId');
-    expectEq(parsedParams(msg), ['myservice'], 'getAuthTicket params');
+    expectEq(msg.params, ['myservice'], 'getAuthTicket params');
 }
 
 function test_cancelAuthTicket_format() {
@@ -261,7 +265,7 @@ function test_cancelAuthTicket_format() {
     Steam.cancelAuthTicket(42);
     const msg = mock.lastSent();
     expectEq(msg.messageId, 'cancel-auth-ticket', 'cancelAuthTicket messageId');
-    expectEq(parsedParams(msg), [42], 'cancelAuthTicket params');
+    expectEq(msg.params, [42], 'cancelAuthTicket params');
 }
 
 function test_triggerScreenshot_format() {
@@ -270,10 +274,10 @@ function test_triggerScreenshot_format() {
     Steam.triggerScreenshot();
     const msg = mock.lastSent();
     expectEq(msg.messageId, 'trigger-screenshot', 'triggerScreenshot messageId');
-    expectEq(parsedParams(msg), [], 'triggerScreenshot empty params');
+    expectEq(msg.params, [], 'triggerScreenshot empty params');
 }
 
-// -- Async response handling --
+// -- Incoming message format: params is a raw value (no JSON.parse needed) --
 
 async function test_unlock_promise_resolves() {
     const mock = new WebViewMock();
@@ -282,10 +286,11 @@ async function test_unlock_promise_resolves() {
     const promise = Steam.unlockAchievement('ACH_TEST');
     const asyncId = mock.lastSent().asyncId;
 
+    // C# sends params as a raw object, not a JSON string
     await deliverResponse(mock, asyncId, { isOk: true });
 
     const result = await promise;
-    expect(result.isOk === true, 'unlockAchievement promise resolves with isOk: true');
+    expect(result.isOk === true, 'unlockAchievement resolves with isOk: true');
 }
 
 async function test_init_promise_resolves() {
@@ -296,15 +301,15 @@ async function test_init_promise_resolves() {
     const asyncId = mock.lastSent().asyncId;
 
     await deliverResponse(mock, asyncId, {
-        isAvailable:    true,
-        personaName:    'TestPlayer',
-        accountId:      99999,
-        appId:          480,
-        steamUILanguage:'english',
+        isAvailable:     true,
+        personaName:     'TestPlayer',
+        accountId:       99999,
+        appId:           480,
+        steamUILanguage: 'english',
     });
 
     const result = await promise;
-    expect(result.isAvailable === true,    'init: isAvailable');
+    expect(result.isAvailable === true,     'init: isAvailable');
     expectEq(result.personaName, 'TestPlayer', 'init: personaName');
     expectEq(result.appId,       480,          'init: appId');
 }
@@ -313,7 +318,6 @@ async function test_multiple_concurrent_async_calls() {
     const mock = new WebViewMock();
     const { Steam } = loadSteam(mock);
 
-    // Two concurrent unlockAchievement calls
     const p1 = Steam.unlockAchievement('ACH_1');
     const id1 = mock.lastSent().asyncId;
     const p2 = Steam.unlockAchievement('ACH_2');
@@ -321,13 +325,11 @@ async function test_multiple_concurrent_async_calls() {
 
     expect(id1 !== id2, 'concurrent calls get distinct asyncIds');
 
-    // Respond to second first, then first
     await deliverResponse(mock, id2, { isOk: true });
     await deliverResponse(mock, id1, { isOk: false });
 
     const r1 = await p1;
     const r2 = await p2;
-
     expect(r1.isOk === false, 'p1 resolved with correct (false)');
     expect(r2.isOk === true,  'p2 resolved with correct (true)');
 }
@@ -341,14 +343,15 @@ function test_overlay_activated_event() {
     let captured = null;
     Steam.on('on-game-overlay-activated', (detail) => { captured = detail; });
 
+    // params is a raw object (not a JSON string)
     mock.deliver({
         source:    'steam',
         messageId: 'on-game-overlay-activated',
-        params:    JSON.stringify({ isShowing: true }),
+        params:    { isShowing: true },
         asyncId:   -1,
     });
 
-    expect(captured !== null,        'overlay event handler called');
+    expect(captured !== null,           'overlay event handler called');
     expect(captured.isShowing === true, 'isShowing is true');
 }
 
@@ -362,19 +365,17 @@ function test_dlc_installed_event() {
     mock.deliver({
         source:    'steam',
         messageId: 'on-dlc-installed',
-        params:    JSON.stringify({ appId: 12345 }),
+        params:    { appId: 12345 },
         asyncId:   -1,
     });
 
-    expect(captured !== null,        'dlc event handler called');
-    expectEq(captured.appId, 12345,  'appId matches');
+    expect(captured !== null,      'dlc event handler called');
+    expectEq(captured.appId, 12345, 'appId matches');
 }
 
 function test_non_steam_messages_ignored() {
     const mock = new WebViewMock();
     const { Steam } = loadSteam(mock);
-
-    // Should not throw
     try {
         mock.deliver({ source: 'visibilityChange', state: 'hidden' });
         expect(true, 'non-steam message does not throw');
@@ -386,7 +387,6 @@ function test_non_steam_messages_ignored() {
 function test_malformed_json_ignored() {
     const mock = new WebViewMock();
     const { Steam } = loadSteam(mock);
-
     try {
         const event = { data: 'not valid json {{{' };
         for (const fn of mock._listeners['message'] || []) fn(event);
@@ -396,31 +396,96 @@ function test_malformed_json_ignored() {
     }
 }
 
-// -- Encoding contract --
+// -- Encoding contract (no double-encoding) --
 
-function test_params_are_string_on_send() {
+function test_outgoing_params_is_not_string() {
+    // JS must send params as a raw array, NOT JSON.stringify(array)
     const mock = new WebViewMock();
     const { Steam } = loadSteam(mock);
     Steam.unlockAchievement('TEST');
-    const raw = mock.lastSent();
-    expect(typeof raw.params === 'string', 'params field is a JSON string (double-encoded)');
-    const decoded = JSON.parse(raw.params);
-    expect(Array.isArray(decoded), 'params decodes to an array');
+    const msg = mock.lastSent();
+    expect(Array.isArray(msg.params),
+        'outgoing params is a raw array (not double-encoded string)');
+    expect(typeof msg.params !== 'string',
+        'outgoing params type is not string');
 }
 
-async function test_params_parsed_on_receive() {
+async function test_incoming_params_is_not_double_encoded() {
+    // C# sends params as a raw object; JS must NOT JSON.parse it
     const mock = new WebViewMock();
     const { Steam } = loadSteam(mock);
 
     const promise = Steam.init();
     const asyncId = mock.lastSent().asyncId;
 
-    // C# sends params as JSON string
+    // Deliver with raw object (simulates C# BuildOutgoingJson behavior)
     await deliverResponse(mock, asyncId, { isAvailable: true, personaName: 'OK' });
 
     const result = await promise;
-    expect(result.isAvailable === true, 'isAvailable parsed from string params');
-    expectEq(result.personaName, 'OK',  'personaName parsed from string params');
+    expect(result.isAvailable === true, 'isAvailable correct (no JSON.parse)');
+    expectEq(result.personaName, 'OK',  'personaName correct (no JSON.parse)');
+    expect(typeof result !== 'string',  'resolved value is not a raw JSON string');
+}
+
+// ---------------------------------------------------------------------------
+// C# JSON helper tests (via extractParamsJson reimplemented in JS for validation)
+// ---------------------------------------------------------------------------
+
+// Reimplementation of SteamBridge.ExtractParamsJson logic for testing
+function extractParamsJson(json) {
+    const key = '"params":';
+    const keyIdx = json.indexOf(key);
+    if (keyIdx < 0) return '[]';
+    let start = keyIdx + key.length;
+    while (start < json.length && json[start] === ' ') start++;
+    if (start >= json.length) return '[]';
+    const opener = json[start];
+    if (opener !== '[' && opener !== '{') return '[]';
+    const closer = opener === '[' ? ']' : '}';
+    let depth = 0, inStr = false;
+    for (let i = start; i < json.length; i++) {
+        const c = json[i];
+        if (inStr) {
+            if (c === '\\') i++;
+            else if (c === '"') inStr = false;
+        } else if (c === '"') inStr = true;
+        else if (c === opener) depth++;
+        else if (c === closer && --depth === 0)
+            return json.substring(start, i + 1);
+    }
+    return '[]';
+}
+
+function test_extractParams_array() {
+    const json = '{"source":"steam","messageId":"set-achievement","params":["FIRST_CLEAR"],"asyncId":1}';
+    expectEq(extractParamsJson(json), '["FIRST_CLEAR"]', 'extractParams: string array');
+}
+
+function test_extractParams_empty_array() {
+    const json = '{"source":"steam","messageId":"init","params":[],"asyncId":1}';
+    expectEq(extractParamsJson(json), '[]', 'extractParams: empty array');
+}
+
+function test_extractParams_mixed_array() {
+    const json = '{"source":"steam","params":[true,99,"hello"],"asyncId":1}';
+    expectEq(extractParamsJson(json), '[true,99,"hello"]', 'extractParams: mixed types');
+}
+
+function test_extractParams_no_params_key() {
+    const json = '{"source":"steam","messageId":"run-callbacks","asyncId":-1}';
+    expectEq(extractParamsJson(json), '[]', 'extractParams: missing key -> []');
+}
+
+function test_extractParams_nested_array() {
+    // Nested structures (rare but should parse correctly)
+    const json = '{"params":[[1,2],[3,4]]}';
+    expectEq(extractParamsJson(json), '[[1,2],[3,4]]', 'extractParams: nested array');
+}
+
+function test_extractParams_string_with_escaped_quote() {
+    // String value containing escaped quote
+    const json = '{"params":["say \\"hi\\""],"asyncId":1}';
+    expectEq(extractParamsJson(json), '["say \\"hi\\""]', 'extractParams: escaped quote in string');
 }
 
 // ---------------------------------------------------------------------------
@@ -433,8 +498,9 @@ async function main() {
     test_isAvailable_true_when_host_present();
     test_isAvailable_false_without_host();
 
-    console.log('\n-- Outgoing message format --');
+    console.log('\n-- Outgoing message format (no double-encoding) --');
     test_init_sends_correct_message();
+    test_params_is_raw_array_not_string();
     test_unlockAchievement_message_format();
     test_clearAchievement_message_format();
     test_showOverlay_achievements_index();
@@ -461,9 +527,17 @@ async function main() {
     test_non_steam_messages_ignored();
     test_malformed_json_ignored();
 
-    console.log('\n-- Encoding contract --');
-    test_params_are_string_on_send();
-    await test_params_parsed_on_receive();
+    console.log('\n-- Encoding contract (no double-encoding) --');
+    test_outgoing_params_is_not_string();
+    await test_incoming_params_is_not_double_encoded();
+
+    console.log('\n-- ExtractParamsJson logic --');
+    test_extractParams_array();
+    test_extractParams_empty_array();
+    test_extractParams_mixed_array();
+    test_extractParams_no_params_key();
+    test_extractParams_nested_array();
+    test_extractParams_string_with_escaped_quote();
 
     const total = pass + fail;
     console.log(`\n${pass} / ${total} passed${fail === 0 ? '  -- ALL PASSED' : `  -- ${fail} FAILED`}`);

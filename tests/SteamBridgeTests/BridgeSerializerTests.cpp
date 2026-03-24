@@ -314,6 +314,99 @@ static void test_roundtrip_string_param()
     EXPECT(respJson["isOk"].get<bool>() == true);
 }
 
+
+// ---------------------------------------------------------------------------
+// ExtractParamsJson tests (via SteamBridge internal helper)
+// Defined in SteamBridge.cs but the logic is mirrored in BridgeSerializer.h
+// for C++ validation. Here we test an equivalent C++ reimplementation.
+// ---------------------------------------------------------------------------
+
+// Re-implement the same logic as SteamBridge.ExtractParamsJson in C++
+// so the algorithm can be tested without C# / CLR.
+static std::string ExtractParamsJsonCpp(const std::string& json)
+{
+    const std::string key = "\"params\":";
+    auto keyIdx = json.find(key);
+    if (keyIdx == std::string::npos) return "[]";
+
+    size_t start = keyIdx + key.size();
+    while (start < json.size() && json[start] == ' ') start++;
+    if (start >= json.size()) return "[]";
+
+    char opener = json[start];
+    if (opener != '[' && opener != '{') return "[]";
+    char closer = (opener == '[') ? ']' : '}';
+
+    int depth = 0;
+    bool inStr = false;
+    for (size_t i = start; i < json.size(); i++)
+    {
+        char c = json[i];
+        if (inStr)
+        {
+            if (c == '\\') i++;
+            else if (c == '"') inStr = false;
+        }
+        else if (c == '"')    inStr = true;
+        else if (c == opener) depth++;
+        else if (c == closer && --depth == 0)
+            return json.substr(start, i - start + 1);
+    }
+    return "[]";
+}
+
+static void test_extract_array()
+{
+    std::string json = "{\"source\":\"steam\",\"messageId\":\"set-achievement\",\"params\":[\"FIRST_CLEAR\"],\"asyncId\":1}";
+    EXPECT_STREQ(ExtractParamsJsonCpp(json).c_str(), "[\"FIRST_CLEAR\"]");
+}
+
+static void test_extract_empty_array()
+{
+    std::string json = "{\"source\":\"steam\",\"params\":[],\"asyncId\":1}";
+    EXPECT_STREQ(ExtractParamsJsonCpp(json).c_str(), "[]");
+}
+
+static void test_extract_mixed_array()
+{
+    std::string json = "{\"params\":[true,99,\"hello\"]}";
+    EXPECT_STREQ(ExtractParamsJsonCpp(json).c_str(), "[true,99,\"hello\"]");
+}
+
+static void test_extract_missing_key()
+{
+    std::string json = "{\"source\":\"steam\",\"messageId\":\"run-callbacks\",\"asyncId\":-1}";
+    EXPECT_STREQ(ExtractParamsJsonCpp(json).c_str(), "[]");
+}
+
+static void test_extract_object_params()
+{
+    // Rare case: params could be an object for future messages
+    std::string json = "{\"params\":{\"key\":\"value\"}}";
+    EXPECT_STREQ(ExtractParamsJsonCpp(json).c_str(), "{\"key\":\"value\"}");
+}
+
+static void test_extract_nested_array()
+{
+    std::string json = "{\"params\":[[1,2],[3,4]]}";
+    EXPECT_STREQ(ExtractParamsJsonCpp(json).c_str(), "[[1,2],[3,4]]");
+}
+
+static void test_extract_string_with_escaped_bracket()
+{
+    // String value containing ']' must not terminate the array early
+    std::string json = "{\"params\":[\"he]llo\"]}";
+    EXPECT_STREQ(ExtractParamsJsonCpp(json).c_str(), "[\"he]llo\"]");
+}
+
+static void test_extract_string_with_escaped_quote()
+{
+    std::string json = "{\"params\":[\"say \\\"hi\\\"\"]}";
+    // Just check it returns a non-empty result starting with [
+    std::string result = ExtractParamsJsonCpp(json);
+    EXPECT(result.size() > 0 && result[0] == '[');
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -357,6 +450,17 @@ int main()
     // Round-trip
     puts("\n-- Round-trip --");
     test_roundtrip_string_param();
+
+    // ExtractParamsJson
+    puts("\n-- ExtractParamsJson --");
+    test_extract_array();
+    test_extract_empty_array();
+    test_extract_mixed_array();
+    test_extract_missing_key();
+    test_extract_object_params();
+    test_extract_nested_array();
+    test_extract_string_with_escaped_bracket();
+    test_extract_string_with_escaped_quote();
 
     // Summary
     const int total = g_pass + g_fail;

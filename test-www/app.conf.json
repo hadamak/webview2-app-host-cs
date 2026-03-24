@@ -3,6 +3,8 @@
   "width": 900,
   "height": 640,
   "fullscreen": false,
+  "steamAppId": "480",
+  "steamDevMode": true,
   "proxyOrigins": [
     "https://httpbin.org",
     "https://jsonplaceholder.typicode.com"

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Steamworks API Test</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #1b2838; color: #fff; margin: 20px; font-size: 14px; }
+        h1 { font-size: 20px; color: #66c0f4; border-bottom: 1px solid #3d4450; padding-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 15px; }
+        .card { background: #2a475e; border-radius: 8px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .card h2 { font-size: 16px; margin-top: 0; color: #a4d813; border-bottom: 1px solid #3d4450; padding-bottom: 5px; }
+        .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-weight: bold; margin-bottom: 10px; }
+        .status.online { background: #4caf50; }
+        .status.offline { background: #f44336; }
+        .info-row { display: flex; justify-content: space-between; margin: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .info-label { color: #8ed1fe; }
+        .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+        button { background: #47bfff; border: none; color: white; padding: 6px 12px; border-radius: 2px; cursor: pointer; font-size: 12px; }
+        button:hover { background: #33a5e3; }
+        button.secondary { background: #3d4450; }
+        button.secondary:hover { background: #4d5460; }
+        input { background: #101822; border: 1px solid #3d4450; color: #fff; padding: 5px; border-radius: 3px; flex-grow: 1; }
+        #log { background: #000; border-radius: 4px; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; font-size: 11px; margin-top: 20px; border: 1px solid #3d4450; }
+        .log-entry { margin-bottom: 2px; border-bottom: 1px solid #222; padding-bottom: 2px; }
+        .log-time { color: #888; margin-right: 8px; }
+        a { color: #66c0f4; text-decoration: none; font-size: 12px; }
+    </style>
+</head>
+<body>
+
+<h1>Steamworks API テストダッシュボード</h1>
+
+<div class="grid">
+    <!-- ステータス・ユーザー情報 -->
+    <div class="card">
+        <h2>ユーザー情報</h2>
+        <div id="steam-status" class="status offline">Steam: 未接続</div>
+        <div id="user-info">
+            <div class="info-row"><span class="info-label">名前:</span> <span id="val-personaName">---</span></div>
+            <div class="info-row"><span class="info-label">SteamID64:</span> <span id="val-steamId64Bit">---</span></div>
+            <div class="info-row"><span class="info-label">AppID:</span> <span id="val-appId">---</span></div>
+            <div class="info-row"><span class="info-label">Steam Deck:</span> <span id="val-isRunningOnSteamDeck">---</span></div>
+            <div class="info-row"><span class="info-label">言語:</span> <span id="val-currentGameLanguage">---</span></div>
+        </div>
+        <div class="controls">
+            <button onclick="initSteam()">再初期化 (Steam.init)</button>
+        </div>
+    </div>
+
+    <!-- 実績テスト -->
+    <div class="card">
+        <h2>実績 (Achievements)</h2>
+        <p style="font-size:11px; color:#ccc;">SpaceWar(480)の場合: ACHIEVEMENT_1 等</p>
+        <div class="controls">
+            <input type="text" id="ach-id" placeholder="実績ID">
+            <button onclick="unlockAch()">解除</button>
+            <button class="secondary" onclick="clearAch()">リセット</button>
+        </div>
+    </div>
+
+    <!-- オーバーレイテスト -->
+    <div class="card">
+        <h2>オーバーレイ (Overlay)</h2>
+        <div class="controls">
+            <button class="secondary" onclick="Steam.showOverlay('friends')">フレンド</button>
+            <button class="secondary" onclick="Steam.showOverlay('achievements')">実績</button>
+            <button class="secondary" onclick="Steam.showOverlay('stats')">統計</button>
+            <button class="secondary" onclick="Steam.showOverlay('settings')">設定</button>
+        </div>
+        <div class="controls">
+            <input type="text" id="ovl-url" value="https://google.com">
+            <button onclick="openOvlUrl()">URL を開く</button>
+        </div>
+    </div>
+
+    <!-- DLC / その他 -->
+    <div class="card">
+        <h2>DLC / その他</h2>
+        <div class="controls">
+            <input type="text" id="dlc-id" placeholder="DLC AppID">
+            <button onclick="checkDlc()">インストール確認</button>
+        </div>
+        <div class="controls">
+            <button class="secondary" onclick="Steam.triggerScreenshot()">Steamスクショ撮影</button>
+        </div>
+    </div>
+</div>
+
+<!-- ログ -->
+<div id="log"></div>
+
+<p><a href="index.html">← 戻る</a></p>
+
+<!-- ブリッジの読み込み -->
+<script src="steam.js"></script>
+
+<script>
+    function log(msg) {
+        const logEl = document.getElementById('log');
+        const entry = document.createElement('div');
+        entry.className = 'log-entry';
+        const time = new Date().toLocaleTimeString();
+        entry.innerHTML = `<span class="log-time">[${time}]</span> ${msg}`;
+        logEl.appendChild(entry);
+        logEl.scrollTop = logEl.scrollHeight;
+        console.log(`[SteamTest] ${msg}`);
+    }
+
+    // 初期化
+    async function initSteam() {
+        log("Steam.init() を呼び出しています...");
+        try {
+            const info = await Steam.init();
+            if (info.isAvailable) {
+                document.getElementById('steam-status').textContent = "Steam: 接続済み";
+                document.getElementById('steam-status').className = "status online";
+                
+                // UI反映
+                for (const key in info) {
+                    const el = document.getElementById(`val-${key}`);
+                    if (el) el.textContent = info[key];
+                }
+                log(`初期化成功: ${info.personaName} (ID: ${info.accountId})`);
+            } else {
+                log("初期化失敗: Steamに接続できないか、DLLがありません。");
+            }
+        } catch (e) {
+            log(`エラー: ${e.message}`);
+        }
+    }
+
+    // 実績解除
+    async function unlockAch() {
+        const id = document.getElementById('ach-id').value;
+        if (!id) return;
+        log(`実績解除試行: ${id}`);
+        const res = await Steam.unlockAchievement(id);
+        log(res.isOk ? "成功" : "失敗 (Steam側のログを確認してください)");
+    }
+
+    // 実績クリア
+    async function clearAch() {
+        const id = document.getElementById('ach-id').value;
+        if (!id) return;
+        log(`実績リセット試行: ${id}`);
+        const res = await Steam.clearAchievement(id);
+        log(res.isOk ? "成功" : "失敗");
+    }
+
+    // URLをオーバーレイで開く
+    function openOvlUrl() {
+        const url = document.getElementById('ovl-url').value;
+        log(`オーバーレイでURLを開く: ${url}`);
+        Steam.showOverlayURL(url);
+    }
+
+    // DLC確認
+    async function checkDlc() {
+        const id = document.getElementById('dlc-id').value;
+        if (!id) return;
+        const res = await Steam.checkDlcInstalled([parseInt(id)]);
+        log(`DLC ${id} インストール状態: ${res.results}`);
+    }
+
+    // イベント購読
+    Steam.on('on-game-overlay-activated', ({ isShowing }) => {
+        log(`オーバーレイ状態変化: ${isShowing ? "表示" : "非表示"}`);
+    });
+
+    Steam.on('on-dlc-installed', ({ appId }) => {
+        log(`DLCインストール検知: AppID ${appId}`);
+    });
+
+    // 起動時に実行
+    if (Steam.isAvailable()) {
+        initSteam();
+    } else {
+        log("ホスト外（ブラウザ等）で実行されています。Steam機能は無効です。");
+    }
+</script>
+</body>
+</html>

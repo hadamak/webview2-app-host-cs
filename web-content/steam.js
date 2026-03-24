@@ -35,7 +35,7 @@ const Steam = (() => {
 
     // ----------------------------------------------------------------
     // C# からのメッセージを受信
-    // params フィールドは文字列として届くので JSON.parse で復元する
+    // params は生の JSON 値として届く（二重エンコードなし）
     // ----------------------------------------------------------------
     if (_isHost) {
         window.chrome.webview.addEventListener('message', e => {
@@ -43,9 +43,8 @@ const Steam = (() => {
             try { msg = JSON.parse(e.data); } catch { return; }
             if (msg.source !== 'steam') return;
 
-            // params は文字列として届くので JSON.parse で復元する
-            let params = {};
-            try { params = JSON.parse(msg.params); } catch { }
+            // params は生のオブジェクト/配列として届く
+            const params = msg.params ?? {};
 
             // 非同期レスポンス（asyncId >= 0）
             if (typeof msg.asyncId === 'number' && msg.asyncId >= 0) {
@@ -66,7 +65,7 @@ const Steam = (() => {
 
     // ----------------------------------------------------------------
     // 非同期呼び出し（結果を await で受け取る）
-    // params は JSON.stringify で文字列化して送る（C# 側が DataContractJsonSerializer で受け取るため）
+    // params は生の配列として送る（C# 側が ExtractParamsJson で抽出するため）
     // ----------------------------------------------------------------
     function callAsync(messageId, params = []) {
         if (!_isHost) return Promise.resolve({ isAvailable: false });
@@ -76,7 +75,7 @@ const Steam = (() => {
             window.chrome.webview.postMessage(JSON.stringify({
                 source: 'steam',
                 messageId,
-                params: JSON.stringify(params),
+                params,
                 asyncId: id
             }));
         });
@@ -90,7 +89,7 @@ const Steam = (() => {
         window.chrome.webview.postMessage(JSON.stringify({
             source: 'steam',
             messageId,
-            params: JSON.stringify(params),
+            params,
             asyncId: -1
         }));
     }

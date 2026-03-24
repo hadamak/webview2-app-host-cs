@@ -30,7 +30,7 @@ src/steam-bridge/steamworks-sdk/
 
 ## 2. steam_bridge.dll のビルド
 
-Visual Studio 2022 が必要です（Community エディションで可）。
+Visual Studio 2026 が必要です（Community エディションで可）。
 
 ```bat
 cd src\steam-bridge
