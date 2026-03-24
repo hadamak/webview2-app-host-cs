@@ -27,6 +27,10 @@ namespace WebView2AppHost
     /// </summary>
     internal sealed class SteamBridge : IDisposable
     {
+        [System.Diagnostics.Conditional("DEBUG")]
+        private static void LogInfoDebug(string source, string message)
+            => AppLog.Log("INFO", source, message);
+
         // ---------------------------------------------------------------------------
         // エンベロープ DataContract（params を含まない）
         // DataContractJsonSerializer は未知のフィールドを無視するため、
@@ -109,7 +113,7 @@ namespace WebView2AppHost
             _logDelegate = OnDllLog;
 
             SteamBridge_Init(appId, isDev, _msgDelegate, _logDelegate);
-            AppLog.Log("INFO", "SteamBridge", $"初期化完了 (appId={appId}, dev={isDev})");
+            LogInfoDebug("SteamBridge", $"初期化完了 (appId={appId}, dev={isDev})");
 
             // SteamAPI_RunCallbacks() を 100ms ごとに呼ぶ
             _callbackTimer = new System.Windows.Forms.Timer { Interval = 100 };
@@ -130,7 +134,7 @@ namespace WebView2AppHost
                 AppDomain.CurrentDomain.BaseDirectory, "steam_bridge.dll");
             if (!File.Exists(dllPath))
             {
-                AppLog.Log("INFO", "SteamBridge.TryCreate",
+                LogInfoDebug("SteamBridge.TryCreate",
                     "steam_bridge.dll が見つかりません。Steam 機能は無効です。");
                 return null;
             }
@@ -166,6 +170,20 @@ namespace WebView2AppHost
                 // params は生の JSON 配列として抽出して DLL へ渡す
                 var paramsJson = ExtractParamsJson(webMessageJson);
                 SteamBridge_SendMessage(envelope.MessageId, paramsJson, envelope.AsyncId);
+
+                // Steam 側の ScreenshotRequested_t が来ない環境向けに、
+                // trigger-screenshot はホスト主導で直接キャプチャして返す。
+                if (envelope.MessageId == "trigger-screenshot" &&
+                    _webView.IsHandleCreated &&
+                    !_webView.IsDisposed)
+                {
+                    _webView.BeginInvoke(new Action(async () =>
+                    {
+                        LogInfoDebug("SteamBridge.HandleWebMessage",
+                            "trigger-screenshot を受信したため直接キャプチャを開始します");
+                        await CaptureAndSendScreenshotAsync();
+                    }));
+                }
             }
             catch (Exception ex)
             {
@@ -214,6 +232,12 @@ namespace WebView2AppHost
         private void OnDllLog(int level, string message)
         {
             var lvl = level switch { 1 => "WARN", 2 => "ERROR", _ => "INFO" };
+            if (lvl == "INFO")
+            {
+                LogInfoDebug("SteamBridge[DLL]", message ?? "");
+                return;
+            }
+
             AppLog.Log(lvl, "SteamBridge[DLL]", message ?? "");
         }
 
@@ -240,7 +264,7 @@ namespace WebView2AppHost
                 // params: [base64RgbData, width, height]
                 var paramsJson = $"[\"{base64}\",{width},{height}]";
                 SteamBridge_SendMessage("screenshot-data", paramsJson, -1.0);
-                AppLog.Log("INFO", "SteamBridge.Screenshot", $"送信完了 ({width}x{height})");
+                LogInfoDebug("SteamBridge.Screenshot", $"送信完了 ({width}x{height})");
             }
             catch (Exception ex)
             {

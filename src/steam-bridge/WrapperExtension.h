@@ -18,7 +18,7 @@ public:
 #endif
 
 	void InitSteamworksSDK(const std::string& initAppId, bool isDevelopmentMode);
-	void LogMessage(const std::string& msg);
+	void LogMessage(const std::string& msg, IApplication::LogLevel level = IApplication::LogLevel::normal);
 
 	// Web messaging methods
 	void OnWebMessage(const char* messageId, size_t paramCount, const ExtensionParameterPOD* paramArr, double asyncId);
@@ -50,6 +50,7 @@ public:
 	void OnUserStatsStored(EResult eResult);
 	void OnDLCInstalledCallback(AppId_t appId);
 	void OnGetTicketForWebApiResponse(GetTicketForWebApiResponse_t* pCallback);
+	void OnScreenshotReady(ScreenshotReady_t* pCallback);
 	void OnScreenshotRequested();
 
 protected:

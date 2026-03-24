@@ -288,7 +288,9 @@ namespace WebView2AppHost
                 }
             };
 
+#if DEBUG
             AppLog.Log("INFO", "App.TryInitSteam", "Steam ブリッジを有効化しました");
+#endif
         }
 
         // ---------------------------------------------------------------------------

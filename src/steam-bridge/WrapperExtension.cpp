@@ -90,7 +90,7 @@ void WrapperExtension::Init()
 	}
 	catch (...)
 	{
-		LogMessage("Failed to read properties package JSON");
+		LogMessage("Failed to read properties package JSON", IApplication::LogLevel::error);
 		return;
 	}
 
@@ -151,7 +151,7 @@ void WrapperExtension::InitSteamworksSDK(const std::string& initAppId, bool isDe
 
 			if (appId != 0 && SteamAPI_RestartAppIfNecessary(appId))
 			{
-				LogMessage("SteamAPI_RestartAppIfNecessary() returned true; quitting app");
+				LogMessage("SteamAPI_RestartAppIfNecessary() returned true; quitting app", IApplication::LogLevel::warning);
 #ifdef _WIN32
 				PostQuitMessage(0);
 #else
@@ -172,17 +172,22 @@ void WrapperExtension::InitSteamworksSDK(const std::string& initAppId, bool isDe
 	}
 	else
 	{
-		LogMessage("Steam API failed to initialize");
+		LogMessage("Steam API failed to initialize", IApplication::LogLevel::error);
 	}
 }
 
-void WrapperExtension::LogMessage(const std::string& msg)
+void WrapperExtension::LogMessage(const std::string& msg, IApplication::LogLevel level)
 {
+#ifndef _DEBUG
+	if (level == IApplication::LogLevel::normal)
+		return;
+#endif
+
 	// Log messages both to the browser console with the LogToConsole() method, and also to the debug output
 	// with the DebugLog() helper function, to ensure whichever log we're looking at includes the log messages.
 	std::stringstream ss;
 	ss << "[Steamworks] " << msg;
-	iApplication->LogToConsole(IApplication::LogLevel::normal, ss.str().c_str());
+	iApplication->LogToConsole(level, ss.str().c_str());
 	
 	// Add trailing newline for debug output
 	ss << "\n";
@@ -341,6 +346,8 @@ void WrapperExtension::OnInitMessage(double asyncId)
 		// pass it to the Construct runtime to take a screenshot of the actual game content and return
 		// it to the wrapper extension here.
 		SteamScreenshots()->HookScreenshots(true);		// enables ScreenshotRequested_t events
+		LogMessage(std::string("HookScreenshots(true) applied; IsScreenshotsHooked=") +
+			(SteamScreenshots()->IsScreenshotsHooked() ? "true" : "false"));
 
 		// Get current steam user ID for accessing account IDs
 		CSteamID steamId = SteamUser()->GetSteamID();
@@ -502,7 +509,7 @@ void WrapperExtension::OnGetAuthTicketForWebApi(const std::string& identity, dou
 	// Therefore if another call is made while another is still pending, return a failure.
 	if (pendingAuthTicketForWebApiAsyncId != -1)
 	{
-		LogMessage("GetAuthTicketForWebApi(): another call is in progress so failing");
+		LogMessage("GetAuthTicketForWebApi(): another call is in progress so failing", IApplication::LogLevel::warning);
 		SendAsyncResponse({
 			{ "isOk", false }
 		}, asyncId);
@@ -524,14 +531,14 @@ void WrapperExtension::OnGetTicketForWebApiResponse(GetTicketForWebApiResponse_t
 	// If the asyncId is -1, then we weren't expecting this callback. Just log a message and bail out.
 	if (asyncId == -1)
 	{
-		LogMessage("GetAuthTicketForWebApi() callback ignored due to no async id");
+		LogMessage("GetAuthTicketForWebApi() callback ignored due to no async id", IApplication::LogLevel::warning);
 		return;
 	}
 
 	if (pCallback->m_eResult != k_EResultOK || pCallback->m_hAuthTicket == k_HAuthTicketInvalid)
 	{
 		// Handle failure result
-		LogMessage("GetAuthTicketForWebApi() failed: EResult " + std::to_string(pCallback->m_eResult));
+		LogMessage("GetAuthTicketForWebApi() failed: EResult " + std::to_string(pCallback->m_eResult), IApplication::LogLevel::warning);
 
 		SendAsyncResponse({
 			{ "isOk", false }
@@ -568,7 +575,7 @@ void WrapperExtension::OnSetRichPresence(const std::string& key, const std::stri
 
 	// If failed just log a diagnostic
 	if (!result)
-		LogMessage("SetRichPresence() failed");
+		LogMessage("SetRichPresence() failed", IApplication::LogLevel::warning);
 }
 
 void WrapperExtension::OnClearRichPresence()
@@ -578,21 +585,41 @@ void WrapperExtension::OnClearRichPresence()
 
 void WrapperExtension::OnTriggerScreenshot()
 {
+	LogMessage("TriggerScreenshot() requested from host");
 	SteamScreenshots()->TriggerScreenshot();
+	LogMessage("SteamScreenshots()->TriggerScreenshot() invoked");
 }
 
 void WrapperExtension::OnScreenshotRequested()
 {
 	// Construct runtime will take screenshot and send data back via the "screenshot-data"
 	// message, which is handled by OnScreenshotData().
+	LogMessage("Received ScreenshotRequested_t callback from Steam");
 	SendWebMessage("screenshot-requested", {});
+	LogMessage("Forwarded screenshot-requested event to host");
+}
+
+void WrapperExtension::OnScreenshotReady(ScreenshotReady_t* pCallback)
+{
+	if (!pCallback)
+	{
+		LogMessage("Received ScreenshotReady_t callback with null payload");
+		return;
+	}
+
+	LogMessage("Received ScreenshotReady_t callback (handle=" + std::to_string(pCallback->m_hLocal) +
+		", result=" + std::to_string(pCallback->m_eResult) + ")");
 }
 
 void WrapperExtension::OnScreenshotData(const std::string& base64data, int width, int height)
 {
 	// Decode the base64 screenshot data and then call WriteScreenshot() to write this data as
 	// a screenshot in Steam
+	LogMessage("Received screenshot-data from host (" + std::to_string(width) + "x" + std::to_string(height) +
+		", base64 bytes=" + std::to_string(base64data.size()) + ")");
 	std::string decodedData = base64_decode(base64data);
+	LogMessage("Decoded screenshot-data payload to " + std::to_string(decodedData.size()) + " RGB bytes");
 
 	SteamScreenshots()->WriteScreenshot(const_cast<char*>(decodedData.data()), static_cast<uint32>(decodedData.size()), width, height);
+	LogMessage("SteamScreenshots()->WriteScreenshot() invoked");
 }
