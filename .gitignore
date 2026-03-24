@@ -6,3 +6,6 @@ src/app.zip
 tests/HostTests/bin/
 tests/HostTests/obj/
 dist/
+src/steam-bridge/steamworks-sdk/
+tests/SteamBridgeTests/bin/
+tests/SteamBridgeTests/x64/
