@@ -327,7 +327,9 @@ Steamworks support is optional. The host itself is designed around standard Web 
 
 For that reason, this README only points to dedicated, audience-specific documents.
 
-- App developers: `docs/steam/app-integration.md`
+- App developer entry point: `docs/steam/en/overview.md`
+- Quick start: `docs/steam/en/getting-started.md`
+- API reference: `docs/steam/en/api-reference.md`
 - Bridge maintainers: `docs/steam/bridge-build.md`
 - Bundled sample: `samples/steam-complete/`
 
@@ -374,7 +376,7 @@ Replace `resources/app.ico` and rebuild. You can also set a favicon in your HTML
 DevTools is enabled automatically in Debug builds. To enable it in a Release build, adjust the `#if DEBUG` block in `src/App.cs`.
 
 ### How do I use Steamworks?
-The main README intentionally keeps Steam coverage brief. App developers should use `docs/steam/app-integration.md`, while bridge maintainers should use `docs/steam/bridge-build.md`.
+The main README intentionally keeps Steam coverage brief. App developers should start with `docs/steam/en/overview.md`, then use `docs/steam/en/getting-started.md` and `docs/steam/en/api-reference.md` as needed. Bridge maintainers should use `docs/steam/bridge-build.md`.
 
 ### What files do I need to distribute?
 This depends on your distribution method, but the typical set is:

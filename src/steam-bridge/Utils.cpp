@@ -212,6 +212,27 @@ const std::string base64_chars =
 "abcdefghijklmnopqrstuvwxyz"
 "0123456789+/";
 
+std::string base64_encode(const uint8_t* data, size_t length)
+{
+	std::string ret;
+	ret.reserve(((length + 2) / 3) * 4);
+
+	for (size_t i = 0; i < length; i += 3)
+	{
+		const uint32_t octetA = data[i];
+		const uint32_t octetB = (i + 1 < length ? data[i + 1] : 0);
+		const uint32_t octetC = (i + 2 < length ? data[i + 2] : 0);
+		const uint32_t triple = (octetA << 16) | (octetB << 8) | octetC;
+
+		ret.push_back(base64_chars[(triple >> 18) & 0x3F]);
+		ret.push_back(base64_chars[(triple >> 12) & 0x3F]);
+		ret.push_back(i + 1 < length ? base64_chars[(triple >> 6) & 0x3F] : '=');
+		ret.push_back(i + 2 < length ? base64_chars[triple & 0x3F] : '=');
+	}
+
+	return ret;
+}
+
 bool is_base64(unsigned char c)
 {
 	return (isalnum(c) || (c == '+') || (c == '/'));

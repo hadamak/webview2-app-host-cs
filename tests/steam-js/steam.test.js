@@ -270,6 +270,83 @@ function test_triggerScreenshot_format() {
     expectEq(msg.params, [], 'triggerScreenshot empty params');
 }
 
+function test_getCloudStatus_format() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+    Steam.getCloudStatus();
+    const msg = mock.lastSent();
+    expectEq(msg.messageId, 'cloud-get-status', 'getCloudStatus messageId');
+    expectEq(msg.params, [], 'getCloudStatus params');
+}
+
+function test_writeCloudFileText_encodes_base64() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+    Steam.writeCloudFileText('save.json', '{"ok":true}');
+    const msg = mock.lastSent();
+    expectEq(msg.messageId, 'cloud-write-file', 'writeCloudFileText messageId');
+    expectEq(msg.params[0], 'save.json', 'writeCloudFileText file name');
+    expect(typeof msg.params[1] === 'string' && msg.params[1].length > 0,
+        'writeCloudFileText sends base64 payload');
+}
+
+function test_getStatInt_format() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+    Steam.getStatInt('KILLS');
+    const msg = mock.lastSent();
+    expectEq(msg.messageId, 'get-stat-int', 'getStatInt messageId');
+    expectEq(msg.params, ['KILLS'], 'getStatInt params');
+}
+
+function test_setStatFloat_format() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+    Steam.setStatFloat('TIME', 3.5);
+    const msg = mock.lastSent();
+    expectEq(msg.messageId, 'set-stat-float', 'setStatFloat messageId');
+    expectEq(msg.params, ['TIME', 3.5], 'setStatFloat params');
+}
+
+function test_getDlcList_format() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+    Steam.getDlcList();
+    const msg = mock.lastSent();
+    expectEq(msg.messageId, 'get-dlc-list', 'getDlcList messageId');
+    expectEq(msg.params, [], 'getDlcList params');
+}
+
+function test_isSubscribedApp_format() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+    Steam.isSubscribedApp(1234);
+    const msg = mock.lastSent();
+    expectEq(msg.messageId, 'is-subscribed-app', 'isSubscribedApp messageId');
+    expectEq(msg.params, [1234], 'isSubscribedApp params');
+}
+
+function test_findOrCreateLeaderboard_format() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+    Steam.findOrCreateLeaderboard('BEST_SCORE', 'descending', 'numeric');
+    const msg = mock.lastSent();
+    expectEq(msg.messageId, 'find-or-create-leaderboard', 'findOrCreateLeaderboard messageId');
+    expectEq(msg.params, ['BEST_SCORE', 2, 1], 'findOrCreateLeaderboard params');
+}
+
+function test_uploadLeaderboardScore_format() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+    Steam.uploadLeaderboardScore('123456789', 9000, {
+        uploadMethod: 'force-update',
+        details: [7, 8, 9],
+    });
+    const msg = mock.lastSent();
+    expectEq(msg.messageId, 'upload-leaderboard-score', 'uploadLeaderboardScore messageId');
+    expectEq(msg.params, ['123456789', 2, 9000, '7,8,9'], 'uploadLeaderboardScore params');
+}
+
 // -- Incoming message format: params is a raw value (no JSON.parse needed) --
 
 async function test_unlock_promise_resolves() {
@@ -325,6 +402,71 @@ async function test_multiple_concurrent_async_calls() {
     const r2 = await p2;
     expect(r1.isOk === false, 'p1 resolved with correct (false)');
     expect(r2.isOk === true,  'p2 resolved with correct (true)');
+}
+
+async function test_listCloudFiles_parses_json() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+
+    const promise = Steam.listCloudFiles();
+    const asyncId = mock.lastSent().asyncId;
+
+    await deliverResponse(mock, asyncId, {
+        isOk: true,
+        filesJson: JSON.stringify([{ name: 'save1.dat', size: 128 }]),
+    });
+
+    const result = await promise;
+    expect(Array.isArray(result.files), 'listCloudFiles returns parsed files');
+    expectEq(result.files[0], { name: 'save1.dat', size: 128 }, 'listCloudFiles file entry');
+}
+
+async function test_readCloudFileText_decodes_base64() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+
+    const promise = Steam.readCloudFileText('save.txt');
+    const asyncId = mock.lastSent().asyncId;
+
+    await deliverResponse(mock, asyncId, {
+        isOk: true,
+        dataBase64: Buffer.from('hello', 'utf8').toString('base64'),
+    });
+
+    const result = await promise;
+    expectEq(result.text, 'hello', 'readCloudFileText decodes base64');
+}
+
+async function test_getDlcList_parses_json() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+
+    const promise = Steam.getDlcList();
+    const asyncId = mock.lastSent().asyncId;
+
+    await deliverResponse(mock, asyncId, {
+        isOk: true,
+        dlcJson: JSON.stringify([{ appId: 10, name: 'Soundtrack' }]),
+    });
+
+    const result = await promise;
+    expectEq(result.dlc[0], { appId: 10, name: 'Soundtrack' }, 'getDlcList parses dlcJson');
+}
+
+async function test_downloadLeaderboardEntries_parses_json() {
+    const mock = new WebViewMock();
+    const { Steam } = loadSteam(mock);
+
+    const promise = Steam.downloadLeaderboardEntries('123', 'friends', 0, 4);
+    const asyncId = mock.lastSent().asyncId;
+
+    await deliverResponse(mock, asyncId, {
+        isOk: true,
+        entriesJson: JSON.stringify([{ steamId64Bit: '1', score: 250 }]),
+    });
+
+    const result = await promise;
+    expectEq(result.entries[0], { steamId64Bit: '1', score: 250 }, 'downloadLeaderboardEntries parses entriesJson');
 }
 
 // -- Event handling --
@@ -509,11 +651,23 @@ async function main() {
     test_getAuthTicketForWebApi_format();
     test_cancelAuthTicket_format();
     test_triggerScreenshot_format();
+    test_getCloudStatus_format();
+    test_writeCloudFileText_encodes_base64();
+    test_getStatInt_format();
+    test_setStatFloat_format();
+    test_getDlcList_format();
+    test_isSubscribedApp_format();
+    test_findOrCreateLeaderboard_format();
+    test_uploadLeaderboardScore_format();
 
     console.log('\n-- Async response handling --');
     await test_unlock_promise_resolves();
     await test_init_promise_resolves();
     await test_multiple_concurrent_async_calls();
+    await test_listCloudFiles_parses_json();
+    await test_readCloudFileText_decodes_base64();
+    await test_getDlcList_parses_json();
+    await test_downloadLeaderboardEntries_parses_json();
 
     console.log('\n-- Event handling --');
     test_overlay_activated_event();

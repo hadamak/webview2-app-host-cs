@@ -4,6 +4,8 @@
 
 #include "SteamCallbacks.h"
 
+class PendingSteamCall;
+
 class WrapperExtension : public IExtension {
 public:
 	WrapperExtension(IApplication* iApplication_);
@@ -43,6 +45,25 @@ public:
 	void OnClearRichPresence();
 	void OnTriggerScreenshot();
 	void OnScreenshotData(const std::string& base64data, int width, int height);
+	void OnGetCloudStatusMessage(double asyncId);
+	void OnListCloudFilesMessage(double asyncId);
+	void OnCloudFileExistsMessage(const std::string& fileName, double asyncId);
+	void OnReadCloudFileMessage(const std::string& fileName, double asyncId);
+	void OnWriteCloudFileMessage(const std::string& fileName, const std::string& base64data, double asyncId);
+	void OnDeleteCloudFileMessage(const std::string& fileName, double asyncId);
+	void OnGetStatIntMessage(const std::string& name, double asyncId);
+	void OnGetStatFloatMessage(const std::string& name, double asyncId);
+	void OnSetStatIntMessage(const std::string& name, int32 value, double asyncId);
+	void OnSetStatFloatMessage(const std::string& name, float value, double asyncId);
+	void OnStoreStatsMessage(double asyncId);
+	void OnGetAchievementStateMessage(const std::string& name, double asyncId);
+	void OnGetAppOwnershipInfoMessage(double asyncId);
+	void OnIsSubscribedAppMessage(AppId_t appId, double asyncId);
+	void OnGetDLCListMessage(double asyncId);
+	void OnFindLeaderboardMessage(const std::string& name, double asyncId);
+	void OnFindOrCreateLeaderboardMessage(const std::string& name, ELeaderboardSortMethod sortMethod, ELeaderboardDisplayType displayType, double asyncId);
+	void OnUploadLeaderboardScoreMessage(const std::string& leaderboardHandleStr, ELeaderboardUploadScoreMethod uploadMethod, int score, const std::string& detailsCsv, double asyncId);
+	void OnDownloadLeaderboardEntriesMessage(const std::string& leaderboardHandleStr, ELeaderboardDataRequest requestType, int rangeStart, int rangeEnd, double asyncId);
 
 	// Steam events (called via SteamCallbacks class)
 	void OnGameOverlayActivated(bool isShowing);
@@ -52,12 +73,19 @@ public:
 	void OnGetTicketForWebApiResponse(GetTicketForWebApiResponse_t* pCallback);
 	void OnScreenshotReady(ScreenshotReady_t* pCallback);
 	void OnScreenshotRequested();
+	bool EnsureSteamReady(double asyncId, const std::string& actionName);
+	bool EnsureUserStatsReady(double asyncId, const std::string& actionName);
+	void AddPendingSteamCall(PendingSteamCall* pendingCall);
+	void RemovePendingSteamCall(PendingSteamCall* pendingCall);
 
 protected:
 	IApplication* iApplication;
 	bool didSteamInitOk;
+	bool areUserStatsReady;
+	bool didCreateSteamCallbacks;
 
 	double pendingAuthTicketForWebApiAsyncId;
 
 	std::unique_ptr<SteamCallbacks> steamCallbacks;
+	std::vector<PendingSteamCall*> pendingSteamCalls;
 };

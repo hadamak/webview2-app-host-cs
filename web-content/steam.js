@@ -2,55 +2,120 @@
  * steam.js
  * WebView2AppHost の Steam ブリッジ JS 側 API。
  *
- * 使い方:
- *   <script src="steam.js"></script>
- *
- *   // 初期化（ユーザー情報・AppID 等を取得）
- *   const info = await Steam.init();
- *   if (info.isAvailable) {
- *     console.log('プレイヤー:', info.personaName);
- *   }
- *
- *   // 実績解除
- *   await Steam.unlockAchievement('FIRST_CLEAR');
- *
- *   // Steam 側 UI を開く
- *   Steam.showOverlay('achievements');
- *
- *   // イベント
- *   Steam.on('on-game-overlay-activated', ({ isShowing }) => {
- *     console.log('steam ui state changed:', isShowing);
- *   });
- *
- * ブラウザで直接開いた場合: isAvailable() が false を返すだけで、
- * エラーにならない（開発中はブラウザで動かし続けられる）。
- *
  * 注意:
- * WebView2 上に Steam オーバーレイが重なるわけではない。
+ * WebView2 の画面上に Steam オーバーレイが重なるわけではない。
  * showOverlay 系 API は Steam 側の関連 UI を開く用途として扱う。
  */
 const Steam = (() => {
-    // ホスト上で動作しているかどうか
     const _isHost = typeof window.chrome !== 'undefined' &&
                     typeof window.chrome.webview !== 'undefined';
 
     let _asyncId = 0;
-    const _pending = new Map();  // asyncId → resolve 関数
+    const _pending = new Map();
 
-    // ----------------------------------------------------------------
-    // C# からのメッセージを受信
-    // params は生の JSON 値として届く（二重エンコードなし）
-    // ----------------------------------------------------------------
+    const OVERLAY_OPTIONS = [
+        'friends', 'community', 'players', 'settings',
+        'official-game-group', 'stats', 'achievements'
+    ];
+
+    const LEADERBOARD_SORT_METHODS = {
+        ascending: 1,
+        descending: 2,
+    };
+
+    const LEADERBOARD_DISPLAY_TYPES = {
+        numeric: 1,
+        'time-seconds': 2,
+        'time-milliseconds': 3,
+    };
+
+    const LEADERBOARD_UPLOAD_METHODS = {
+        'keep-best': 1,
+        'force-update': 2,
+    };
+
+    const LEADERBOARD_DATA_REQUESTS = {
+        global: 0,
+        'global-around-user': 1,
+        friends: 2,
+        users: 3,
+    };
+
+    function parseJsonField(value, fallback) {
+        if (typeof value !== 'string' || value === '') return fallback;
+        try {
+            return JSON.parse(value);
+        } catch {
+            return fallback;
+        }
+    }
+
+    function resolveEnum(map, value, kind) {
+        if (typeof value === 'number') return value;
+        const resolved = map[value];
+        if (typeof resolved === 'number') return resolved;
+        throw new Error(`[Steam] Unknown ${kind}: ${value}`);
+    }
+
+    function toCsv(values) {
+        return (values || []).map(v => String(v)).join(',');
+    }
+
+    function encodeBase64FromBytes(bytes) {
+        if (typeof Buffer !== 'undefined') {
+            return Buffer.from(bytes).toString('base64');
+        }
+
+        let binary = '';
+        for (const byte of bytes) binary += String.fromCharCode(byte);
+        return btoa(binary);
+    }
+
+    function decodeBase64ToBytes(base64) {
+        if (typeof Buffer !== 'undefined') {
+            return Uint8Array.from(Buffer.from(base64, 'base64'));
+        }
+
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return bytes;
+    }
+
+    function encodeTextToBase64(text) {
+        if (typeof TextEncoder !== 'undefined') {
+            return encodeBase64FromBytes(new TextEncoder().encode(text));
+        }
+
+        if (typeof Buffer !== 'undefined') {
+            return Buffer.from(text, 'utf8').toString('base64');
+        }
+
+        throw new Error('[Steam] TextEncoder is not available');
+    }
+
+    function decodeBase64ToText(base64) {
+        const bytes = decodeBase64ToBytes(base64);
+
+        if (typeof TextDecoder !== 'undefined') {
+            return new TextDecoder().decode(bytes);
+        }
+
+        if (typeof Buffer !== 'undefined') {
+            return Buffer.from(bytes).toString('utf8');
+        }
+
+        throw new Error('[Steam] TextDecoder is not available');
+    }
+
     if (_isHost) {
         window.chrome.webview.addEventListener('message', e => {
             let msg;
             try { msg = JSON.parse(e.data); } catch { return; }
             if (msg.source !== 'steam') return;
 
-            // params は生のオブジェクト/配列として届く
             const params = msg.params ?? {};
 
-            // 非同期レスポンス（asyncId >= 0）
             if (typeof msg.asyncId === 'number' && msg.asyncId >= 0) {
                 const resolve = _pending.get(msg.asyncId);
                 if (resolve) {
@@ -60,18 +125,12 @@ const Steam = (() => {
                 }
             }
 
-            // イベント通知（Steam UI 状態・DLC インストール等）
             window.dispatchEvent(
                 new CustomEvent(`steam:${msg.messageId}`, { detail: params })
             );
         });
     }
 
-    // ----------------------------------------------------------------
-    // 非同期呼び出し（結果を await で受け取る）
-    // メッセージ全体を JSON 文字列として送る。
-    // params 自体は JSON 配列として埋め込まれ、C# 側がそのまま抽出する。
-    // ----------------------------------------------------------------
     function postSteamMessage(messageId, params, asyncId) {
         window.chrome.webview.postMessage(JSON.stringify({
             source: 'steam',
@@ -82,7 +141,7 @@ const Steam = (() => {
     }
 
     function callAsync(messageId, params = []) {
-        if (!_isHost) return Promise.resolve({ isAvailable: false });
+        if (!_isHost) return Promise.resolve({ isAvailable: false, isOk: false });
         return new Promise(resolve => {
             const id = ++_asyncId;
             _pending.set(id, resolve);
@@ -90,66 +149,47 @@ const Steam = (() => {
         });
     }
 
-    // ----------------------------------------------------------------
-    // 同期呼び出し（結果を待たない）
-    // ----------------------------------------------------------------
     function callSync(messageId, params = []) {
         if (!_isHost) return;
         postSteamMessage(messageId, params, -1);
     }
 
-    // ----------------------------------------------------------------
-    // Steam UI オプション（Construct の定義に準拠）
-    // ----------------------------------------------------------------
-    const OVERLAY_OPTIONS = [
-        'friends', 'community', 'players', 'settings',
-        'official-game-group', 'stats', 'achievements'
-    ];
-
-    // ----------------------------------------------------------------
-    // 公開 API
-    // ----------------------------------------------------------------
     return {
-        /**
-         * Steam が使えるか（ホスト外 / steam_bridge.dll なし の場合は false）。
-         * init() の結果の isAvailable とは異なり、DLL のロード前でも確認できる。
-         */
+        constants: {
+            leaderboardSortMethods: { ...LEADERBOARD_SORT_METHODS },
+            leaderboardDisplayTypes: { ...LEADERBOARD_DISPLAY_TYPES },
+            leaderboardUploadMethods: { ...LEADERBOARD_UPLOAD_METHODS },
+            leaderboardDataRequests: { ...LEADERBOARD_DATA_REQUESTS },
+        },
+
         isAvailable: () => _isHost,
 
-        /**
-         * Steam を初期化してユーザー情報を返す。
-         * @returns {{ isAvailable, personaName, accountId, steamId64Bit,
-         *             appId, isRunningOnSteamDeck, steamUILanguage,
-         *             currentGameLanguage, availableGameLanguages, ... }}
-         */
         init: () => callAsync('init'),
 
-        // ---- 実績 ----
-
-        /**
-         * 実績を解除する。
-         * @param {string} name  Steamworks で設定した実績 API 名
-         * @returns {Promise<{ isOk: boolean }>}
-         */
         unlockAchievement: (name) =>
             callAsync('set-achievement', [name]),
 
-        /**
-         * 実績をリセットする（主にデバッグ用）。
-         * @param {string} name
-         * @returns {Promise<{ isOk: boolean }>}
-         */
         clearAchievement: (name) =>
             callAsync('clear-achievement', [name]),
 
-        // ---- Steam UI ----
+        getAchievementState: (name) =>
+            callAsync('get-achievement-state', [name]),
 
-        /**
-         * Steam 側の UI を開く。
-         * WebView2 の画面上に重なるオーバーレイ表示ではない点に注意。
-         * @param {'friends'|'community'|'players'|'settings'|
-         *         'official-game-group'|'stats'|'achievements'} option
-         */
+        getStatInt: (name) =>
+            callAsync('get-stat-int', [name]),
+
+        getStatFloat: (name) =>
+            callAsync('get-stat-float', [name]),
+
+        setStatInt: (name, value) =>
+            callAsync('set-stat-int', [name, value]),
+
+        setStatFloat: (name, value) =>
+            callAsync('set-stat-float', [name, value]),
+
+        storeStats: () =>
+            callAsync('store-stats', []),
+
         showOverlay: (option = 'achievements') => {
             const index = OVERLAY_OPTIONS.indexOf(option);
             if (index === -1) {
@@ -159,81 +199,119 @@ const Steam = (() => {
             callSync('show-overlay', [index]);
         },
 
-        /**
-         * Steam 側の UI で URL を開く。
-         * @param {string} url
-         * @param {boolean} modal
-         */
         showOverlayURL: (url, modal = false) =>
             callSync('show-overlay-url', [url, modal]),
 
-        /**
-         * マルチプレイヤーロビーの招待ダイアログを開く。
-         * @param {string} lobbyId  64bit Steam ロビー ID（文字列）
-         */
         showOverlayInviteDialog: (lobbyId) =>
             callSync('show-overlay-invite-dialog', [lobbyId]),
 
-        // ---- DLC ----
-
-        /**
-         * DLC のインストール状態を確認する。
-         * @param {number[]} appIds  DLC の AppID 配列
-         * @returns {Promise<{ isOk: boolean, results: string }>}
-         */
         checkDlcInstalled: (appIds) =>
             callAsync('is-dlc-installed', [appIds.map(String).join(',')]),
 
-        /** @param {number} appId */
-        installDlc:   (appId) => callSync('install-dlc',   [appId]),
+        installDlc: (appId) =>
+            callSync('install-dlc', [appId]),
 
-        /** @param {number} appId */
-        uninstallDlc: (appId) => callSync('uninstall-dlc', [appId]),
+        uninstallDlc: (appId) =>
+            callSync('uninstall-dlc', [appId]),
 
-        // ---- リッチプレゼンス ----
+        getDlcList: async () => {
+            const result = await callAsync('get-dlc-list', []);
+            result.dlc = parseJsonField(result.dlcJson, []);
+            return result;
+        },
 
-        /**
-         * @param {string} key
-         * @param {string} value  空文字でキーを削除
-         */
-        setRichPresence:   (key, value) => callSync('set-rich-presence',  [key, value]),
-        clearRichPresence: ()            => callSync('clear-rich-presence', []),
+        getAppOwnershipInfo: () =>
+            callAsync('get-app-ownership-info', []),
 
-        // ---- スクリーンショット ----
+        isSubscribedApp: (appId) =>
+            callAsync('is-subscribed-app', [appId]),
 
-        /** Steam スクリーンショットをトリガーする */
-        triggerScreenshot: () => callSync('trigger-screenshot', []),
+        getCloudStatus: () =>
+            callAsync('cloud-get-status', []),
 
-        // ---- 認証 ----
+        listCloudFiles: async () => {
+            const result = await callAsync('cloud-list-files', []);
+            result.files = parseJsonField(result.filesJson, []);
+            return result;
+        },
 
-        /**
-         * Web API 認証チケットを取得する。
-         * @param {string} identity  空文字可
-         * @returns {Promise<{ isOk: boolean, authTicket: number, ticketHexStr: string }>}
-         */
+        cloudFileExists: (fileName) =>
+            callAsync('cloud-file-exists', [fileName]),
+
+        readCloudFile: (fileName) =>
+            callAsync('cloud-read-file', [fileName]),
+
+        readCloudFileText: async (fileName) => {
+            const result = await callAsync('cloud-read-file', [fileName]);
+            if (result.isOk && typeof result.dataBase64 === 'string')
+                result.text = decodeBase64ToText(result.dataBase64);
+            return result;
+        },
+
+        writeCloudFile: (fileName, dataBase64) =>
+            callAsync('cloud-write-file', [fileName, dataBase64]),
+
+        writeCloudFileText: (fileName, text) =>
+            callAsync('cloud-write-file', [fileName, encodeTextToBase64(text)]),
+
+        deleteCloudFile: (fileName) =>
+            callAsync('cloud-delete-file', [fileName]),
+
+        findLeaderboard: (name) =>
+            callAsync('find-leaderboard', [name]),
+
+        findOrCreateLeaderboard: (name, sortMethod = 'descending', displayType = 'numeric') =>
+            callAsync('find-or-create-leaderboard', [
+                name,
+                resolveEnum(LEADERBOARD_SORT_METHODS, sortMethod, 'leaderboard sort method'),
+                resolveEnum(LEADERBOARD_DISPLAY_TYPES, displayType, 'leaderboard display type')
+            ]),
+
+        uploadLeaderboardScore: (leaderboardHandle, score, options = {}) =>
+            callAsync('upload-leaderboard-score', [
+                String(leaderboardHandle),
+                resolveEnum(
+                    LEADERBOARD_UPLOAD_METHODS,
+                    options.uploadMethod ?? 'keep-best',
+                    'leaderboard upload method'),
+                score,
+                toCsv(options.details ?? [])
+            ]),
+
+        downloadLeaderboardEntries: async (
+            leaderboardHandle,
+            requestType = 'global',
+            rangeStart = 0,
+            rangeEnd = 9
+        ) => {
+            const result = await callAsync('download-leaderboard-entries', [
+                String(leaderboardHandle),
+                resolveEnum(LEADERBOARD_DATA_REQUESTS, requestType, 'leaderboard data request'),
+                rangeStart,
+                rangeEnd
+            ]);
+            result.entries = parseJsonField(result.entriesJson, []);
+            return result;
+        },
+
+        setRichPresence: (key, value) =>
+            callSync('set-rich-presence', [key, value]),
+
+        clearRichPresence: () =>
+            callSync('clear-rich-presence', []),
+
+        triggerScreenshot: () =>
+            callSync('trigger-screenshot', []),
+
         getAuthTicketForWebApi: (identity = '') =>
             callAsync('get-auth-ticket-for-web-api', [identity]),
 
-        /**
-         * 認証チケットをキャンセルする。
-         * @param {number} authTicket  getAuthTicketForWebApi で取得した値
-         */
         cancelAuthTicket: (authTicket) =>
             callSync('cancel-auth-ticket', [authTicket]),
 
-        // ---- イベントリスナー ----
+        decodeBase64ToText,
+        encodeTextToBase64,
 
-        /**
-         * Steam イベントを購読する。
-         *
-         * イベント名一覧:
-         *   'on-game-overlay-activated'  { isShowing: boolean }
-         *   'on-dlc-installed'           { appId: number }
-         *   'screenshot-requested'       {}
-         *
-         * @param {string} event
-         * @param {function} handler
-         */
         on: (event, handler) =>
             window.addEventListener(`steam:${event}`,
                 e => handler(e.detail)),

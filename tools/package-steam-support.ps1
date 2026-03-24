@@ -38,7 +38,8 @@ try {
     Copy-Item $dll $outDir
     Copy-Item "web-content/steam.js" $outDir
     Copy-Item "samples/steam-complete" "$outDir/steam-sample" -Recurse
-    Copy-Item "docs/steam/app-integration.md" "$outDir/STEAM.md"
+    Copy-Item "docs/steam/overview.md" "$outDir/STEAM.md"
+    Copy-Item "docs/steam" "$outDir/steam-docs" -Recurse
     Copy-Item "docs/README_STEAM.txt" "$outDir/README.txt"
     Copy-Item "docs/README_STEAM.en.txt" "$outDir/README.en.txt"
     Copy-Item "LICENSE" $outDir

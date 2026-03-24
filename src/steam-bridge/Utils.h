@@ -21,4 +21,5 @@ void TrimString(std::string& str);
 
 std::string BytesToHexString(const std::vector<uint8_t>& bytes);
 
+std::string base64_encode(const uint8_t* data, size_t length);
 std::string base64_decode(const std::string& encoded_string);

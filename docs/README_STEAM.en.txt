@@ -8,7 +8,8 @@ Contents:
 - steam_api64.dll: Steamworks SDK runtime DLL
 - steam.js: Proprietary Steam API used from HTML content
 - steam-sample/: Complete working sample
-- STEAM.md: Steam usage guide for app developers
+- STEAM.md: Start-here overview guide
+- steam-docs/: Setup guide, feature guides, and API reference
 - LICENSE: License for this application
 - THIRD_PARTY_NOTICES.md: Third-party library notices
 
@@ -24,4 +25,4 @@ Downloading the Steamworks SDK is only necessary for people who rebuild `steam_b
 Regular app developers and end users can simply use the `steam_bridge.dll` and `steam_api64.dll` included in this package.
 
 Details:
-This ZIP is for app developers using the bridge. For rebuilding the bridge itself, see `docs/steam/bridge-build.md` in the repository.
+This ZIP is for app developers using the bridge. Start with `STEAM.md`, then use `steam-docs/en/` for English documentation. For rebuilding the bridge itself, see `docs/steam/bridge-build.md` in the repository.

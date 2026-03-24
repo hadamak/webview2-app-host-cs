@@ -14,7 +14,6 @@
             --muted: #8eb0ca;
             --accent: #54c7ec;
             --ok: #66d17a;
-            --warn: #f7ca5a;
             --bad: #ff7f7f;
         }
 
@@ -31,7 +30,7 @@
         }
 
         main {
-            width: min(1180px, calc(100% - 32px));
+            width: min(1280px, calc(100% - 32px));
             margin: 24px auto 40px;
         }
 
@@ -83,6 +82,13 @@
         .card h2 {
             margin: 0 0 14px;
             font-size: 18px;
+        }
+
+        .card p.note {
+            margin: 0 0 12px;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.5;
         }
 
         .row {
@@ -147,7 +153,8 @@
     <h1>Steam Complete Sample</h1>
     <p class="lead">
         `steam.js` を使った Steamworks 連携の完全サンプルです。初期化、Steam UI 呼び出し、実績、
-        DLC 確認、リッチプレゼンス、スクリーンショット、Web API チケット取得をひと通り確認できます。
+        User Stats、Steam Cloud、Leaderboards、所有権確認、DLC 一覧、リッチプレゼンス、
+        スクリーンショット、Web API チケット取得をひと通り確認できます。
     </p>
 
     <div class="statusbar">
@@ -159,6 +166,9 @@
     <div class="grid">
         <section class="card">
             <h2>Init</h2>
+            <p class="note">
+                Steam 連携の開始点です。まずここで初期化し、現在の Steam ユーザーや AppID を取得します。
+            </p>
             <div class="row">
                 <button id="init-btn">Steam.init()</button>
             </div>
@@ -166,13 +176,15 @@
                 <div class="label">Persona</div><div id="persona-name">---</div>
                 <div class="label">SteamID64</div><div id="steam-id">---</div>
                 <div class="label">AppID</div><div id="app-id">---</div>
-                <div class="label">Steam Deck</div><div id="steam-deck">---</div>
                 <div class="label">Game Lang</div><div id="game-lang">---</div>
             </div>
         </section>
 
         <section class="card">
             <h2>Steam UI</h2>
+            <p class="note">
+                フレンド一覧、実績一覧、設定などの Steam 側 UI を開きます。WebView2 の画面上に重なる表示ではありません。
+            </p>
             <div class="row">
                 <button data-overlay="friends">Friends</button>
                 <button data-overlay="achievements">Achievements</button>
@@ -190,18 +202,47 @@
 
         <section class="card">
             <h2>Achievements</h2>
+            <p class="note">
+                実績は「この条件を達成した」という Steam 上の記録です。ここには Steamworks で登録した実績 API 名を入れます。
+            </p>
             <div class="row">
-                <input id="achievement-id" value="ACHIEVEMENT_1" />
+                <input id="achievement-id" value="ACH_WIN_ONE_GAME" />
                 <button id="achievement-set-btn">Unlock</button>
                 <button id="achievement-clear-btn" class="subtle">Clear</button>
+                <button id="achievement-get-btn" class="subtle">Get State</button>
             </div>
         </section>
 
         <section class="card">
-            <h2>DLC / Presence</h2>
+            <h2>User Stats</h2>
+            <p class="note">
+                User Stats はプレイ回数や累計スコアのような数値記録です。実績と違い、数値を読み書きできます。stat 名と型は Steam 側定義に合わせてください。
+            </p>
+            <div class="row">
+                <input id="stat-name" value="NumGames" />
+                <input id="stat-value" value="123" />
+            </div>
+            <div class="row">
+                <button id="stat-get-int-btn">Get Int</button>
+                <button id="stat-set-int-btn">Set Int</button>
+                <button id="stat-get-float-btn" class="subtle">Get Float</button>
+                <button id="stat-set-float-btn" class="subtle">Set Float</button>
+                <button id="stats-store-btn" class="subtle">Store</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>DLC / Ownership / Presence</h2>
+            <p class="note">
+                本編や DLC の所有状態を確認したり、フレンド一覧に表示される現在状況を設定したりします。
+            </p>
             <div class="row">
                 <input id="dlc-id" value="1000" />
                 <button id="dlc-check-btn">Check DLC</button>
+                <button id="dlc-list-btn" class="subtle">List DLC</button>
+            </div>
+            <div class="row">
+                <button id="ownership-btn" class="subtle">Ownership</button>
             </div>
             <div class="row">
                 <input id="presence-value" value="Testing steam sample" />
@@ -211,7 +252,47 @@
         </section>
 
         <section class="card">
+            <h2>Steam Cloud</h2>
+            <p class="note">
+                セーブデータや設定ファイルを Steam 経由で同期します。ここではテキストとして JSON を保存する例を試せます。
+            </p>
+            <div class="row">
+                <input id="cloud-file-name" value="sample-save.json" />
+            </div>
+            <div class="row">
+                <input id="cloud-file-text" value='{"level":1,"gold":250}' />
+            </div>
+            <div class="row">
+                <button id="cloud-status-btn">Status</button>
+                <button id="cloud-list-btn" class="subtle">List</button>
+                <button id="cloud-write-btn">Write</button>
+                <button id="cloud-read-btn" class="subtle">Read</button>
+                <button id="cloud-delete-btn" class="subtle">Delete</button>
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Leaderboards</h2>
+            <p class="note">
+                ハイスコアやタイムアタック用のランキング機能です。先に leaderboard を見つけるか作って、その handle を使ってスコアを送信します。
+            </p>
+            <div class="row">
+                <input id="leaderboard-name" value="Feet Traveled" />
+                <input id="leaderboard-score" value="5000" />
+            </div>
+            <div class="row">
+                <button id="leaderboard-create-btn">Find/Create</button>
+                <button id="leaderboard-find-btn" class="subtle">Find</button>
+                <button id="leaderboard-upload-btn">Upload</button>
+                <button id="leaderboard-download-btn" class="subtle">Download</button>
+            </div>
+        </section>
+
+        <section class="card">
             <h2>Auth / Screenshot</h2>
+            <p class="note">
+                Web API 用の認証チケット取得と、Steam スクリーンショットの送信確認に使います。
+            </p>
             <div class="row">
                 <input id="identity" value="sample-web-api" />
                 <button id="ticket-btn">Get Ticket</button>
@@ -223,6 +304,9 @@
 
         <section class="card">
             <h2>Log</h2>
+            <p class="note">
+                各 API 呼び出しの結果を表示します。失敗時は `reason` も確認してください。
+            </p>
             <pre id="log"></pre>
         </section>
     </div>
@@ -232,6 +316,7 @@
 <script>
 const logEl = document.getElementById('log');
 let lastTicket = null;
+let leaderboardHandle = '';
 
 function log(message, data) {
     const line = `[${new Date().toLocaleTimeString()}] ${message}`;
@@ -251,7 +336,6 @@ function applyInitInfo(info) {
     document.getElementById('persona-name').textContent = info.personaName ?? '---';
     document.getElementById('steam-id').textContent = info.steamId64Bit ?? '---';
     document.getElementById('app-id').textContent = info.appId ?? '---';
-    document.getElementById('steam-deck').textContent = String(info.isRunningOnSteamDeck ?? '---');
     document.getElementById('game-lang').textContent = info.currentGameLanguage ?? '---';
     setStatus('user-pill', info.personaName || '---', 'ok');
 }
@@ -302,10 +386,57 @@ document.getElementById('achievement-clear-btn').addEventListener('click', async
     log('clearAchievement()', result);
 });
 
+document.getElementById('achievement-get-btn').addEventListener('click', async () => {
+    const id = document.getElementById('achievement-id').value;
+    const result = await Steam.getAchievementState(id);
+    log('getAchievementState()', result);
+});
+
+document.getElementById('stat-get-int-btn').addEventListener('click', async () => {
+    const name = document.getElementById('stat-name').value;
+    const result = await Steam.getStatInt(name);
+    log('getStatInt()', result);
+});
+
+document.getElementById('stat-set-int-btn').addEventListener('click', async () => {
+    const name = document.getElementById('stat-name').value;
+    const value = Number(document.getElementById('stat-value').value);
+    const result = await Steam.setStatInt(name, value);
+    log('setStatInt()', result);
+});
+
+document.getElementById('stat-get-float-btn').addEventListener('click', async () => {
+    const name = document.getElementById('stat-name').value;
+    const result = await Steam.getStatFloat(name);
+    log('getStatFloat()', result);
+});
+
+document.getElementById('stat-set-float-btn').addEventListener('click', async () => {
+    const name = document.getElementById('stat-name').value;
+    const value = Number(document.getElementById('stat-value').value);
+    const result = await Steam.setStatFloat(name, value);
+    log('setStatFloat()', result);
+});
+
+document.getElementById('stats-store-btn').addEventListener('click', async () => {
+    const result = await Steam.storeStats();
+    log('storeStats()', result);
+});
+
 document.getElementById('dlc-check-btn').addEventListener('click', async () => {
     const appId = Number(document.getElementById('dlc-id').value);
     const result = await Steam.checkDlcInstalled([appId]);
     log('checkDlcInstalled()', result);
+});
+
+document.getElementById('dlc-list-btn').addEventListener('click', async () => {
+    const result = await Steam.getDlcList();
+    log('getDlcList()', result);
+});
+
+document.getElementById('ownership-btn').addEventListener('click', async () => {
+    const result = await Steam.getAppOwnershipInfo();
+    log('getAppOwnershipInfo()', result);
 });
 
 document.getElementById('presence-set-btn').addEventListener('click', () => {
@@ -317,6 +448,70 @@ document.getElementById('presence-set-btn').addEventListener('click', () => {
 document.getElementById('presence-clear-btn').addEventListener('click', () => {
     Steam.clearRichPresence();
     log('clearRichPresence()');
+});
+
+document.getElementById('cloud-status-btn').addEventListener('click', async () => {
+    const result = await Steam.getCloudStatus();
+    log('getCloudStatus()', result);
+});
+
+document.getElementById('cloud-list-btn').addEventListener('click', async () => {
+    const result = await Steam.listCloudFiles();
+    log('listCloudFiles()', result);
+});
+
+document.getElementById('cloud-write-btn').addEventListener('click', async () => {
+    const fileName = document.getElementById('cloud-file-name').value;
+    const text = document.getElementById('cloud-file-text').value;
+    const result = await Steam.writeCloudFileText(fileName, text);
+    log('writeCloudFileText()', result);
+});
+
+document.getElementById('cloud-read-btn').addEventListener('click', async () => {
+    const fileName = document.getElementById('cloud-file-name').value;
+    const result = await Steam.readCloudFileText(fileName);
+    log('readCloudFileText()', result);
+});
+
+document.getElementById('cloud-delete-btn').addEventListener('click', async () => {
+    const fileName = document.getElementById('cloud-file-name').value;
+    const result = await Steam.deleteCloudFile(fileName);
+    log('deleteCloudFile()', result);
+});
+
+document.getElementById('leaderboard-create-btn').addEventListener('click', async () => {
+    const name = document.getElementById('leaderboard-name').value;
+    const result = await Steam.findOrCreateLeaderboard(name, 'descending', 'numeric');
+    if (result.isOk) leaderboardHandle = result.leaderboardHandle;
+    log('findOrCreateLeaderboard()', result);
+});
+
+document.getElementById('leaderboard-find-btn').addEventListener('click', async () => {
+    const name = document.getElementById('leaderboard-name').value;
+    const result = await Steam.findLeaderboard(name);
+    if (result.isOk) leaderboardHandle = result.leaderboardHandle;
+    log('findLeaderboard()', result);
+});
+
+document.getElementById('leaderboard-upload-btn').addEventListener('click', async () => {
+    if (!leaderboardHandle) {
+        log('uploadLeaderboardScore() skipped', { reason: 'leaderboardHandle is empty' });
+        return;
+    }
+
+    const score = Number(document.getElementById('leaderboard-score').value);
+    const result = await Steam.uploadLeaderboardScore(leaderboardHandle, score);
+    log('uploadLeaderboardScore()', result);
+});
+
+document.getElementById('leaderboard-download-btn').addEventListener('click', async () => {
+    if (!leaderboardHandle) {
+        log('downloadLeaderboardEntries() skipped', { reason: 'leaderboardHandle is empty' });
+        return;
+    }
+
+    const result = await Steam.downloadLeaderboardEntries(leaderboardHandle, 'global', 0, 9);
+    log('downloadLeaderboardEntries()', result);
 });
 
 document.getElementById('ticket-btn').addEventListener('click', async () => {

@@ -324,7 +324,9 @@ Steamworks 連携はオプションです。ホスト本体の基本方針は標
 
 そのため、本 README では詳細を展開せず、対象別の別文書にまとめています。
 
-- アプリ開発者向け: `docs/steam/app-integration.md`
+- アプリ開発者向け入口: `docs/steam/overview.md`
+- 最短導入手順: `docs/steam/getting-started.md`
+- 関数一覧: `docs/steam/api-reference.md`
 - ブリッジビルド担当向け: `docs/steam/bridge-build.md`
 - 付属サンプル: `samples/steam-complete/`
 
@@ -370,7 +372,7 @@ window.addEventListener('keydown', (e) => {
 Debug ビルドでは自動的に有効です。Release ビルドで有効にしたい場合は、`src/App.cs` 内の `#if DEBUG` ブロックを調整してください。
 
 ### Steamworks を使いたい
-本体 README では概要のみに留めています。アプリ開発者向けには `docs/steam/app-integration.md`、ブリッジビルド担当向けには `docs/steam/bridge-build.md` を参照してください。
+本体 README では概要のみに留めています。アプリ開発者は `docs/steam/overview.md` から読み始め、必要に応じて `docs/steam/getting-started.md` と `docs/steam/api-reference.md` を参照してください。ブリッジビルド担当向けには `docs/steam/bridge-build.md` を用意しています。
 
 ### どのファイルを配布すればよいですか
 配布方式によって異なりますが、基本的には次が必要です。
