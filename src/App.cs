@@ -37,6 +37,9 @@ namespace WebView2AppHost
         // favicon 管理（前のアイコンを Dispose するために保持）
         private Icon? _favicon = null;
 
+        // Steam ブリッジ（steam_bridge.dll が存在する場合のみ非 null）
+        private SteamBridge? _steamBridge;
+
         // ---------------------------------------------------------------------------
         // コンストラクタ
         // ---------------------------------------------------------------------------
@@ -128,9 +131,6 @@ namespace WebView2AppHost
             SetupFaviconTracking();
 
             // JS からのウィンドウクローズ要求 (window.close())
-            // WindowCloseRequested は WebView2 が beforeunload を処理し終えた後に発火する。
-            // そのため _closeConfirmed を立ててから Close() し、OnFormClosing での
-            // Navigate("about:blank") 再発行（= beforeunload の二重発火）を防ぐ。
             wv.WindowCloseRequested += (s, _) =>
             {
                 _closeConfirmed = true;
@@ -138,7 +138,6 @@ namespace WebView2AppHost
             };
 
             // NavigationStarting で終了ナビゲーションの ID を確定する。
-            // 外部リンク・ポップアップのハンドリングも同イベントで行う。
             wv.NavigationStarting += (s, e) =>
             {
                 if (_closeNavExpected && e.Uri == "about:blank")
@@ -150,8 +149,6 @@ namespace WebView2AppHost
             };
 
             // NavigationId 照合で終了ナビゲーションの完了のみを処理する。
-            // NavigationId 不一致（別ナビゲーション）は無視することで
-            // 複数ナビゲーションの競合を防ぐ。
             wv.NavigationCompleted += (s, e) =>
             {
                 if (_closeNavId == 0 || e.NavigationId != _closeNavId) return;
@@ -161,15 +158,12 @@ namespace WebView2AppHost
                     _closeConfirmed = true;
                     Close();
                 }
-                // else: beforeunload でキャンセル or 失敗 → フラグリセット済み
             };
 
             // 外部リンク・ポップアップのハンドリング
             wv.NewWindowRequested += (s, e) => HandleNewWindowRequest(e);
 
-            // 通知権限: WebView2 はデフォルトで拒否するため、GetDeferral() でいったん処理を
-            // 保留し、ホスト側でダイアログを表示してからユーザーの選択を反映する。
-            // e は STA スレッド専用の COM オブジェクトのため Task.Run は使わない。
+            // 通知権限ハンドリング
             wv.PermissionRequested += (s, e) =>
             {
                 if (e.PermissionKind != CoreWebView2PermissionKind.Notifications) return;
@@ -186,7 +180,6 @@ namespace WebView2AppHost
                     e.State = result == DialogResult.Yes
                         ? CoreWebView2PermissionState.Allow
                         : CoreWebView2PermissionState.Deny;
-                    // 選択をプロファイルに保存し、次回以降同じオリジンではダイアログを出さない。
                     e.SavesInProfile = true;
                 }
                 finally
@@ -195,8 +188,7 @@ namespace WebView2AppHost
                 }
             };
 
-            // C# から JS へのイベント通知の土台。
-            // NOTE: AddScriptToExecuteOnDocumentCreated はメインフレームにのみ適用される。
+            // visibilitychange 用スクリプト注入
             await wv.AddScriptToExecuteOnDocumentCreatedAsync(@"
                 const __wv2VisibilityDeduper = {
                     lastState: document.visibilityState,
@@ -207,8 +199,6 @@ namespace WebView2AppHost
                     const now = Date.now();
                     const state = document.visibilityState;
 
-                    // WebView2 の標準イベントとホスト補完イベントが近接して二重発火する場合、
-                    // 同一 state の後続イベントだけを capture 段階で止める。
                     if (state === __wv2VisibilityDeduper.lastState &&
                         (now - __wv2VisibilityDeduper.lastTick) < 250) {
                         event.stopImmediatePropagation();
@@ -228,7 +218,6 @@ namespace WebView2AppHost
                         const desiredState = data.state === 'hidden' ? 'hidden' : 'visible';
                         const desiredHidden = desiredState === 'hidden';
 
-                        // 既に同じ state に同期済みなら何もしない。
                         if (document.visibilityState === desiredState && document.hidden === desiredHidden) {
                             return;
                         }
@@ -257,12 +246,49 @@ namespace WebView2AppHost
                 }
             };
 
+            // ---------------------------------------------------------------------------
+            // Steam ブリッジの初期化（メインウィンドウのみ。ポップアップは不要）
+            // ---------------------------------------------------------------------------
+            if (_popupWindowOptions == null)
+            {
+                TryInitSteam();
+            }
+
             // index.html へナビゲート
             wv.Navigate(_initialUri);
 
             // 起動時フルスクリーン
             if (_config.Fullscreen)
                 RequestFullscreen();
+        }
+
+        // ---------------------------------------------------------------------------
+        // Steam ブリッジ初期化
+        // ---------------------------------------------------------------------------
+
+        private void TryInitSteam()
+        {
+            _steamBridge = SteamBridge.TryCreate(
+                _webView,
+                _config.SteamAppId,
+                _config.SteamDevMode);
+
+            if (_steamBridge == null) return;
+
+            // JS からの Steam メッセージを受信して DLL へ転送
+            _webView.CoreWebView2.WebMessageReceived += (s, e) =>
+            {
+                try
+                {
+                    _steamBridge?.HandleWebMessage(e.WebMessageAsJson);
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Log("ERROR", "App.SteamWebMessageReceived", ex.Message);
+                }
+            };
+
+            AppLog.Log("INFO", "App.TryInitSteam", "Steam ブリッジを有効化しました");
         }
 
         // ---------------------------------------------------------------------------
@@ -275,8 +301,6 @@ namespace WebView2AppHost
                 "https://app.local/*",
                 CoreWebView2WebResourceContext.All);
 
-            // proxyOrigins に登録された外部オリジンへのリクエストも横取りする。
-            // コンテンツ側は通常の URL で fetch でき、ブラウザとの互換性が保たれる。
             foreach (var origin in _config.ProxyOrigins ?? Array.Empty<string>())
             {
                 var normalized = origin.TrimEnd('/');
@@ -294,13 +318,11 @@ namespace WebView2AppHost
             var uri  = new Uri(e.Request.Uri);
             var path = Uri.UnescapeDataString(uri.AbsolutePath);
 
-            // proxyOrigins に登録された外部オリジンへのリクエストはプロキシ転送する。
             if (_config.IsProxyAllowed(uri))
             {
                 HandleProxyRequest(e, uri);
                 return;
             }
-
 
             var rangeHeader = e.Request.Headers.Contains("Range")
                 ? e.Request.Headers.GetHeader("Range")
@@ -318,7 +340,7 @@ namespace WebView2AppHost
             try
             {
                 var mime  = MimeTypes.FromPath(path);
-                var total = stream.Length;   // ← ここより前で例外が起きたら catch に飛ぶ
+                var total = stream.Length;
 
                 if (!string.IsNullOrEmpty(rangeHeader) && stream.CanSeek)
                 {
@@ -336,8 +358,6 @@ namespace WebView2AppHost
                     var length = end - start + 1;
 
                     stream.Seek(start, SeekOrigin.Begin);
-                    // rangeStream がレスポンスの所有者となり、WebView2 により消費後 Dispose される。
-                    // 失敗時は下の catch で rangeStream.Dispose() を呼び、内側の stream まで閉じる。
                     var rangeStream = new SubStream(stream, start, length);
                     try
                     {
@@ -353,8 +373,6 @@ namespace WebView2AppHost
                 }
                 else
                 {
-                    // 成功時は WebView2 がレスポンス消費後に stream を Dispose する。
-                    // 失敗時（例外）のみ catch 側で明示的に Dispose する。
                     e.Response = _webView.CoreWebView2.Environment
                         .CreateWebResourceResponse(stream, 200, "OK",
                             WebResourceHandler.BuildFullResponseHeaders(mime, total));
@@ -362,7 +380,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                stream.Dispose();  // catch でのみ Dispose
+                stream.Dispose();
                 AppLog.Log("ERROR", "App.HandleWebResourceRequest", ex.Message, ex);
                 throw;
             }
@@ -370,9 +388,6 @@ namespace WebView2AppHost
 
         private async void HandleProxyRequest(CoreWebView2WebResourceRequestedEventArgs e, Uri targetUri)
         {
-            // コンテンツ側は通常の URL で fetch する。ホストが透過的に転送する。
-            var targetUrl = targetUri.AbsoluteUri;
-
             try
             {
                 var deferral = e.GetDeferral();
@@ -381,10 +396,6 @@ namespace WebView2AppHost
                     var method  = new HttpMethod(e.Request.Method ?? "GET");
                     var request = new HttpRequestMessage(method, targetUri);
 
-                    // NOTE: WebView2 の WebResourceRequested では e.Request.Content が常に null のため
-                    // POST ボディの転送は非対応。GET / HEAD 等のボディなしリクエストのみ機能する。
-
-                    // リクエストヘッダを転送（Host・Origin・Referer は除く）
                     foreach (var header in e.Request.Headers)
                     {
                         var name = header.Key;
@@ -399,9 +410,8 @@ namespace WebView2AppHost
                         request, HttpCompletionOption.ResponseContentRead);
 
                     var body = await response.Content.ReadAsByteArrayAsync();
-                    var ms   = new MemoryStream(body);
+                    var ms   = new System.IO.MemoryStream(body);
 
-                    // レスポンスヘッダを組み立て（CORS ヘッダを付与）
                     var contentType = response.Content.Headers.ContentType?.ToString()
                         ?? "application/octet-stream";
                     var headers = $"Content-Type: {contentType}\r\n"
@@ -428,7 +438,6 @@ namespace WebView2AppHost
                     .CreateWebResourceResponse(null, 502, "Bad Gateway", "Content-Type: text/plain");
             }
         }
-
 
         // ---------------------------------------------------------------------------
         // フルスクリーン
@@ -476,48 +485,22 @@ namespace WebView2AppHost
 
                 try
                 {
-                    #if DEBUG
-                    AppLog.Log("DEBUG", "App.SetupFaviconTracking", "GetFaviconAsync 呼び出し開始");
-                    #endif
-                    
                     using var comStream = await wv.GetFaviconAsync(
                         CoreWebView2FaviconImageFormat.Png);
 
-                    if (comStream == null)
-                    {
-                        AppLog.Log("WARN", "App.SetupFaviconTracking", "comStream が null (WebView2 が画像を返さなかった)");
-                        return;
-                    }
+                    if (comStream == null) return;
 
-                    #if DEBUG
-                    AppLog.Log("DEBUG", "App.SetupFaviconTracking", "comStream 取得成功、PNGへコピー");
-                    #endif
-
-                    // COMStreamWrapper は Seek 不可なため MemoryStream に一度コピーする
                     using var pngMs = new System.IO.MemoryStream();
                     comStream.CopyTo(pngMs);
                     pngMs.Position = 0;
 
-                    #if DEBUG
-                    AppLog.Log("DEBUG", "App.SetupFaviconTracking", $"PNG コピー完了、サイズ={pngMs.Length}。Bitmap 変換開始");
-                    #endif
-
                     using var bmp     = new Bitmap(pngMs);
                     using var resized = new Bitmap(bmp, new Size(32, 32));
 
-                    #if DEBUG
-                    AppLog.Log("DEBUG", "App.SetupFaviconTracking", "Bitmap リサイズ完了、ICO 変換開始");
-                    #endif
-
-                    // MemoryStream 経由で ICO フォーマットに変換して Icon を生成
                     using var icoMs = new System.IO.MemoryStream();
                     IconUtils.WriteIco(resized, icoMs);
                     icoMs.Position = 0;
                     var newIcon = new Icon(icoMs);
-
-                    #if DEBUG
-                    AppLog.Log("DEBUG", "App.SetupFaviconTracking", "ICO 変換成功、UIスレッド適用待ち");
-                    #endif
 
                     if (!IsDisposed && IsHandleCreated)
                         Invoke(new Action(() =>
@@ -663,10 +646,6 @@ namespace WebView2AppHost
         // 終了ナビゲーション（beforeunload 発火）
         // ---------------------------------------------------------------------------
 
-        /// <summary>
-        /// about:blank へのナビゲーションを開始し、beforeunload を発火させる。
-        /// OnFormClosing の進行中ガードを通過した場合にのみ呼ばれる。
-        /// </summary>
         private void StartCloseNavigation()
         {
             _closeNavExpected = true;
@@ -676,8 +655,6 @@ namespace WebView2AppHost
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            // _closeConfirmed: NavigationCompleted で about:blank 到達を確認済み → 閉じてよい。
-            // CoreWebView2 未初期化時も素通り（初期化失敗時の Application.Exit() など）。
             if (_closeConfirmed || _webView.CoreWebView2 == null)
             {
                 base.OnFormClosing(e);
@@ -686,8 +663,6 @@ namespace WebView2AppHost
 
             e.Cancel = true;
 
-            // 既にナビゲーションが進行中なら再起動しない。
-            // NavigationCompleted でリセットされるまで待機する。
             if (_closeNavExpected || _closeNavId != 0)
                 return;
 
@@ -699,6 +674,7 @@ namespace WebView2AppHost
             if (disposing)
             {
                 _favicon?.Dispose();
+                _steamBridge?.Dispose();
                 if (_disposeZipOnClose)
                     _zip.Dispose();
             }

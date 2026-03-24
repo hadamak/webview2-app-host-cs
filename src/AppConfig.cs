@@ -39,6 +39,23 @@ namespace WebView2AppHost
         public string[] ProxyOrigins { get; private set; } = Array.Empty<string>();
 
         /// <summary>
+        /// Steam AppID。Steamworks 機能を使う場合に設定する。
+        /// 空または未設定の場合は steam_appid.txt または Steam 起動時の自動検出に委ねる。
+        /// 例: "480" (SpaceWarデモ)
+        /// </summary>
+        [DataMember(Name = "steamAppId")]
+        public string SteamAppId { get; private set; } = "";
+
+        /// <summary>
+        /// Steam 開発モードフラグ。
+        /// true の場合、SteamAppId を環境変数経由で Steam に渡す（steam_appid.txt 不要）。
+        /// false の場合、SteamAPI_RestartAppIfNecessary() を呼んで Steam から起動されているか確認する。
+        /// リリースビルドでは false に設定すること。
+        /// </summary>
+        [DataMember(Name = "steamDevMode")]
+        public bool SteamDevMode { get; private set; } = true;
+
+        /// <summary>
         /// 指定した URI がプロキシ許可オリジンに含まれるかを返す。
         /// </summary>
         public bool IsProxyAllowed(Uri uri)
@@ -127,6 +144,9 @@ namespace WebView2AppHost
 
             // ProxyOrigins: デシリアライズ時に null になる場合があるため正規化する
             if (ProxyOrigins == null) ProxyOrigins = Array.Empty<string>();
+
+            // SteamAppId: null は空文字に正規化
+            if (SteamAppId == null) SteamAppId = "";
         }
     }
 
