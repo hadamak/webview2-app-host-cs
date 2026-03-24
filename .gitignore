@@ -9,3 +9,4 @@ dist/
 src/steam-bridge/steamworks-sdk/
 tests/SteamBridgeTests/bin/
 tests/SteamBridgeTests/x64/
+src/steam-bridge/x64/
