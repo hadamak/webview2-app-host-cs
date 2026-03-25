@@ -37,6 +37,24 @@ Show the player's current status in the Steam friends list.
 
 Check whether the user owns the base app or a DLC and whether a DLC is installed.
 
+## ⚠️ Required Steamworks backend setup before writing any code
+
+**Adding the ZIP is not enough to make Steam features work.**  
+Each feature requires configuration in the Steamworks Partner site (App Admin) before any API call will succeed.
+
+| Feature | Required setup | Symptom if missing |
+|---------|---------------|--------------------|
+| **Achievements** | App Admin → Achievements: define each achievement and **Publish** | `SetAchievement` always fails / achievements never appear |
+| **User Stats** | App Admin → Stats: define stat name, type, and default, then **Publish** | `setStat*` / `getStatInt` returns `stat-not-found-or-type-mismatch` |
+| **Leaderboards** | App Admin → Leaderboards: create the board and **Publish** | `findOrCreateLeaderboard` fails |
+| **Steam Cloud** | App Admin → Steam Cloud: enable the feature, set quota and path, then **Publish** | `writeCloudFileText` and related calls always fail |
+
+> **Don't forget to Publish**: saving a definition is not enough. Each configuration must be **Published** before it takes effect.
+
+See [Step by Step: Stats](https://partner.steamgames.com/doc/tutorial/statistic) and the [ISteamUserStats Interface](https://partner.steamgames.com/doc/api/ISteamUserStats) for details.
+
+---
+
 ## Design goals
 
 - Steam support should feel like "extract one more ZIP"

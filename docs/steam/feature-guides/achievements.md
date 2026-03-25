@@ -8,6 +8,17 @@
 - 特定エンディング到達
 - やり込み条件の達成
 
+## Steamworks 側の事前設定
+
+> **コードを書く前に必要な設定です。**
+>
+> 1. Steamworks Partner サイト → App Admin → **Achievements**
+> 2. 実績を定義する（API 名・表示名・アイコン）
+> 3. **Publish** を実行する
+>
+> 定義・Publish なしにコードから `unlockAchievement` を呼んでも、API は常に失敗します。  
+> Publish 済みの定義が存在しない実績名を渡した場合も同様です。
+
 ## 最小例
 
 ```js
@@ -27,6 +38,7 @@ console.log(result.isUnlocked);
 ## よくある失敗
 
 - 実績 API 名が Steamworks 側の登録名と一致していない
+- Steamworks 側で未定義、または Publish されていない実績名を指定している
 - `Steam.init()` 前に呼んでいる
 
 ## 補足

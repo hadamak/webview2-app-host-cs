@@ -8,6 +8,17 @@ Typical uses:
 - Beat a secret boss
 - Finish a stage under a condition
 
+## Steamworks backend setup required
+
+> **This must be done before writing any code.**
+>
+> 1. Steamworks Partner site → App Admin → **Achievements**
+> 2. Define each achievement (API name, display name, icon)
+> 3. Click **Publish**
+>
+> Calling `unlockAchievement` with a name that has no published definition will always fail.  
+> The API does not create achievements automatically.
+
 ## Minimal example
 
 ```js

@@ -2,6 +2,18 @@
 
 Steam Cloud syncs files through Steam.
 
+## Steamworks backend setup required
+
+> **This must be done before writing any code.**
+>
+> 1. Steamworks Partner site → App Admin → **Steam Cloud**
+> 2. Enable "Enable Cloud Support for \<App Name\>"
+> 3. Set the quota (byte limit and file count limit)
+> 4. Click **Publish**
+>
+> Calling `writeCloudFileText` or any other Cloud API without completing the above will always fail.  
+> Reference: [Steam Cloud — Steamworks Documentation](https://partner.steamgames.com/doc/features/cloud)
+
 Typical uses:
 
 - Save files

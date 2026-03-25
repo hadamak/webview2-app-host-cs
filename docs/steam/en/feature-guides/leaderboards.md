@@ -8,6 +8,18 @@ Typical uses:
 - Time attacks
 - Stage-specific rankings
 
+## Steamworks backend setup required
+
+> **This must be done before writing any code.**
+>
+> 1. Steamworks Partner site → App Admin → **Leaderboards**
+> 2. Create the leaderboard (name, sort order, display type)
+> 3. Click **Publish**
+>
+> `findOrCreateLeaderboard` will attempt to create a board if one does not exist, but in production  
+> only boards pre-defined in the backend are reliable.  
+> Scores uploaded to an undefined board will not appear for other players.
+
 ## Basic flow
 
 1. Find or create the leaderboard

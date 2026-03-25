@@ -4,6 +4,24 @@
 
 ---
 
+## 0. Steamworks 管理画面での事前設定（コード・ZIP より先）
+
+**コードを書く前に、Steamworks Partner サイトで設定が必要です。**  
+使う機能だけ対応してください。未設定のまま API を呼んでも常に失敗します。
+
+| 使う機能 | 必要な手順 |
+|---------|-----------|
+| 実績 | App Admin → Achievements → 実績を定義 → **Publish** |
+| User Stats | App Admin → Stats → stat 名・型・初期値を定義 → **Publish** |
+| Leaderboards | App Admin → Leaderboards → ボードを作成 → **Publish** |
+| Steam Cloud | App Admin → Steam Cloud → 有効化・クォータ設定 → **Publish** |
+
+> 開発中は AppID `480`（Valve の Spacewar）を使えば上記設定なしで動作確認できます。  
+> Spacewar には実績・stats・leaderboard が既に定義されているためです。  
+> 自分のタイトルに切り替えたら必ず上記を設定してください。
+
+---
+
 ## 1. 必要なもの
 
 - 通常版の本体配布物

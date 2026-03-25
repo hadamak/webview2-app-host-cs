@@ -498,17 +498,21 @@ void WrapperExtension::OnGameOverlayActivated(bool isShowing)
 
 void WrapperExtension::OnUserStatsReceived(EResult eResult)
 {
-	// Current Steamworks SDKs synchronize stats before game launch and no longer expose
-	// RequestCurrentStats(). Keep this callback for diagnostics and to explicitly mark
-	// stats as ready when Steam notifies us for the current app.
+	// In Steamworks SDK 1.64 RequestCurrentStats() no longer exists; stats are pre-synced
+	// by the Steam client before launch, so areUserStatsReady is already set to true in
+	// OnInitMessage().  Whether UserStatsReceived_t fires automatically in this SDK version
+	// is not guaranteed, so this callback is kept for two purposes only:
+	//   1. Diagnostic logging to confirm Steam did send the callback.
+	//   2. Defensive re-affirmation of readiness in case a future SDK changes behaviour.
 	if (eResult == k_EResultOK)
 	{
 		areUserStatsReady = true;
-		LogMessage("User stats received and marked ready");
+		LogMessage("UserStatsReceived_t k_EResultOK: stats confirmed ready (diagnostic)");
 	}
 	else
 	{
-		LogMessage("User stats receive callback returned failure: EResult " + std::to_string(eResult),
+		LogMessage("UserStatsReceived_t returned failure: EResult " + std::to_string(eResult) +
+			" (stats were already marked ready at init per SDK 1.64 pre-sync guarantee)",
 			IApplication::LogLevel::warning);
 	}
 }
@@ -748,9 +752,19 @@ void WrapperExtension::OnInitMessage(double asyncId)
 		LogMessage(std::string("HookScreenshots(true) applied; IsScreenshotsHooked=") +
 			(SteamScreenshots()->IsScreenshotsHooked() ? "true" : "false"));
 
-		// On current Steamworks SDKs RequestCurrentStats() has been removed because the Steam
-		// client synchronizes stats before launch. Treat stats as ready only after init succeeds,
-		// and still accept UserStatsReceived_t later for diagnostics/fallback.
+		// Steamworks SDK 1.64 (isteamuserstats.h) explicitly removed RequestCurrentStats()
+		// with the comment: "this call is no longer required as it is managed by the Steam
+		// client — The game stats and achievements will be synchronized with Steam before
+		// the game process begins."
+		//
+		// Because stats are guaranteed to be ready before SteamAPI_Init() returns, we mark
+		// them ready here rather than waiting for UserStatsReceived_t.  The callback struct
+		// still exists in the SDK but its automatic dispatch is not guaranteed when
+		// RequestCurrentStats() no longer exists to trigger it; relying solely on the
+		// callback would leave areUserStatsReady permanently false in most environments.
+		//
+		// If a future SDK version reintroduces an explicit request/callback flow, revisit
+		// this decision and gate readiness on the callback instead.
 		areUserStatsReady = true;
 
 		// Get current steam user ID for accessing account IDs

@@ -8,6 +8,18 @@ Leaderboards は Steam のランキング機能です。
 - タイムアタック
 - ステージ別ランキング
 
+## Steamworks 側の事前設定
+
+> **コードを書く前に必要な設定です。**
+>
+> 1. Steamworks Partner サイト → App Admin → **Leaderboards**
+> 2. ボードを作成する（名前・ソート順・表示形式）
+> 3. **Publish** を実行する
+>
+> `findOrCreateLeaderboard` は名前が一致するボードが存在しない場合に作成を試みますが、  
+> 本番環境では管理画面で事前定義したボードのみが有効です。  
+> 未定義のままスコアを送信しても Steamworks 側には反映されません。
+
 ## 基本の流れ
 
 1. leaderboard を見つける、または作る
@@ -36,6 +48,7 @@ const scores = await Steam.downloadLeaderboardEntries(
 
 ## よくある失敗
 
+- Steamworks 側でボードが未定義、または Publish されていない
 - leaderboard 名が Steam 側定義と一致していない
 - handle を取得する前に upload / download している
 

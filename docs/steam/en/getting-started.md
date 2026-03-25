@@ -2,6 +2,23 @@
 
 This guide is for developers who want the shortest path from an HTML / JavaScript game to a Steam-ready build.
 
+## Step 0 — Steamworks backend setup (before code or ZIP)
+
+**You must configure your app in the Steamworks Partner site before any Steam feature will work.**  
+Only do the rows that apply to your game. Calling the APIs without the matching backend config will always fail.
+
+| Feature | Required steps |
+|---------|---------------|
+| Achievements | App Admin → Achievements → define each achievement → **Publish** |
+| User Stats | App Admin → Stats → define name, type, and default → **Publish** |
+| Leaderboards | App Admin → Leaderboards → create the board → **Publish** |
+| Steam Cloud | App Admin → Steam Cloud → enable, set quota → **Publish** |
+
+> **Tip**: During development you can use AppID `480` (Valve's Spacewar). It already has achievements, stats, and leaderboards defined, so you can verify your setup without configuring a backend.  
+> When you switch to your own title, the Steamworks backend configuration above is required.
+
+---
+
 ## What you need
 
 - The standard package
