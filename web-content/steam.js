@@ -1,319 +1,172 @@
 /**
- * steam.js
- * WebView2AppHost の Steam ブリッジ JS 側 API。
+ * steam.js — WebView2AppHost 汎用パススルー型 Steam ブリッジ
+ *
+ * Facepunch.Steamworks の C# API を JavaScript から直接呼び出せるブリッジ。
+ * ES6 Proxy を用いて ClassName.MethodName を動的に捕捉し、
+ * C# の汎用ディスパッチャへ JSON で転送する。
+ *
+ * 使い方:
+ *   // Facepunch.Steamworks の公式ドキュメントのクラス名・メソッド名をそのまま指定
+ *   await Steam.SteamUserStats.SetAchievement('ACH_WIN_ONE_GAME');
+ *   await Steam.SteamUserStats.StoreStats();
+ *
+ *   const rank = await Steam.SteamUserStats.GetStatInt('NumWins');
+ *
+ *   // Steam イベントの受信
+ *   Steam.on('OnAchievementProgress', ({ achievementName, currentProgress, maxProgress }) => {
+ *     console.log(achievementName, currentProgress, '/', maxProgress);
+ *   });
  *
  * 注意:
- * WebView2 の画面上に Steam オーバーレイが重なるわけではない。
- * showOverlay 系 API は Steam 側の関連 UI を開く用途として扱う。
+ *   - WebView2 の画面上に Steam オーバーレイが重なるわけではない
+ *   - showOverlay 系 API は Steam 側 UI を開く用途
+ *   - Steam Deck / SteamOS は非対応（Windows 版 WebView2 専用）
  */
 const Steam = (() => {
-    const _isHost = typeof window.chrome !== 'undefined' &&
-                    typeof window.chrome.webview !== 'undefined';
+    'use strict';
+
+    // WebView2 ホスト環境かどうかを判定
+    const _isHost =
+        typeof window !== 'undefined' &&
+        typeof window.chrome !== 'undefined' &&
+        typeof window.chrome.webview !== 'undefined';
 
     let _asyncId = 0;
+
+    /** asyncId → { resolve, reject } の pending マップ */
     const _pending = new Map();
 
-    const OVERLAY_OPTIONS = [
-        'friends', 'community', 'players', 'settings',
-        'official-game-group', 'stats', 'achievements'
-    ];
+    /** イベント名 → ハンドラ関数リスト */
+    const _eventHandlers = new Map();
 
-    const LEADERBOARD_SORT_METHODS = {
-        ascending: 1,
-        descending: 2,
-    };
-
-    const LEADERBOARD_DISPLAY_TYPES = {
-        numeric: 1,
-        'time-seconds': 2,
-        'time-milliseconds': 3,
-    };
-
-    const LEADERBOARD_UPLOAD_METHODS = {
-        'keep-best': 1,
-        'force-update': 2,
-    };
-
-    const LEADERBOARD_DATA_REQUESTS = {
-        global: 0,
-        'global-around-user': 1,
-        friends: 2,
-        users: 3,
-    };
-
-    function parseJsonField(value, fallback) {
-        if (typeof value !== 'string' || value === '') return fallback;
-        try {
-            return JSON.parse(value);
-        } catch {
-            return fallback;
-        }
-    }
-
-    function resolveEnum(map, value, kind) {
-        if (typeof value === 'number') return value;
-        const resolved = map[value];
-        if (typeof resolved === 'number') return resolved;
-        throw new Error(`[Steam] Unknown ${kind}: ${value}`);
-    }
-
-    function toCsv(values) {
-        return (values || []).map(v => String(v)).join(',');
-    }
-
-    function encodeBase64FromBytes(bytes) {
-        if (typeof Buffer !== 'undefined') {
-            return Buffer.from(bytes).toString('base64');
-        }
-
-        let binary = '';
-        for (const byte of bytes) binary += String.fromCharCode(byte);
-        return btoa(binary);
-    }
-
-    function decodeBase64ToBytes(base64) {
-        if (typeof Buffer !== 'undefined') {
-            return Uint8Array.from(Buffer.from(base64, 'base64'));
-        }
-
-        const binary = atob(base64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        return bytes;
-    }
-
-    function encodeTextToBase64(text) {
-        if (typeof TextEncoder !== 'undefined') {
-            return encodeBase64FromBytes(new TextEncoder().encode(text));
-        }
-
-        if (typeof Buffer !== 'undefined') {
-            return Buffer.from(text, 'utf8').toString('base64');
-        }
-
-        throw new Error('[Steam] TextEncoder is not available');
-    }
-
-    function decodeBase64ToText(base64) {
-        const bytes = decodeBase64ToBytes(base64);
-
-        if (typeof TextDecoder !== 'undefined') {
-            return new TextDecoder().decode(bytes);
-        }
-
-        if (typeof Buffer !== 'undefined') {
-            return Buffer.from(bytes).toString('utf8');
-        }
-
-        throw new Error('[Steam] TextDecoder is not available');
-    }
+    // ---------------------------------------------------------------------------
+    // C# → JS メッセージ受信
+    // ---------------------------------------------------------------------------
 
     if (_isHost) {
-        window.chrome.webview.addEventListener('message', e => {
+        window.chrome.webview.addEventListener('message', (e) => {
             let msg;
-            try { msg = JSON.parse(e.data); } catch { return; }
-            if (msg.source !== 'steam') return;
-
-            const params = msg.params ?? {};
-
-            if (typeof msg.asyncId === 'number' && msg.asyncId >= 0) {
-                const resolve = _pending.get(msg.asyncId);
-                if (resolve) {
-                    _pending.delete(msg.asyncId);
-                    resolve(params);
-                    return;
-                }
-            }
-
-            window.dispatchEvent(
-                new CustomEvent(`steam:${msg.messageId}`, { detail: params })
-            );
-        });
-    }
-
-    function postSteamMessage(messageId, params, asyncId) {
-        window.chrome.webview.postMessage(JSON.stringify({
-            source: 'steam',
-            messageId,
-            params,
-            asyncId
-        }));
-    }
-
-    function callAsync(messageId, params = []) {
-        if (!_isHost) return Promise.resolve({ isAvailable: false, isOk: false });
-        return new Promise(resolve => {
-            const id = ++_asyncId;
-            _pending.set(id, resolve);
-            postSteamMessage(messageId, params, id);
-        });
-    }
-
-    function callSync(messageId, params = []) {
-        if (!_isHost) return;
-        postSteamMessage(messageId, params, -1);
-    }
-
-    return {
-        constants: {
-            leaderboardSortMethods: { ...LEADERBOARD_SORT_METHODS },
-            leaderboardDisplayTypes: { ...LEADERBOARD_DISPLAY_TYPES },
-            leaderboardUploadMethods: { ...LEADERBOARD_UPLOAD_METHODS },
-            leaderboardDataRequests: { ...LEADERBOARD_DATA_REQUESTS },
-        },
-
-        isAvailable: () => _isHost,
-
-        init: () => callAsync('init'),
-
-        unlockAchievement: (name) =>
-            callAsync('set-achievement', [name]),
-
-        clearAchievement: (name) =>
-            callAsync('clear-achievement', [name]),
-
-        getAchievementState: (name) =>
-            callAsync('get-achievement-state', [name]),
-
-        getStatInt: (name) =>
-            callAsync('get-stat-int', [name]),
-
-        getStatFloat: (name) =>
-            callAsync('get-stat-float', [name]),
-
-        setStatInt: (name, value) =>
-            callAsync('set-stat-int', [name, value]),
-
-        setStatFloat: (name, value) =>
-            callAsync('set-stat-float', [name, value]),
-
-        storeStats: () =>
-            callAsync('store-stats', []),
-
-        showOverlay: (option = 'achievements') => {
-            const index = OVERLAY_OPTIONS.indexOf(option);
-            if (index === -1) {
-                console.warn(`[Steam] 不明な UI オプション: ${option}`);
+            try {
+                msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+            } catch {
                 return;
             }
-            callSync('show-overlay', [index]);
+
+            if (!msg || msg.source !== 'steam') return;
+
+            // invoke の応答
+            if (msg.messageId === 'invoke-result') {
+                const prom = _pending.get(msg.asyncId);
+                if (!prom) return;
+                _pending.delete(msg.asyncId);
+                if (msg.error != null) {
+                    prom.reject(new Error(`[Steam] ${msg.error}`));
+                } else {
+                    prom.resolve(msg.result);
+                }
+                return;
+            }
+
+            // Steam コールバックイベント
+            if (msg.event) {
+                const handlers = _eventHandlers.get(msg.event);
+                if (handlers) {
+                    handlers.forEach((h) => {
+                        try { h(msg.params); } catch (err) {
+                            console.error('[Steam] event handler error:', err);
+                        }
+                    });
+                }
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------------------
+    // JS → C# 送信
+    // ---------------------------------------------------------------------------
+
+    /**
+     * className と methodName を C# の汎用ディスパッチャへ転送する。
+     * @param {string} className  Steamworks クラス名（例: "SteamUserStats"）
+     * @param {string} methodName メソッド名（例: "SetAchievement"）
+     * @param {any[]}  args       引数リスト
+     * @returns {Promise<any>}    C# からの戻り値
+     */
+    function invoke(className, methodName, args) {
+        return new Promise((resolve, reject) => {
+            const id  = ++_asyncId;
+            _pending.set(id, { resolve, reject });
+
+            const message = JSON.stringify({
+                source:    'steam',
+                messageId: 'invoke',
+                params:    { className, methodName, args: args ?? [] },
+                asyncId:   id,
+            });
+
+            if (_isHost) {
+                window.chrome.webview.postMessage(message);
+            } else {
+                // ホスト外（ブラウザ・テスト環境）: コンソールに出力してすぐ resolve
+                console.log('[Steam Mock]', className + '.' + methodName, args);
+                setTimeout(() => {
+                    _pending.delete(id);
+                    resolve(undefined);
+                }, 4);
+            }
+        });
+    }
+
+    // ---------------------------------------------------------------------------
+    // イベント登録 / 解除
+    // ---------------------------------------------------------------------------
+
+    /**
+     * C# から発火する Steam コールバックイベントを受信するハンドラを登録する。
+     * @param {string}   eventName  イベント名（例: "OnAchievementProgress"）
+     * @param {Function} handler    コールバック関数（引数は params オブジェクト）
+     */
+    function on(eventName, handler) {
+        if (!_eventHandlers.has(eventName)) _eventHandlers.set(eventName, []);
+        _eventHandlers.get(eventName).push(handler);
+    }
+
+    /**
+     * 登録済みハンドラを解除する。
+     * @param {string}   eventName
+     * @param {Function} handler
+     */
+    function off(eventName, handler) {
+        const handlers = _eventHandlers.get(eventName);
+        if (!handlers) return;
+        _eventHandlers.set(eventName, handlers.filter((h) => h !== handler));
+    }
+
+    // ---------------------------------------------------------------------------
+    // ES6 Proxy によるパススルーブリッジ
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Steam.SteamUserStats.SetAchievement("ACH") のように呼び出すと、
+     * Proxy が className="SteamUserStats", methodName="SetAchievement", args=["ACH"] を
+     * キャプチャして invoke() に渡す。
+     */
+    const _classProxyHandler = (className) => ({
+        get(_, methodName) {
+            if (typeof methodName !== 'string') return undefined;
+            return (...args) => invoke(className, methodName, args);
         },
+    });
 
-        showOverlayURL: (url, modal = false) =>
-            callSync('show-overlay-url', [url, modal]),
-
-        showOverlayInviteDialog: (lobbyId) =>
-            callSync('show-overlay-invite-dialog', [lobbyId]),
-
-        checkDlcInstalled: (appIds) =>
-            callAsync('is-dlc-installed', [appIds.map(String).join(',')]),
-
-        installDlc: (appId) =>
-            callSync('install-dlc', [appId]),
-
-        uninstallDlc: (appId) =>
-            callSync('uninstall-dlc', [appId]),
-
-        getDlcList: async () => {
-            const result = await callAsync('get-dlc-list', []);
-            result.dlc = parseJsonField(result.dlcJson, []);
-            return result;
+    const _rootProxy = new Proxy(Object.create(null), {
+        get(_, prop) {
+            if (typeof prop !== 'string') return undefined;
+            if (prop === 'on')  return on;
+            if (prop === 'off') return off;
+            // Steamworks クラスのプロキシを返す
+            return new Proxy(Object.create(null), _classProxyHandler(prop));
         },
+    });
 
-        getAppOwnershipInfo: () =>
-            callAsync('get-app-ownership-info', []),
-
-        isSubscribedApp: (appId) =>
-            callAsync('is-subscribed-app', [appId]),
-
-        getCloudStatus: () =>
-            callAsync('cloud-get-status', []),
-
-        listCloudFiles: async () => {
-            const result = await callAsync('cloud-list-files', []);
-            result.files = parseJsonField(result.filesJson, []);
-            return result;
-        },
-
-        cloudFileExists: (fileName) =>
-            callAsync('cloud-file-exists', [fileName]),
-
-        readCloudFile: (fileName) =>
-            callAsync('cloud-read-file', [fileName]),
-
-        readCloudFileText: async (fileName) => {
-            const result = await callAsync('cloud-read-file', [fileName]);
-            if (result.isOk && typeof result.dataBase64 === 'string')
-                result.text = decodeBase64ToText(result.dataBase64);
-            return result;
-        },
-
-        writeCloudFile: (fileName, dataBase64) =>
-            callAsync('cloud-write-file', [fileName, dataBase64]),
-
-        writeCloudFileText: (fileName, text) =>
-            callAsync('cloud-write-file', [fileName, encodeTextToBase64(text)]),
-
-        deleteCloudFile: (fileName) =>
-            callAsync('cloud-delete-file', [fileName]),
-
-        findLeaderboard: (name) =>
-            callAsync('find-leaderboard', [name]),
-
-        findOrCreateLeaderboard: (name, sortMethod = 'descending', displayType = 'numeric') =>
-            callAsync('find-or-create-leaderboard', [
-                name,
-                resolveEnum(LEADERBOARD_SORT_METHODS, sortMethod, 'leaderboard sort method'),
-                resolveEnum(LEADERBOARD_DISPLAY_TYPES, displayType, 'leaderboard display type')
-            ]),
-
-        uploadLeaderboardScore: (leaderboardHandle, score, options = {}) =>
-            callAsync('upload-leaderboard-score', [
-                String(leaderboardHandle),
-                resolveEnum(
-                    LEADERBOARD_UPLOAD_METHODS,
-                    options.uploadMethod ?? 'keep-best',
-                    'leaderboard upload method'),
-                score,
-                toCsv(options.details ?? [])
-            ]),
-
-        downloadLeaderboardEntries: async (
-            leaderboardHandle,
-            requestType = 'global',
-            rangeStart = 0,
-            rangeEnd = 9
-        ) => {
-            const result = await callAsync('download-leaderboard-entries', [
-                String(leaderboardHandle),
-                resolveEnum(LEADERBOARD_DATA_REQUESTS, requestType, 'leaderboard data request'),
-                rangeStart,
-                rangeEnd
-            ]);
-            result.entries = parseJsonField(result.entriesJson, []);
-            return result;
-        },
-
-        setRichPresence: (key, value) =>
-            callSync('set-rich-presence', [key, value]),
-
-        clearRichPresence: () =>
-            callSync('clear-rich-presence', []),
-
-        triggerScreenshot: () =>
-            callSync('trigger-screenshot', []),
-
-        getAuthTicketForWebApi: (identity = '') =>
-            callAsync('get-auth-ticket-for-web-api', [identity]),
-
-        cancelAuthTicket: (authTicket) =>
-            callSync('cancel-auth-ticket', [authTicket]),
-
-        decodeBase64ToText,
-        encodeTextToBase64,
-
-        on: (event, handler) =>
-            window.addEventListener(`steam:${event}`,
-                e => handler(e.detail)),
-    };
+    return _rootProxy;
 })();

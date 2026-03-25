@@ -5,5 +5,16 @@
 
   <ItemGroup>
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.3650.58" />
+    <!--
+      Facepunch.Steamworks.Win64 の最新安定版。
+      NuGet で取得されるが、実行時に EXE と同フォルダに DLL が存在しない場合は
+      Steam 機能が無効になる（アプリはクラッシュしない）。
+    -->
+    <!--
+      NuGet 公開版: Facepunch.Steamworks 2.3.3
+      GitHub 最新 (2.5.0) は NuGet 未公開のため、ソースから使う場合は
+      git submodule で取り込み、<ProjectReference> に変更すること。
+    -->
+    <PackageVersion Include="Facepunch.Steamworks" Version="2.3.3" />
   </ItemGroup>
 </Project>

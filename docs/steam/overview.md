@@ -1,120 +1,127 @@
 # Steam 対応の概要
 
-この文書は、Steamworks を詳しく知らないブラウザゲーム開発者向けの概要です。
+このドキュメントは、WebView2AppHost の新しい Steam ブリッジアーキテクチャの概要です。
 
-このホストの Steam 対応は、次の流れを前提にしています。
+---
 
-1. 通常版の WebView2AppHost を使う
-2. Steam 対応が必要なら Steam サポート ZIP を追加する
-3. HTML / JavaScript 側から `steam.js` を呼ぶ
+## 新しいパラダイム：完全パススルー型ブリッジ
 
-つまり、通常の利用者は `steam_bridge.dll` をビルドする必要がありません。  
-Steamworks SDK のダウンロードが必要なのは、ブリッジ自体を改修する担当者だけです。
+従来の `steam_bridge.dll`（C++ 実装）は廃止されました。  
+バックエンドに **[Facepunch.Steamworks](https://wiki.facepunch.com/steamworks/)** を採用し、
+JavaScript から直接 Facepunch.Steamworks の C# API を呼び出せる**汎用パススルー型ブリッジ**に刷新されています。
+
+```
+JavaScript (ES6 Proxy)
+  └─ Steam.ClassName.MethodName(args)
+        ↓ JSON { className, methodName, args }
+C# ディスパッチャ (リフレクション)
+  └─ Steamworks.ClassName.MethodName(args) ← Facepunch.Steamworks
+        ↓ 戻り値
+JavaScript (Promise)
+```
+
+### 何が変わったか
+
+| 項目 | 旧（C++ ブリッジ） | 新（Facepunch.Steamworks） |
+|------|-------------------|---------------------------|
+| バックエンド | カスタム C++ DLL | Facepunch.Steamworks (NuGet) |
+| JS 側 | 手書き API ラッパー群 | ES6 Proxy による自動パススルー |
+| API 追加コスト | JS + C# + C++ の3箇所を変更 | **0行**（追加不要） |
+| スクリーンショット | Base64 変換あり | RGB バイト配列を直接渡す |
+| Steam なし環境 | DLL ロードを遅延 | DLL 不在でもクラッシュしない |
+
+---
+
+## JavaScript からの呼び出し方
+
+**Facepunch.Steamworks の公式 C# ドキュメントのクラス名・メソッド名をそのまま指定するだけです。**
+
+```js
+// 実績の解除
+await Steam.SteamUserStats.SetAchievement('ACH_WIN_ONE_GAME');
+await Steam.SteamUserStats.StoreStats();
+
+// 整数 Stat の取得
+const wins = await Steam.SteamUserStats.GetStatInt('NumWins');
+
+// フロート Stat の設定
+await Steam.SteamUserStats.SetStatFloat('FeetTraveled', 123.4);
+
+// Rich Presence の設定
+await Steam.SteamFriends.SetRichPresence('status', 'Stage 3');
+
+// Steam オーバーレイを開く
+await Steam.SteamFriends.ActivateGameOverlay('achievements');
+
+// スクリーンショットのトリガー（WebView2 をキャプチャして Steam へ登録）
+await Steam.SteamScreenshots.TriggerScreenshot();
+```
+
+参照先: [Facepunch.Steamworks ドキュメント](https://wiki.facepunch.com/steamworks/)
+
+---
+
+## Steam コールバックイベント
+
+C# 側で登録された Facepunch.Steamworks のコールバックは `Steam.on()` で受信できます。
+
+```js
+// 実績の進捗通知
+Steam.on('OnAchievementProgress', ({ achievementName, currentProgress, maxProgress }) => {
+    console.log(`${achievementName}: ${currentProgress}/${maxProgress}`);
+});
+
+// Steam オーバーレイの開閉
+Steam.on('OnGameOverlayActivated', ({ active }) => {
+    if (active) pauseGame();
+    else resumeGame();
+});
+
+// マイクロトランザクション認証
+Steam.on('OnMicroTxnAuthorizationResponse', ({ orderId, authorized }) => {
+    if (authorized) fulfillOrder(orderId);
+});
+```
 
 ---
 
 ## 何ができるか
 
-### 実績
+Facepunch.Steamworks が対応しているすべての Steam API を呼び出せます。
 
-ゲーム内の到達条件を満たしたときに、Steam の実績を解除します。
-
-例:
-
-- 1 回クリアした
-- 特定条件でステージを突破した
-- 隠し要素を見つけた
-
-### User Stats
-
-Steam に保存される数値データです。実績の判定材料や累計記録に向いています。
-
-例:
-
-- プレイ回数
-- 累計スコア
-- 総撃破数
-- 最速クリア時間
-
-### Steam Cloud
-
-セーブデータや設定データを Steam 経由で同期します。
-
-例:
-
-- セーブスロット
-- 設定ファイル
-- 進行状況 JSON
-
-### Leaderboards
-
-Steam のランキング機能です。
-
-例:
-
-- ハイスコア
-- タイムアタック
-- デイリーランキング
-
-### Rich Presence
-
-Steam のフレンド一覧に、いま何をしているかを表示する機能です。
-
-例:
-
-- タイトル画面にいる
-- ステージ 3 をプレイ中
-- 協力プレイのロビー待機中
-
-### 所有権確認 / DLC
-
-本編や DLC の所有状態、インストール状態を確認します。
-
-例:
-
-- DLC ステージを開放してよいか
-- サウンドトラック DLC を持っているか
-- Family Sharing 経由かどうか
+- **実績 (SteamUserStats)** — SetAchievement, ClearAchievement, StoreStats
+- **User Stats (SteamUserStats)** — GetStatInt, GetStatFloat, SetStatInt, SetStatFloat
+- **Steam Cloud (SteamRemoteStorage)** — FileWrite, FileRead, FileDelete
+- **Leaderboards (SteamUserStats)** — FindOrCreateLeaderboard, UploadLeaderboardScore
+- **Rich Presence (SteamFriends)** — SetRichPresence, ClearRichPresence
+- **オーバーレイ (SteamFriends)** — ActivateGameOverlay, ActivateGameOverlayToWebPage
+- **所有権・DLC (SteamApps)** — IsSubscribedApp, IsDlcInstalled
+- **スクリーンショット (SteamScreenshots)** — TriggerScreenshot (C# 側でキャプチャ・登録)
+- その他 Facepunch.Steamworks が公開する全クラス
 
 ---
 
 ## ⚠️ コードを書く前に必要な Steamworks 管理画面の設定
 
-**「ZIP を追加すれば即 Steam 対応」ではありません。**  
-各機能は、Steamworks Partner サイト（App Admin）での事前設定が完了していないと動作しません。
+各機能は Steamworks Partner サイト（App Admin）での事前設定が必要です。
 
-| 機能 | 必要な事前設定 | 未設定時の症状 |
-|------|---------------|---------------|
-| **実績** | App Admin → Achievements で実績を定義し、Publish する | `SetAchievement` が常に失敗する / 実績が表示されない |
-| **User Stats** | App Admin → Stats で stat 名・型・初期値を定義し、Publish する | `setStat*` / `getStatInt` が `stat-not-found-or-type-mismatch` を返す |
-| **Leaderboards** | App Admin → Leaderboards でボードを作成・Publish する | `findOrCreateLeaderboard` が失敗する |
-| **Steam Cloud** | App Admin → Steam Cloud を有効化し、クォータ・パスを設定する | `writeCloudFileText` などが常に失敗する |
-
-> **Publish 忘れに注意**: 定義を保存しただけでは不十分です。各設定は「Publish」を実行して初めて有効になります。
-
-詳細は [Step by Step: Stats](https://partner.steamgames.com/doc/tutorial/statistic) および [ISteamUserStats Interface](https://partner.steamgames.com/doc/api/ISteamUserStats) を参照してください。
-
----
-
-## この実装で意識していること
-
-- Steam 対応の追加は「別 ZIP を展開するだけ」に寄せる
-- 使う人は Steamworks SDK を意識しなくてよい
-- API 名だけでなく、ゲームでの用途から説明する
-- サンプルをそのまま動かして確認できるようにする
+| 機能 | 必要な事前設定 |
+|------|---------------|
+| 実績 | App Admin → Achievements → 定義 → **Publish** |
+| User Stats | App Admin → Stats → 定義 → **Publish** |
+| Leaderboards | App Admin → Leaderboards → 作成 → **Publish** |
+| Steam Cloud | App Admin → Steam Cloud → 有効化 → **Publish** |
 
 ---
 
 ## 制約
 
-- WebView2 の画面上に Steam オーバーレイが重なるわけではありません
-- `showOverlay*` は Steam 側 UI を開くための API です
-- Steam Deck はサポート対象外です。このホストは Windows 版 WebView2 前提で、SteamOS / Proton 上の動作は保証しません
+- WebView2 の画面上に Steam オーバーレイは重なりません
+- Steam Deck / SteamOS は非対応（Windows 版 WebView2 専用）
+- Facepunch.Steamworks が未対応の低水準 API は呼び出せません
 
 ---
 
 ## 次に読む文書
 
 - 最短導入手順: `docs/steam/getting-started.md`
-- 機能ごとの説明: `docs/steam/feature-guides/`
-- 関数一覧: `docs/steam/api-reference.md`

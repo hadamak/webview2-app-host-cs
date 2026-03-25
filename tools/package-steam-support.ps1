@@ -1,55 +1,101 @@
 $ErrorActionPreference = "Stop"
 
+<#
+.SYNOPSIS
+    WebView2AppHost の Steam サポート ZIP を作成する。
+
+.DESCRIPTION
+    以前は C++ DLL（steam_bridge.dll）をビルドしていたが、
+    Facepunch.Steamworks ベースへのリファクタリングにより、
+    NuGet で取得した DLL と steam_api64.dll を ZIP に固めるだけになった。
+
+    必要なもの:
+      - ビルド済みの WebView2AppHost（Release x64）
+      - Steamworks SDK（steam_api64.dll の取得元）
+      - dotnet CLI（NuGet リストア用）
+
+    使い方:
+      $env:STEAMWORKS_SDK_ROOT = "C:\steamworks_sdk"
+      .\tools\package-steam-support.ps1
+#>
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$sdkRoot = if ($env:STEAMWORKS_SDK_ROOT) { $env:STEAMWORKS_SDK_ROOT } else { "" }
+$sdkRoot  = if ($env:STEAMWORKS_SDK_ROOT) { $env:STEAMWORKS_SDK_ROOT } else { "" }
 
 if ([string]::IsNullOrWhiteSpace($sdkRoot)) {
-    throw "STEAMWORKS_SDK_ROOT is not set."
+    throw "STEAMWORKS_SDK_ROOT が設定されていません。Steamworks SDK のルートパスを指定してください。"
 }
 
-$header = Join-Path $sdkRoot "public\steam\steam_api.h"
-$dll = Join-Path $sdkRoot "redistributable_bin\win64\steam_api64.dll"
-$lib = Join-Path $sdkRoot "redistributable_bin\win64\steam_api64.lib"
-
-foreach ($path in @($header, $dll, $lib)) {
-    if (-not (Test-Path $path)) {
-        throw "Missing Steamworks SDK file: $path"
-    }
+$steamApiDll = Join-Path $sdkRoot "redistributable_bin\win64\steam_api64.dll"
+if (-not (Test-Path $steamApiDll)) {
+    throw "steam_api64.dll が見つかりません: $steamApiDll"
 }
 
 Push-Location $repoRoot
 try {
-    msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64
-    msbuild src\steam-bridge\SteamBridge.vcxproj /p:Configuration=Release /p:Platform=x64 /p:SteamworksSdkDir="$sdkRoot"
+    # --- 1. C# プロジェクトをビルド（Facepunch.Steamworks を NuGet リストア含む） ---
+    Write-Host "ビルド中..." -ForegroundColor Cyan
+    dotnet build src\WebView2AppHost.csproj `
+        -c Release -r win-x64 --no-self-contained `
+        /p:Platform=x64 `
+        -o "src\bin\x64\Release\net472"
 
-    $base = "src/bin/x64/Release/net472"
-    $outDir = "steam-support/_build/WebView2AppHost-SteamSupport-win-x64"
-    $zipPath = "steam-support/WebView2AppHost-SteamSupport-win-x64.zip"
+    $base   = "src\bin\x64\Release\net472"
+    $outDir = "steam-support\_build\WebView2AppHost-SteamSupport-win-x64"
+    $zipPath = "steam-support\WebView2AppHost-SteamSupport-win-x64.zip"
     $hashPath = "$zipPath.sha256"
 
-    if (Test-Path $outDir) { Remove-Item $outDir -Recurse -Force }
+    # --- 2. 出力ディレクトリを初期化 ---
+    if (Test-Path $outDir)  { Remove-Item $outDir  -Recurse -Force }
     if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-    if (Test-Path $hashPath) { Remove-Item $hashPath -Force }
+    if (Test-Path $hashPath){ Remove-Item $hashPath -Force }
 
-    New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $outDir   | Out-Null
     New-Item -ItemType Directory -Force -Path "steam-support" | Out-Null
 
-    Copy-Item "$base/steam_bridge.dll" $outDir
-    Copy-Item $dll $outDir
-    Copy-Item "web-content/steam.js" $outDir
-    Copy-Item "samples/steam-complete" "$outDir/steam-sample" -Recurse
-    Copy-Item "docs/steam/overview.md" "$outDir/STEAM.md"
-    Copy-Item "docs/steam" "$outDir/steam-docs" -Recurse
-    Copy-Item "docs/README_STEAM.txt" "$outDir/README.txt"
-    Copy-Item "docs/README_STEAM.en.txt" "$outDir/README.en.txt"
-    Copy-Item "LICENSE" $outDir
+    # --- 3. ファイルをコピー ---
+    Write-Host "ファイルをコピー中..." -ForegroundColor Cyan
+
+    # Facepunch.Steamworks DLL（NuGet ビルド出力から取得）
+    $facepunchDll = Join-Path $base "Facepunch.Steamworks.dll"
+    if (-not (Test-Path $facepunchDll)) {
+        throw "Facepunch.Steamworks.dll が見つかりません: $facepunchDll`nビルドが成功していることを確認してください。"
+    }
+    Copy-Item $facepunchDll $outDir
+
+    # Steamworks SDK の steam_api64.dll
+    Copy-Item $steamApiDll $outDir
+
+    # JS ブリッジ
+    Copy-Item "web-content\steam.js" $outDir
+
+    # サンプル
+    Copy-Item "samples\steam-complete" "$outDir\steam-sample" -Recurse
+
+    # ドキュメント（overview と getting-started のみ）
+    Copy-Item "docs\steam\overview.md"       "$outDir\STEAM.md"
+    Copy-Item "docs\steam\getting-started.md" "$outDir\STEAM-SETUP.md"
+
+    # README
+    Copy-Item "docs\README_STEAM.txt"    "$outDir\README.txt"
+    Copy-Item "docs\README_STEAM.en.txt" "$outDir\README.en.txt"
+
+    # ライセンス
+    Copy-Item "LICENSE"               $outDir
     Copy-Item "THIRD_PARTY_NOTICES.md" $outDir
 
+    # --- 4. ZIP に圧縮 ---
+    Write-Host "ZIP に圧縮中..." -ForegroundColor Cyan
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::CreateFromDirectory($outDir, $zipPath)
 
+    # --- 5. SHA256 ハッシュを生成 ---
     $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
     "$hash  $(Split-Path -Leaf $zipPath)" | Out-File $hashPath -Encoding ascii
+
+    Write-Host ""
+    Write-Host "完了: $zipPath" -ForegroundColor Green
+    Write-Host "SHA256: $hash"
 }
 finally {
     Pop-Location
