@@ -8,10 +8,10 @@
 
 A lightweight host for distributing HTML/CSS/JavaScript web apps as Windows desktop applications using WebView2.
 
-- Fully local delivery via `https://app.local/`
-- Native integration with standard Web APIs like `window.close()` and `requestFullscreen()`
-- Web content can be served from a `www/` folder, a ZIP file, an EXE-appended ZIP, or an embedded resource
-- Multiple distribution methods available — all keeping the package small and fast
+- 🌐 Fully local delivery via `https://app.local/`
+- 🔗 Native integration with standard Web APIs like `window.close()` and `requestFullscreen()`
+- 📦 Web content can be served from a `www/` folder, a ZIP file, an EXE-appended ZIP, or an embedded resource
+- 🚀 Multiple distribution methods available — all keeping the package small and fast
 
 ![screenshot](images/screenshot.png)
 
@@ -19,7 +19,7 @@ A lightweight host for distributing HTML/CSS/JavaScript web apps as Windows desk
 
 ---
 
-## Table of Contents
+## 📋 Table of Contents
 
 1. [Overview](#overview)
 2. [Features](#features)
@@ -41,7 +41,7 @@ A lightweight host for distributing HTML/CSS/JavaScript web apps as Windows desk
 
 ---
 
-## Overview
+## 🔍 Overview
 
 This repository is a WebView2-based web app host for Windows. Its goal is to let you take your existing web app assets and distribute them as a desktop EXE with minimal changes.
 
@@ -54,9 +54,9 @@ Intended use cases:
 
 ---
 
-## Features
+## ✨ Features
 
-### 1. No Build Environment Required
+### 1. 🛠️ No Build Environment Required
 Just attach your web content to a pre-built EXE and you have a working application. No .NET SDK, Visual Studio, Node.js, or any other toolchain is needed.
 
 You can choose how to provide content depending on your workflow:
@@ -66,10 +66,10 @@ You can choose how to provide content depending on your workflow:
 - Append a ZIP to the end of the EXE using `copy /b` (bundle content into a single file)
 - Embed content as a resource at build time
 
-### 2. Small Distribution Size
+### 2. 📦 Small Distribution Size
 Since WebView2 runtime ships with Windows 10/11, there's no need to bundle Chromium. This keeps the distribution size dramatically smaller than Electron.
 
-### 3. Standard Web API Compatibility
+### 3. 🌐 Standard Web API Compatibility
 The host provides a browser-compatible environment, so your content doesn't need any special modifications. The following standard Web APIs work out of the box:
 
 - `window.close()` — quit the app
@@ -78,9 +78,21 @@ The host provides a browser-compatible environment, so your content doesn't need
 - `target="_blank"` / `window.open()` — open external links in the default browser
 - `visibilityState` / `visibilitychange` — detect window minimization
 
+### 4. 🎮 Steam Integration
+Ship your web game on Steam without touching the Steamworks SDK. Add the Steam support ZIP and call `steam.js` from your HTML — that's the entire integration.
+
+Supported features:
+
+- 🏆 Achievements — unlock Steam achievements from JavaScript
+- 📊 User Stats — store and retrieve numeric stats
+- ☁️ Steam Cloud — sync save files and settings across devices
+- 🏅 Leaderboards — submit and read global rankings
+- 👥 Rich Presence — show current game state in the friends list
+- 🎁 Ownership / DLC — check app and DLC ownership status
+
 ---
 
-## Comparison
+## 📊 Comparison
 
 Measured results comparing build time and distribution size against other frameworks.
 
@@ -95,24 +107,24 @@ Measured results comparing build time and distribution size against other framew
 | WebView2Host ZIP-bundle | 0 ms | 888 KB | 258 KB zipped |
 | WebView2Host folder | 0 ms | 895 KB | 258 KB zipped |
 
-> When using a pre-built EXE (ZIP-append or folder mode), build time is zero. That's what "no build environment required" really means in practice.
+> ⚡ When using a pre-built EXE (ZIP-append or folder mode), build time is zero. That's what "no build environment required" really means in practice.
 
 ---
 
-## Use Cases
+## 💡 Use Cases
 
-### Fantasy Console
+### 🕹️ Fantasy Console
 Embed a JS-based game engine in the EXE and treat ZIPs as game cartridges. Drag and drop a ZIP onto the EXE icon to pass it as a launch argument, and the content loads automatically. Swapping cartridges gives a physical, retro console feel.
 
-### Offline Document Viewer
+### 📚 Offline Document Viewer
 Distribute product manuals or internal documentation as ZIPs, viewable without a network connection. Update the docs by swapping the ZIP — no need to redistribute the viewer.
 
-### Interactive Deliverables
+### 🎪 Interactive Deliverables
 Instead of an installer or explainer video, hand off an interactive HTML experience as an EXE. Product demos, tutorials, trade show presentations — recipients can open them without installing anything.
 
 ---
 
-## Requirements
+## 💻 Requirements
 
 ### Development
 - Windows 10 or later
@@ -125,7 +137,7 @@ Instead of an installer or explainer video, hand off an interactive HTML experie
 
 ---
 
-## Quick Start
+## 🚀 Quick Start
 
 ### 1. Clone the Repository
 
@@ -146,7 +158,7 @@ Execute the generated EXE. On first launch, the sample content will load.
 
 ---
 
-## Replacing Web Content
+## 🔄 Replacing Web Content
 
 The host treats `web-content/` as the app's primary content directory. Replace its contents with your own web app and rebuild.
 
@@ -175,7 +187,7 @@ web-content/
 
 ---
 
-## Distribution Methods
+## 📦 Distribution Methods
 
 The host supports multiple content delivery modes, which can be mixed and matched per file.
 
@@ -188,7 +200,7 @@ When the same file exists in multiple locations, the higher-priority source wins
 4. ZIP appended to the EXE
 5. Resource embedded inside the EXE
 
-### 1. `www/` Folder
+### 1. 📁 `www/` Folder
 Place a `www/` folder next to the EXE and put your content inside.
 
 Best for:
@@ -196,14 +208,14 @@ Best for:
 - Frequently updated assets
 - Large files like video or audio that require Range Requests
 
-### 2. Bundled ZIP
+### 2. 🗜️ Bundled ZIP
 Place a ZIP with the same name as the EXE next to it.
 
 Best for:
 - Distributing content separately from the EXE
 - Plugin- or mod-style extensions
 
-### 3. ZIP-Appended EXE
+### 3. 🔗 ZIP-Appended EXE
 Physically append a ZIP to the end of the EXE using `copy /b`.
 
 Best for:
@@ -214,7 +226,7 @@ Best for:
 cmd /c copy /b src\bin\x64\Release\net472\WebView2AppHost.exe + src\app.zip src\bin\x64\Release\net472\MyApp.exe
 ```
 
-### 4. Embedded Resource
+### 4. 🧱 Embedded Resource
 Embed `web-content/` inside the EXE at build time.
 
 Best for:
@@ -223,7 +235,7 @@ Best for:
 
 ---
 
-## Configuration
+## ⚙️ Configuration
 
 ### `app.conf.json`
 
@@ -252,7 +264,7 @@ const res = await fetch('https://api.example.com/v1/data');
 
 Requests to origins not in the allow list are handled by WebView2 as usual (and may fail due to CORS).
 
-> **Limitation:** Due to a WebView2 restriction, request bodies cannot be read from `WebResourceRequested` events. Only GET requests are proxied. POST/PUT with a body are not supported.
+> ⚠️ **Limitation:** Due to a WebView2 restriction, request bodies cannot be read from `WebResourceRequested` events. Only GET requests are proxied. POST/PUT with a body are not supported.
 
 ### `user.conf.json`
 
@@ -281,7 +293,7 @@ The initial window title is taken from `app.conf.json`. After that, the title up
 
 ---
 
-## Web API Integration
+## 🔗 Web API Integration
 
 The host is designed around standard Web APIs — no proprietary bridge required.
 
@@ -321,17 +333,17 @@ Not provided. The design intent is to stay close to standard Web APIs rather tha
 
 ---
 
-## Steam Integration
+## 🎮 Steam Integration
 
 Steamworks support is optional. The host itself is designed around standard Web APIs, but Steam integration necessarily uses a proprietary API surface exposed through `steam.js`.
 
 For that reason, this README only points to dedicated, audience-specific documents.
 
-- App developer entry point: `docs/steam/en/overview.md`
-- Quick start: `docs/steam/en/getting-started.md`
-- API reference: `docs/steam/en/api-reference.md`
-- Bridge maintainers: `docs/steam/bridge-build.md`
-- Bundled sample: `samples/steam-complete/`
+- 📖 App developer entry point: `docs/steam/en/overview.md`
+- ⚡ Quick start: `docs/steam/en/getting-started.md`
+- 📚 API reference: `docs/steam/en/api-reference.md`
+- 🔧 Bridge maintainers: `docs/steam/bridge-build.md`
+- 🎯 Bundled sample: `samples/steam-complete/`
 
 Normal distribution files and Steam-related files are intended to be shipped separately. Add the Steam support bundle only when your app actually needs Steamworks.
 
@@ -339,14 +351,14 @@ Downloading the Steamworks SDK should only be necessary for people who build or 
 
 ---
 
-## Limitations
+## ⚠️ Limitations
 
 - Because the origin is `https://app.local/`, some Service Worker configurations may require additional setup
 - Large files inside a ZIP (video, audio, etc.) are fully expanded into memory on request. If this causes memory pressure, consider placing those files in a `www/` folder instead
 
 ---
 
-## Keyboard Shortcuts
+## ⌨️ Keyboard Shortcuts
 
 Fullscreen is controlled via `requestFullscreen()` / `exitFullscreen()` from content.
 
@@ -367,7 +379,7 @@ window.addEventListener('keydown', (e) => {
 
 ---
 
-## FAQ
+## ❓ FAQ
 
 ### How do I change the app icon?
 Replace `resources/app.ico` and rebuild. You can also set a favicon in your HTML — the window icon will follow after launch.
@@ -398,25 +410,59 @@ Both modes can be used at the same time — you can pick the right location on a
 
 ---
 
-## Project Structure
+## 🗂️ Project Structure
 
 ```text
 .
 ├── .github/
-│   └── workflows/
+│   └── workflows/          # CI/CD (build, release)
 ├── docs/
-├── images/
+│   └── steam/
+│       ├── en/
+│       │   ├── feature-guides/   # Achievements, Stats, Cloud, Leaderboards, ...
+│       │   ├── overview.md
+│       │   ├── getting-started.md
+│       │   └── api-reference.md
+│       ├── feature-guides/       # Same content in Japanese
+│       ├── overview.md
+│       ├── getting-started.md
+│       ├── api-reference.md
+│       └── bridge-build.md       # For steam_bridge.dll maintainers
+├── images/                 # Screenshots for README
 ├── resources/
+│   └── app.ico
+├── samples/
+│   └── steam-complete/     # Full working Steam sample
 ├── src/
-├── web-content/
+│   ├── steam-bridge/       # C++ Steamworks bridge (steam_bridge.dll)
+│   ├── App.cs
+│   ├── AppConfig.cs
+│   ├── SteamBridge.cs
+│   ├── WebResourceHandler.cs
+│   ├── WebView2AppHost.csproj
+│   └── ...
+├── steam-support/          # Prebuilt Steam support ZIP for distribution
+├── test-www/               # Dev/test web content
+├── tests/
+│   ├── HostTests/          # C# host tests
+│   ├── SteamBridgeTests/   # C++ bridge tests
+│   └── steam-js/           # JavaScript steam.js tests
+├── tools/
+│   └── package-steam-support.ps1
+├── web-content/            # Default embedded web content
+│   ├── index.html
+│   ├── steam.js
+│   └── app.conf.json
+├── Directory.Packages.props
 ├── LICENSE
 ├── README.md
+├── README.ja.md
 └── THIRD_PARTY_NOTICES.md
 ```
 
 ---
 
-## Development Notes
+## 🔨 Development Notes
 
 - Main implementation is under `src/`
 - Sample web content is in `web-content/`
@@ -424,6 +470,6 @@ Both modes can be used at the same time — you can pick the right location on a
 
 ---
 
-## License
+## 📄 License
 
 This repository is distributed under the MIT License. For third-party component licenses, see `THIRD_PARTY_NOTICES.md`.
