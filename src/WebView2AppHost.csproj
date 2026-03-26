@@ -55,9 +55,10 @@
     <Delete Files="$(OutputPath)Microsoft.Web.WebView2.Wpf.dll" />
   </Target>
 
-  <!-- Debug ビルド時のみ test-www/ をそのまま出力先 www/ へコピーする -->
+  <!-- Debug ビルド時のみ test-www/ と steam.js をそのまま出力先 www/ へコピーする -->
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">
     <ManualWwwContent Include="$(MSBuildProjectDirectory)\..\test-www\**\*" />
+    <ManualWwwContent Include="$(MSBuildProjectDirectory)\steam.js" />
   </ItemGroup>
 
   <Target Name="CopyManualWwwContent" AfterTargets="Build">

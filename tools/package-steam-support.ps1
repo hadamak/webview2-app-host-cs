@@ -15,21 +15,10 @@ $ErrorActionPreference = "Stop"
       - dotnet CLI（NuGet リストア用）
 
     使い方:
-      $env:STEAMWORKS_SDK_ROOT = "C:\steamworks_sdk"
       .\tools\package-steam-support.ps1
 #>
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$sdkRoot  = if ($env:STEAMWORKS_SDK_ROOT) { $env:STEAMWORKS_SDK_ROOT } else { "" }
-
-if ([string]::IsNullOrWhiteSpace($sdkRoot)) {
-    throw "STEAMWORKS_SDK_ROOT が設定されていません。Steamworks SDK のルートパスを指定してください。"
-}
-
-$steamApiDll = Join-Path $sdkRoot "redistributable_bin\win64\steam_api64.dll"
-if (-not (Test-Path $steamApiDll)) {
-    throw "steam_api64.dll が見つかりません: $steamApiDll"
-}
 
 Push-Location $repoRoot
 try {
@@ -56,21 +45,26 @@ try {
     # --- 3. ファイルをコピー ---
     Write-Host "ファイルをコピー中..." -ForegroundColor Cyan
 
-    # Facepunch.Steamworks DLL（NuGet ビルド出力から取得）
-    $facepunchDll = Join-Path $base "Facepunch.Steamworks.dll"
+    # Facepunch.Steamworks DLL（Submodule ビルド出力から取得）
+    $facepunchDll = Join-Path $base "Facepunch.Steamworks.Win64.dll"
     if (-not (Test-Path $facepunchDll)) {
-        throw "Facepunch.Steamworks.dll が見つかりません: $facepunchDll`nビルドが成功していることを確認してください。"
+        throw "Facepunch.Steamworks.Win64.dll が見つかりません: $facepunchDll`nビルドが成功していることを確認してください。"
     }
     Copy-Item $facepunchDll $outDir
 
-    # Steamworks SDK の steam_api64.dll
+    # Steamworks SDK の steam_api64.dll（ビルド出力から取得）
+    $steamApiDll = Join-Path $base "steam_api64.dll"
+    if (-not (Test-Path $steamApiDll)) {
+        throw "steam_api64.dll が見つかりません: $steamApiDll"
+    }
     Copy-Item $steamApiDll $outDir
 
     # JS ブリッジ
-    Copy-Item "web-content\steam.js" $outDir
+    Copy-Item "src\steam.js" $outDir
 
-    # サンプル
+    # サンプルフォルダをコピーし、そこに正しい steam.js を配置する
     Copy-Item "samples\steam-complete" "$outDir\steam-sample" -Recurse
+    Copy-Item "src\steam.js" "$outDir\steam-sample\steam.js" -Force
 
     # ドキュメント（overview と getting-started のみ）
     Copy-Item "docs\steam\overview.md"       "$outDir\STEAM.md"

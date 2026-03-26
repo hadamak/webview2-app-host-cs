@@ -340,13 +340,11 @@ Steamworks 連携はオプションです。ホスト本体の基本方針は標
 
 - 📖 アプリ開発者向け入口: `docs/steam/overview.md`
 - ⚡ 最短導入手順: `docs/steam/getting-started.md`
-- 📚 関数一覧: `docs/steam/api-reference.md`
-- 🔧 ブリッジビルド担当向け: `docs/steam/bridge-build.md`
 - 🎯 付属サンプル: `samples/steam-complete/`
 
 通常配布物と Steam 関連配布物は分離する想定です。Steam 対応が必要な場合のみ、別配布の Steam サポート一式を追加してください。
 
-Steamworks SDK のダウンロードが必要なのは `steam_bridge.dll` をビルド・改修する人だけです。通常のアプリ開発者は、ビルド済みの Steam サポート配布物を追加するだけで利用できます。
+Steamworks SDK のダウンロードが必要なのは `Facepunch.Steamworks` を直接改修する人だけです。通常のアプリ開発者は、ビルド済みの Steam サポート配布物を追加するだけで利用できます。
 
 ---
 
@@ -424,15 +422,13 @@ Debug ビルドでは自動的に有効です。Release ビルドで有効にし
 │       ├── feature-guides/       # 同内容の日本語版
 │       ├── overview.md
 │       ├── getting-started.md
-│       ├── api-reference.md
-│       └── bridge-build.md       # steam_bridge.dll 改修担当向け
+│       └── api-reference.md
 ├── images/                 # README 用スクリーンショット
 ├── resources/
 │   └── app.ico
 ├── samples/
 │   └── steam-complete/     # Steam 連携の完全なサンプル
 ├── src/
-│   ├── steam-bridge/       # C++ 製 Steamworks ブリッジ（steam_bridge.dll）
 │   ├── App.cs
 │   ├── AppConfig.cs
 │   ├── SteamBridge.cs
@@ -443,7 +439,6 @@ Debug ビルドでは自動的に有効です。Release ビルドで有効にし
 ├── test-www/               # 開発・動作確認用 Web コンテンツ
 ├── tests/
 │   ├── HostTests/          # C# ホストのテスト
-│   ├── SteamBridgeTests/   # C++ ブリッジのテスト
 │   └── steam-js/           # steam.js の JavaScript テスト
 ├── tools/
 │   └── package-steam-support.ps1

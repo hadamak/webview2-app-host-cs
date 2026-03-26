@@ -341,13 +341,11 @@ For that reason, this README only points to dedicated, audience-specific documen
 
 - 📖 App developer entry point: `docs/steam/en/overview.md`
 - ⚡ Quick start: `docs/steam/en/getting-started.md`
-- 📚 API reference: `docs/steam/en/api-reference.md`
-- 🔧 Bridge maintainers: `docs/steam/bridge-build.md`
 - 🎯 Bundled sample: `samples/steam-complete/`
 
 Normal distribution files and Steam-related files are intended to be shipped separately. Add the Steam support bundle only when your app actually needs Steamworks.
 
-Downloading the Steamworks SDK should only be necessary for people who build or modify `steam_bridge.dll`. Regular app developers can use the prebuilt Steam support package as-is.
+Downloading the Steamworks SDK is only necessary for people who want to modify Facepunch.Steamworks itself. Regular app developers can use the prebuilt Steam support package as-is.
 
 ---
 
@@ -388,7 +386,7 @@ Replace `resources/app.ico` and rebuild. You can also set a favicon in your HTML
 DevTools is enabled automatically in Debug builds. To enable it in a Release build, adjust the `#if DEBUG` block in `src/App.cs`.
 
 ### How do I use Steamworks?
-The main README intentionally keeps Steam coverage brief. App developers should start with `docs/steam/en/overview.md`, then use `docs/steam/en/getting-started.md` and `docs/steam/en/api-reference.md` as needed. Bridge maintainers should use `docs/steam/bridge-build.md`.
+The main README intentionally keeps Steam coverage brief. App developers should start with `docs/steam/en/overview.md`, then use `docs/steam/en/getting-started.md` and `docs/steam/en/api-reference.md` as needed.
 
 ### What files do I need to distribute?
 This depends on your distribution method, but the typical set is:
@@ -426,15 +424,13 @@ Both modes can be used at the same time — you can pick the right location on a
 │       ├── feature-guides/       # Same content in Japanese
 │       ├── overview.md
 │       ├── getting-started.md
-│       ├── api-reference.md
-│       └── bridge-build.md       # For steam_bridge.dll maintainers
+│       └── api-reference.md
 ├── images/                 # Screenshots for README
 ├── resources/
 │   └── app.ico
 ├── samples/
 │   └── steam-complete/     # Full working Steam sample
 ├── src/
-│   ├── steam-bridge/       # C++ Steamworks bridge (steam_bridge.dll)
 │   ├── App.cs
 │   ├── AppConfig.cs
 │   ├── SteamBridge.cs
@@ -445,7 +441,6 @@ Both modes can be used at the same time — you can pick the right location on a
 ├── test-www/               # Dev/test web content
 ├── tests/
 │   ├── HostTests/          # C# host tests
-│   ├── SteamBridgeTests/   # C++ bridge tests
 │   └── steam-js/           # JavaScript steam.js tests
 ├── tools/
 │   └── package-steam-support.ps1

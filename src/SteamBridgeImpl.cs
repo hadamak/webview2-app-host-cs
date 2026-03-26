@@ -67,6 +67,9 @@ namespace WebView2AppHost
         private readonly System.Windows.Forms.Timer _callbackTimer;
         private readonly JavaScriptSerializer        _jss = new JavaScriptSerializer();
         private readonly Assembly                    _steamworkAsm;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<long, object> _handleRegistry
+            = new System.Collections.Concurrent.ConcurrentDictionary<long, object>();
+        private long _nextHandleId = 1;
         private bool _disposed;
 
         // ---------------------------------------------------------------------------
@@ -139,6 +142,61 @@ namespace WebView2AppHost
             {
                 var paramsDict = _jss.Deserialize<Dictionary<string, object>>(paramsJson);
 
+                var argsRaw = paramsDict.TryGetValue("args", out var ar) && ar is ArrayList al
+                    ? al.Cast<object>().ToArray()
+                    : Array.Empty<object>();
+
+                // ---- 0. インスタンスメソッド呼び出し (Handle Dispatch) ----
+                if (paramsDict.TryGetValue("handleId", out var rawHandleId))
+                {
+                    long handleId = Convert.ToInt64(rawHandleId);
+                    if (!_handleRegistry.TryGetValue(handleId, out var targetInstance))
+                        throw new InvalidOperationException($"ハンドルID {handleId} が見つかりません。");
+
+                    logClassName = targetInstance.GetType().Name;
+                    var instMethodName = paramsDict["methodName"]?.ToString() ?? throw new ArgumentException("methodName が空です。");
+                    logMethodName = instMethodName;
+
+                    var method = targetInstance.GetType().GetMethod(instMethodName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+                    object? instResult;
+                    if (method != null)
+                    {
+                        var convertedArgs = ConvertArgs(method.GetParameters(), argsRaw);
+                        instResult = method.Invoke(targetInstance, convertedArgs);
+                    }
+                    else
+                    {
+                        // Fallback to property
+                        var prop = targetInstance.GetType().GetProperty(instMethodName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+                        if (prop != null)
+                        {
+                            instResult = prop.GetValue(targetInstance);
+                        }
+                        else
+                        {
+                            // Fallback to field
+                            var field = targetInstance.GetType().GetField(instMethodName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+                            if (field != null)
+                            {
+                                instResult = field.GetValue(targetInstance);
+                            }
+                            else
+                            {
+                                throw new MissingMethodException($"{logClassName}.{instMethodName} が見つかりません。");
+                            }
+                        }
+                    }
+
+                    if (instResult is Task instTask)
+                    {
+                        await instTask.ConfigureAwait(false);
+                        instResult = instTask.GetType().IsGenericType ? instTask.GetType().GetProperty("Result")?.GetValue(instTask) : null;
+                    }
+                    SendResultToJs(asyncId, instResult, null);
+                    return;
+                }
+
+                // ---- Static Method / Property / Constructor ----
                 var rawClassName  = paramsDict.TryGetValue("className",  out var cn) ? cn as string : null;
                 var rawMethodName = paramsDict.TryGetValue("methodName", out var mn) ? mn as string : null;
 
@@ -151,10 +209,6 @@ namespace WebView2AppHost
                 logClassName = className;
                 logMethodName = methodName;
 
-                var argsRaw = paramsDict.TryGetValue("args", out var ar) && ar is ArrayList al
-                    ? al.Cast<object>().ToArray()
-                    : Array.Empty<object>();
-
                 // ---- 1. スクリーンショット特例 ----
                 if (className == "SteamScreenshots" && methodName == "TriggerScreenshot")
                 {
@@ -162,38 +216,25 @@ namespace WebView2AppHost
                     return;
                 }
 
-                // ---- 2. Achievement 構造体特例 ----
-                if (className == "Achievement")
-                {
-                    var achName   = argsRaw.Length > 0 ? argsRaw[0]?.ToString() ?? "" : "";
-                    var ach       = new Achievement(achName);
-                    var achType   = typeof(Achievement);
-
-                    var achMethod = achType.GetMethod(methodName,
-                        BindingFlags.Public | BindingFlags.Instance)
-                        ?? throw new MissingMethodException(
-                            $"Achievement.{methodName} が見つかりません。");
-
-                    var methodArgs = argsRaw.Skip(1).ToArray();
-                    var converted  = ConvertArgs(achMethod.GetParameters(), methodArgs);
-                    var achResult  = achMethod.Invoke(ach, converted);
-
-                    if (achResult is Task t)
-                    {
-                        await t.ConfigureAwait(false);
-                        achResult = t.GetType().IsGenericType
-                            ? t.GetType().GetProperty("Result")?.GetValue(t)
-                            : null;
-                    }
-                    SendResultToJs(asyncId, achResult, null);
-                    return;
-                }
-
-                // ---- 3 & 4. 静的メソッド、または静的プロパティ getter ----
+                // ---- 2 & 3. 静的メソッド、プロパティ getter、またはコンストラクタ ----
                 var type = _steamworkAsm.GetType($"Steamworks.{className}")
-                    ?? throw new TypeLoadException($"Steamworks.{className} が見つかりません。");
+                           ?? _steamworkAsm.GetType($"Steamworks.Data.{className}")
+                           ?? throw new TypeLoadException($"Steamworks または Steamworks.Data に {className} が見つかりません。");
 
-                var result = InvokeStaticMemberOrProperty(type, methodName, argsRaw);
+                object? result;
+
+                if (methodName == ".ctor" || methodName == "Create")
+                {
+                    var ctors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
+                    var ctor = ctors.OrderBy(c => c.GetParameters().Length == argsRaw.Length ? 0 : 1).FirstOrDefault();
+                    if (ctor == null) throw new MissingMethodException($"{className} のコンストラクタが見つかりません。");
+
+                    result = ctor.Invoke(ConvertArgs(ctor.GetParameters(), argsRaw));
+                }
+                else
+                {
+                    result = InvokeStaticMemberOrProperty(type, methodName, argsRaw);
+                }
 
                 if (result is Task task)
                 {
@@ -260,6 +301,11 @@ namespace WebView2AppHost
             if (prop != null)
                 return prop.GetValue(null);
 
+            // 静的フィールド getter にフォールバック
+            var field = type.GetField(memberName, BindingFlags.Public | BindingFlags.Static);
+            if (field != null)
+                return field.GetValue(null);
+
             throw new MissingMethodException($"{type.Name}.{memberName} が見つかりません。");
         }
 
@@ -306,6 +352,14 @@ namespace WebView2AppHost
                 if (raw is string s) return Enum.Parse(targetType, s, ignoreCase: true);
                 return Enum.ToObject(targetType, Convert.ToInt64(raw));
             }
+
+            // 特殊な Facepunch 構造体のキャスト
+            if (targetType == typeof(AppId)) return new AppId { Value = Convert.ToUInt32(raw) };
+            if (targetType == typeof(SteamId)) return new SteamId { Value = Convert.ToUInt64(raw) };
+            if (targetType == typeof(DepotId)) return new DepotId { Value = Convert.ToUInt32(raw) };
+            if (targetType == typeof(GameId)) return new GameId { Value = Convert.ToUInt64(raw) };
+            if (targetType == typeof(InventoryDefId)) return new InventoryDefId { Value = Convert.ToInt32(raw) };
+            if (targetType == typeof(InventoryItemId)) return new InventoryItemId { Value = Convert.ToUInt64(raw) };
 
             // IConvertible（int, float, ulong, bool, string など）
             try
@@ -465,8 +519,9 @@ namespace WebView2AppHost
                     }
                     else
                     {
+                        var wrappedResult = WrapSteamObjects(result);
                         payload = $"{{\"source\":\"steam\",\"messageId\":\"invoke-result\"," +
-                                  $"\"result\":{SerializeResultValue(result)}," +
+                                  $"\"result\":{SerializeResultValue(wrappedResult)}," +
                                   $"\"asyncId\":{FormatDouble(asyncId)}}}";
                     }
                     _webView.CoreWebView2.PostWebMessageAsString(payload);
@@ -476,6 +531,36 @@ namespace WebView2AppHost
                     AppLog.Log("ERROR", "SteamBridgeImpl.SendResultToJs", ex.Message, ex);
                 }
             }));
+        }
+
+        private object? WrapSteamObjects(object? result)
+        {
+            if (result == null) return null;
+            var type = result.GetType();
+
+            // IEnumerable な要素を再帰的にラップ（string/byte[] 等を除く）
+            if (result is System.Collections.IEnumerable enumerable && !(result is string) && !(result is byte[]))
+            {
+                var list = new ArrayList();
+                foreach (var item in enumerable)
+                {
+                    list.Add(WrapSteamObjects(item));
+                }
+                return list;
+            }
+
+            // Steamworks 名前空間のオブジェクト・構造体はハンドル化して JS 側で Proxy にさせる
+            if (type.Namespace != null && type.Namespace.StartsWith("Steamworks") && !type.IsEnum)
+            {
+                long id = System.Threading.Interlocked.Increment(ref _nextHandleId);
+                _handleRegistry[id] = result;
+                // Steamid 等の場合は string にフォールバックするか？ いいえ、SteamId構造体もメソッドがあるのでハンドルにする。 
+                // ただ SteamId をそのまま文字列や数値で欲しい場合は? Facepunch.Steamworks の SteamId は ulong へのキャスト等がある。
+                // とりあえず統一的にハンドルとして返す。
+                return new { __isHandle = true, __handleId = id, className = type.Name };
+            }
+
+            return result;
         }
 
         private void PostEventToJs(string eventName, object eventParams)

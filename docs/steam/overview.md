@@ -45,16 +45,20 @@ await Steam.SteamUserStats.StoreStats();
 const wins = await Steam.SteamUserStats.GetStatInt('NumWins');
 
 // フロート Stat の設定
-await Steam.SteamUserStats.SetStatFloat('FeetTraveled', 123.4);
+await Steam.SteamUserStats.SetStat('FeetTraveled', 123.4);
 
 // Rich Presence の設定
 await Steam.SteamFriends.SetRichPresence('status', 'Stage 3');
 
-// Steam オーバーレイを開く
-await Steam.SteamFriends.ActivateGameOverlay('achievements');
+// Steam オーバーレイを開く (OpenOverlay)
+await Steam.SteamFriends.OpenOverlay('achievements');
 
 // スクリーンショットのトリガー（WebView2 をキャプチャして Steam へ登録）
 await Steam.SteamScreenshots.TriggerScreenshot();
+
+// オブジェクト/インスタンスの利用（汎用インスタンス・ディスパッチャ）
+const board = await Steam.SteamUserStats.FindOrCreateLeaderboardAsync('Feet Traveled', 2, 1);
+await board.SubmitScoreAsync(100);
 ```
 
 参照先: [Facepunch.Steamworks ドキュメント](https://wiki.facepunch.com/steamworks/)
@@ -90,11 +94,11 @@ Steam.on('OnMicroTxnAuthorizationResponse', ({ orderId, authorized }) => {
 Facepunch.Steamworks が対応しているすべての Steam API を呼び出せます。
 
 - **実績 (SteamUserStats)** — SetAchievement, ClearAchievement, StoreStats
-- **User Stats (SteamUserStats)** — GetStatInt, GetStatFloat, SetStatInt, SetStatFloat
+- **User Stats (SteamUserStats)** — GetStatInt, GetStatFloat, SetStat
 - **Steam Cloud (SteamRemoteStorage)** — FileWrite, FileRead, FileDelete
-- **Leaderboards (SteamUserStats)** — FindOrCreateLeaderboard, UploadLeaderboardScore
+- **Leaderboards (SteamUserStats)** — FindOrCreateLeaderboardAsync, SubmitScoreAsync (インスタンスメソッド)
 - **Rich Presence (SteamFriends)** — SetRichPresence, ClearRichPresence
-- **オーバーレイ (SteamFriends)** — ActivateGameOverlay, ActivateGameOverlayToWebPage
+- **オーバーレイ (SteamFriends)** — OpenOverlay, OpenWebOverlay
 - **所有権・DLC (SteamApps)** — IsSubscribedApp, IsDlcInstalled
 - **スクリーンショット (SteamScreenshots)** — TriggerScreenshot (C# 側でキャプチャ・登録)
 - その他 Facepunch.Steamworks が公開する全クラス

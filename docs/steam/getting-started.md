@@ -96,20 +96,20 @@ await Steam.SteamUserStats.StoreStats();
 ### User Stats の設定
 
 ```js
-await Steam.SteamUserStats.SetStatInt('NumGames', 10);
+await Steam.SteamUserStats.SetStat('NumGames', 10);
 await Steam.SteamUserStats.StoreStats();
 ```
 
 ### Leaderboard へのスコア投稿
 
 ```js
-// Facepunch.Steamworks のクラス名・メソッド名をそのまま使う
-const board = await Steam.SteamUserStats.FindOrCreateLeaderboard(
+// 汎用インスタンス・ディスパッチャにより、JS側でシームレスにメソッドを呼べます
+const board = await Steam.SteamUserStats.FindOrCreateLeaderboardAsync(
     'Feet Traveled',
-    2,   // ELeaderboardSortMethod.Descending
-    1    // ELeaderboardDisplayType.Numeric
+    2,   // LeaderboardSort.Descending
+    1    // LeaderboardDisplay.Numeric
 );
-await Steam.SteamUserStats.UploadLeaderboardScore(board, 1, 5000, null, 0);
+await board.SubmitScoreAsync(5000);
 ```
 
 ### Steam Cloud への書き込み

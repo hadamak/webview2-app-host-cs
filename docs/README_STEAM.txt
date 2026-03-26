@@ -4,12 +4,12 @@ Steamサポートパッケージについて
 
 含まれている内容:
 
-- steam_bridge.dll: WebView2AppHost と Steamworks SDK を接続する native ブリッジ
+- Facepunch.Steamworks.Win64.dll: C#製の新しいSteamworks連携ライブラリ
 - steam_api64.dll: Steamworks SDK のランタイム DLL
 - steam.js: HTML 側から使う Steam 独自 API
 - steam-sample/: 完全に動作するサンプル
 - STEAM.md: 最初に読む概要ガイド
-- steam-docs/: 導入手順、機能別ガイド、API リファレンス
+- steam-docs/: 導入手順、機能別ガイド
 - LICENSE: 本アプリケーションのライセンス
 - THIRD_PARTY_NOTICES.md: サードパーティ製ライブラリの通知
 
@@ -21,8 +21,8 @@ Steamサポートパッケージについて
 4. 必要に応じて steam-sample/ をそのまま動作確認に使えます
 
 補足:
-Steamworks SDK のダウンロードが必要なのは steam_bridge.dll をビルドし直す人だけです。
-通常のアプリ開発者や利用者は、このパッケージ内の steam_bridge.dll / steam_api64.dll を使えば足ります。
+Steamworks SDK のダウンロードが必要なのは自分で Facepunch ライブラリをビルドし直す人だけです。
+通常のアプリ開発者や利用者は、このパッケージ内の Facepunch.Steamworks.Win64.dll / steam_api64.dll を使えば足ります。
 
 詳細:
-この ZIP はアプリ開発者向けです。まず `STEAM.md` を読み、詳細は `steam-docs/` を参照してください。ブリッジのビルド方法はリポジトリ内の `docs/steam/bridge-build.md` を参照してください。
+この ZIP はアプリ開発者向けです。まず `STEAM.md` を読み、詳細は `steam-docs/` を参照してください。

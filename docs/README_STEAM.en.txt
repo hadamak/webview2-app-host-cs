@@ -4,7 +4,7 @@ This ZIP contains the Steamworks-related files that are meant to be added on top
 
 Contents:
 
-- steam_bridge.dll: Native bridge connecting WebView2AppHost to Steamworks SDK
+- Facepunch.Steamworks.Win64.dll: Managed bridge connecting WebView2AppHost to Steamworks SDK
 - steam_api64.dll: Steamworks SDK runtime DLL
 - steam.js: Proprietary Steam API used from HTML content
 - steam-sample/: Complete working sample
@@ -21,8 +21,8 @@ Usage:
 4. Use `steam-sample/` as a ready-to-run validation sample if needed
 
 Note:
-Downloading the Steamworks SDK is only necessary for people who rebuild `steam_bridge.dll`.
-Regular app developers and end users can simply use the `steam_bridge.dll` and `steam_api64.dll` included in this package.
+Downloading the Steamworks SDK is only necessary for people who rebuild `Facepunch.Steamworks`.
+Regular app developers and end users can simply use the `Facepunch.Steamworks.Win64.dll` and `steam_api64.dll` included in this package.
 
 Details:
-This ZIP is for app developers using the bridge. Start with `STEAM.md`, then use `steam-docs/en/` for English documentation. For rebuilding the bridge itself, see `docs/steam/bridge-build.md` in the repository.
+This ZIP is for app developers using the bridge. Start with `STEAM.md`, then use `steam-docs/en/` for English documentation.

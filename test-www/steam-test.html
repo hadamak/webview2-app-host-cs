@@ -144,7 +144,7 @@
 
   // 汎用ヘルパー: Steam.ClassName.MethodName(...args) を呼んでログに出す
   async function run(className, methodName, ...args) {
-    const label = `${className}.${methodName}(${args.map(a => JSON.stringify(a)).join(', ')})`;
+    const label = `${className}.${methodName}(${JSON.stringify(args).slice(1,-1)})`;
     try {
       const result = await Steam[className][methodName](...args);
       appendLog('ok', `✓ ${label}: ${JSON.stringify(result)}`);
@@ -153,12 +153,13 @@
     }
   }
 
-  // Achievement 構造体特例: Steam.Achievement.Trigger("ACH_NAME")
+  // Achievement 構造体・静的呼び出し: Steam.Achievement.Create("ACH_NAME") -> .Trigger()
   async function runAch(methodName) {
     const achName = 'ACH_WIN_ONE_GAME';
-    const label   = `Achievement.${methodName}("${achName}")`;
+    const label   = `Achievement("${achName}").${methodName}()`;
     try {
-      const result = await Steam.Achievement[methodName](achName);
+      const ach = await Steam.Achievement.Create(achName);
+      const result = await ach[methodName]();
       appendLog('ok', `✓ ${label}: ${JSON.stringify(result)}`);
     } catch (e) {
       appendLog('err', `✗ ${label}: ${e?.message ?? e}`);

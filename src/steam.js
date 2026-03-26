@@ -7,7 +7,7 @@
  *
  * 使い方:
  *   // Facepunch.Steamworks の公式ドキュメントのクラス名・メソッド名をそのまま指定
- *   await Steam.SteamUserStats.SetAchievement('ACH_WIN_ONE_GAME');
+ *   await Steam.SteamUserStats.SetStat('NumWins', 10);
  *   await Steam.SteamUserStats.StoreStats();
  *
  *   const rank = await Steam.SteamUserStats.GetStatInt('NumWins');
@@ -16,6 +16,11 @@
  *   Steam.on('OnAchievementProgress', ({ achievementName, currentProgress, maxProgress }) => {
  *     console.log(achievementName, currentProgress, '/', maxProgress);
  *   });
+ *
+ * インスタンスの利用:
+ *   // 構造体やオブジェクトが返されると、自動的にプロキシが生成されます
+ *   const board = await Steam.SteamUserStats.FindOrCreateLeaderboardAsync('Feet Traveled', 2, 1);
+ *   await board.SubmitScoreAsync(5000);
  *
  * 注意:
  *   - WebView2 の画面上に Steam オーバーレイが重なるわけではない
@@ -40,6 +45,34 @@ const Steam = (() => {
     const _eventHandlers = new Map();
 
     // ---------------------------------------------------------------------------
+    // 再帰的にハンドルをプロキシに変換するヘルパー
+    // ---------------------------------------------------------------------------
+    function wrapHandles(val) {
+        if (!val) return val;
+        
+        // 配列の場合は再帰的に適用
+        if (Array.isArray(val)) {
+            return val.map(wrapHandles);
+        }
+        
+        if (typeof val === 'object' && val.__isHandle) {
+            return new Proxy(Object.create(null), {
+                get(_, methodName) {
+                    if (typeof methodName !== 'string') return undefined;
+                    if (methodName === 'then' || methodName === 'catch' || methodName === 'finally') return undefined;
+                    // 標準JSメソッドのローカル処理（これらをC#に転送すると小文字のためMissingMethodExceptionになる）
+                    if (methodName === 'toJSON') return () => ({ __isHandle: true, __handleId: val.__handleId, className: val.className });
+                    if (methodName === 'toString') return () => `[Steam Proxy: ${val.className}]`;
+                    if (methodName === 'valueOf') return () => val.__handleId;
+                    return (...args) => invokeInstance(val.__handleId, methodName, args);
+                }
+            });
+        }
+        
+        return val;
+    }
+
+    // ---------------------------------------------------------------------------
     // C# → JS メッセージ受信
     // ---------------------------------------------------------------------------
 
@@ -62,7 +95,7 @@ const Steam = (() => {
                 if (msg.error != null) {
                     prom.reject(new Error(`[Steam] ${msg.error}`));
                 } else {
-                    prom.resolve(msg.result);
+                    prom.resolve(wrapHandles(msg.result));
                 }
                 return;
             }
@@ -71,8 +104,10 @@ const Steam = (() => {
             if (msg.event) {
                 const handlers = _eventHandlers.get(msg.event);
                 if (handlers) {
+                    // イベントパラメータ内のハンドルもラップする
+                    const wrappedParams = wrapHandles(msg.params);
                     handlers.forEach((h) => {
-                        try { h(msg.params); } catch (err) {
+                        try { h(wrappedParams); } catch (err) {
                             console.error('[Steam] event handler error:', err);
                         }
                     });
@@ -86,9 +121,9 @@ const Steam = (() => {
     // ---------------------------------------------------------------------------
 
     /**
-     * className と methodName を C# の汎用ディスパッチャへ転送する。
+     * className と methodName を C# の汎用ディスパッチャへ転送する（静的呼び出し用）。
      * @param {string} className  Steamworks クラス名（例: "SteamUserStats"）
-     * @param {string} methodName メソッド名（例: "SetAchievement"）
+     * @param {string} methodName メソッド名
      * @param {any[]}  args       引数リスト
      * @returns {Promise<any>}    C# からの戻り値
      */
@@ -109,6 +144,33 @@ const Steam = (() => {
             } else {
                 // ホスト外（ブラウザ・テスト環境）: コンソールに出力してすぐ resolve
                 console.log('[Steam Mock]', className + '.' + methodName, args);
+                setTimeout(() => {
+                    _pending.delete(id);
+                    resolve(undefined);
+                }, 4);
+            }
+        });
+    }
+
+    /**
+     * handleId と methodName を C# の汎用ディスパッチャへ転送する（インスタンス呼び出し用）。
+     */
+    function invokeInstance(handleId, methodName, args) {
+        return new Promise((resolve, reject) => {
+            const id  = ++_asyncId;
+            _pending.set(id, { resolve, reject });
+
+            const message = JSON.stringify({
+                source:    'steam',
+                messageId: 'invoke',
+                params:    { handleId, methodName, args: args ?? [] },
+                asyncId:   id,
+            });
+
+            if (_isHost) {
+                window.chrome.webview.postMessage(message);
+            } else {
+                console.log('[Steam Mock]', 'Instance(' + handleId + ').' + methodName, args);
                 setTimeout(() => {
                     _pending.delete(id);
                     resolve(undefined);
@@ -154,6 +216,11 @@ const Steam = (() => {
     const _classProxyHandler = (className) => ({
         get(_, methodName) {
             if (typeof methodName !== 'string') return undefined;
+            if (methodName === 'then' || methodName === 'catch' || methodName === 'finally') return undefined;
+            // 標準JSメソッドのローカル処理
+            if (methodName === 'toJSON') return () => ({ __isStaticClass: true, className });
+            if (methodName === 'toString') return () => `[Steam Static Class: ${className}]`;
+            if (methodName === 'valueOf') return () => className;
             return (...args) => invoke(className, methodName, args);
         },
     });
