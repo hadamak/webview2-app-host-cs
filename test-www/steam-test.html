@@ -1,183 +1,211 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <title>Steamworks API Test</title>
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #1b2838; color: #fff; margin: 20px; font-size: 14px; }
-        h1 { font-size: 20px; color: #66c0f4; border-bottom: 1px solid #3d4450; padding-bottom: 10px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 15px; }
-        .card { background: #2a475e; border-radius: 8px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
-        .card h2 { font-size: 16px; margin-top: 0; color: #a4d813; border-bottom: 1px solid #3d4450; padding-bottom: 5px; }
-        .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-weight: bold; margin-bottom: 10px; }
-        .status.online { background: #4caf50; }
-        .status.offline { background: #f44336; }
-        .info-row { display: flex; justify-content: space-between; margin: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
-        .info-label { color: #8ed1fe; }
-        .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-        button { background: #47bfff; border: none; color: white; padding: 6px 12px; border-radius: 2px; cursor: pointer; font-size: 12px; }
-        button:hover { background: #33a5e3; }
-        button.secondary { background: #3d4450; }
-        button.secondary:hover { background: #4d5460; }
-        input { background: #101822; border: 1px solid #3d4450; color: #fff; padding: 5px; border-radius: 3px; flex-grow: 1; }
-        #log { background: #000; border-radius: 4px; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; font-size: 11px; margin-top: 20px; border: 1px solid #3d4450; }
-        .log-entry { margin-bottom: 2px; border-bottom: 1px solid #222; padding-bottom: 2px; }
-        .log-time { color: #888; margin-right: 8px; }
-        a { color: #66c0f4; text-decoration: none; font-size: 12px; }
-    </style>
+  <meta charset="UTF-8">
+  <title>Steam ブリッジ テスト（新仕様）</title>
+  <script src="steam.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: sans-serif; background: #1b2838; color: #c7d5e0;
+           margin: 0; padding: 16px; font-size: 14px; }
+    h1 { color: #66c0f4; margin: 0 0 16px; font-size: 1.2em; }
+    section { background: #2a475e; border-radius: 6px; padding: 10px 14px;
+              margin-bottom: 10px; }
+    h2 { color: #66c0f4; margin: 0 0 8px; font-size: 0.95em; }
+    .note { font-size: 0.78em; color: #8fa9ba; margin: 0 0 6px; }
+    button { background: #1a9fff; color: #fff; border: none; border-radius: 3px;
+             padding: 5px 12px; margin: 2px; cursor: pointer; font-size: 0.85em; }
+    button:hover { background: #66c0f4; }
+    #log { background: #171a21; border-radius: 4px; padding: 10px;
+           height: 250px; overflow-y: auto; font-family: monospace;
+           font-size: 0.80em; white-space: pre-wrap; }
+    .ok   { color: #57cbde; }
+    .err  { color: #f4826e; }
+    .evt  { color: #b0e070; }
+    .info { color: #8fa9ba; }
+  </style>
 </head>
 <body>
+<h1>Steam ブリッジ テスト（Facepunch.Steamworks / Proxy パススルー）</h1>
 
-<h1>Steamworks API テストダッシュボード</h1>
+<!-- ユーザー情報 -->
+<section>
+  <h2>ユーザー情報</h2>
+  <p class="note">SteamClient の静的プロパティをプロパティ getter フォールバックで取得</p>
+  <!--
+    SteamClient.Name / SteamClient.SteamId はプロパティ。
+    ディスパッチャがメソッド未発見 → プロパティ getter にフォールバックする。
+  -->
+  <button onclick="run('SteamClient', 'Name')">SteamClient.Name</button>
+  <button onclick="run('SteamClient', 'SteamId')">SteamClient.SteamId</button>
+</section>
 
-<div class="grid">
-    <!-- ステータス・ユーザー情報 -->
-    <div class="card">
-        <h2>ユーザー情報</h2>
-        <div id="steam-status" class="status offline">Steam: 未接続</div>
-        <div id="user-info">
-            <div class="info-row"><span class="info-label">名前:</span> <span id="val-personaName">---</span></div>
-            <div class="info-row"><span class="info-label">SteamID64:</span> <span id="val-steamId64Bit">---</span></div>
-            <div class="info-row"><span class="info-label">AppID:</span> <span id="val-appId">---</span></div>
-            <div class="info-row"><span class="info-label">Steam Deck:</span> <span id="val-isRunningOnSteamDeck">---</span></div>
-            <div class="info-row"><span class="info-label">言語:</span> <span id="val-currentGameLanguage">---</span></div>
-        </div>
-        <div class="controls">
-            <button onclick="initSteam()">再初期化 (Steam.init)</button>
-        </div>
-    </div>
+<!-- 実績 -->
+<section>
+  <h2>実績 (Achievement 構造体)</h2>
+  <p class="note">
+    Achievement は静的クラスでなく構造体。<br>
+    Steam.Achievement.Trigger("ACH_NAME") → new Achievement("ACH_NAME").Trigger() として実行される。
+  </p>
+  <!--
+    Facepunch.Steamworks の Achievement は Steamworks.Data.Achievement 構造体。
+    JS から Steam.Achievement.Trigger("ACH_WIN_ONE_GAME") と呼ぶと
+    ディスパッチャが new Achievement("ACH_WIN_ONE_GAME").Trigger() を実行する。
+  -->
+  <button onclick="runAch('Trigger')">Achievement.Trigger（ACH_WIN_ONE_GAME）</button>
+  <button onclick="runAch('Clear')">Achievement.Clear（ACH_WIN_ONE_GAME）</button>
+</section>
 
-    <!-- 実績テスト -->
-    <div class="card">
-        <h2>実績 (Achievements)</h2>
-        <p style="font-size:11px; color:#ccc;">SpaceWar(480)の場合: ACHIEVEMENT_1 等</p>
-        <div class="controls">
-            <input type="text" id="ach-id" placeholder="実績ID">
-            <button onclick="unlockAch()">解除</button>
-            <button class="secondary" onclick="clearAch()">リセット</button>
-        </div>
-    </div>
+<!-- Stats -->
+<section>
+  <h2>Stats (SteamUserStats)</h2>
+  <p class="note">
+    Facepunch では SetStatInt ではなく SetStat(string, int) のオーバーロード。<br>
+    JS の number は double で届くが、ディスパッチャが int オーバーロードに型変換する。
+  </p>
+  <!--
+    GetStatInt / GetStatFloat は Facepunch の静的メソッドとして存在する。
+    SetStat は int/float オーバーロードがあり、引数型でリフレクション解決する。
+    RequestCurrentStats と StoreStats は bool を返す。
+  -->
+  <button onclick="run('SteamUserStats', 'RequestCurrentStats')">RequestCurrentStats</button>
+  <button onclick="run('SteamUserStats', 'GetStatInt', 'NumGames')">GetStatInt(NumGames)</button>
+  <button onclick="run('SteamUserStats', 'SetStat', 'NumGames', _statVal++)">SetStat(NumGames, n)</button>
+  <button onclick="run('SteamUserStats', 'GetStatFloat', 'FeetTraveled')">GetStatFloat(FeetTraveled)</button>
+  <button onclick="run('SteamUserStats', 'SetStat', 'FeetTraveled', 123.4)">SetStat(FeetTraveled, 123.4)</button>
+  <button onclick="run('SteamUserStats', 'StoreStats')">StoreStats</button>
+</section>
 
-    <!-- Steam UI テスト -->
-    <div class="card">
-        <h2>Steam UI (Overlay API)</h2>
-        <div class="controls">
-            <button class="secondary" onclick="Steam.showOverlay('friends')">フレンド</button>
-            <button class="secondary" onclick="Steam.showOverlay('achievements')">実績</button>
-            <button class="secondary" onclick="Steam.showOverlay('stats')">統計</button>
-            <button class="secondary" onclick="Steam.showOverlay('settings')">設定</button>
-        </div>
-        <div class="controls">
-            <input type="text" id="ovl-url" value="https://google.com">
-            <button onclick="openOvlUrl()">URL を開く</button>
-        </div>
-        <p style="font-size:11px; color:#ccc;">WebView2 の上に重なるオーバーレイではなく、Steam 側 UI の起動確認です。</p>
-    </div>
+<!-- オーバーレイ -->
+<section>
+  <h2>オーバーレイ (SteamFriends)</h2>
+  <p class="note">
+    WebView2 上への重畳は不可。Steam の該当 UI ウィンドウが開く（旧仕様と同じ動作）。<br>
+    OpenOverlay(string type) と OpenWebOverlay(string url) の2種類。
+  </p>
+  <!--
+    SteamFriends.OpenOverlay(string) = ISteamFriends::ActivateGameOverlay
+    SteamFriends.OpenWebOverlay(string) = ISteamFriends::ActivateGameOverlayToWebPage
+    旧仕様の showOverlayURL に相当するのは OpenWebOverlay。
+  -->
+  <button onclick="run('SteamFriends', 'OpenOverlay', 'achievements')">OpenOverlay(achievements)</button>
+  <button onclick="run('SteamFriends', 'OpenOverlay', 'friends')">OpenOverlay(friends)</button>
+  <button onclick="run('SteamFriends', 'OpenOverlay', 'community')">OpenOverlay(community)</button>
+  <button onclick="run('SteamFriends', 'OpenOverlay', 'stats')">OpenOverlay(stats)</button>
+  <button onclick="run('SteamFriends', 'OpenWebOverlay', 'https://store.steampowered.com/app/480')">OpenWebOverlay(URL)</button>
+</section>
 
-    <!-- DLC / その他 -->
-    <div class="card">
-        <h2>DLC / その他</h2>
-        <div class="controls">
-            <input type="text" id="dlc-id" placeholder="DLC AppID">
-            <button onclick="checkDlc()">インストール確認</button>
-        </div>
-        <div class="controls">
-            <button class="secondary" onclick="Steam.triggerScreenshot()">Steamスクショ撮影</button>
-        </div>
-    </div>
-</div>
+<!-- スクリーンショット -->
+<section>
+  <h2>スクリーンショット</h2>
+  <p class="note">C# 側で WebView2 をキャプチャし RGB byte[] を WriteScreenshot に直接渡す。</p>
+  <button onclick="run('SteamScreenshots', 'TriggerScreenshot')">TriggerScreenshot</button>
+</section>
+
+<!-- Steam Cloud -->
+<section>
+  <h2>Steam Cloud (SteamRemoteStorage)</h2>
+  <p class="note">
+    FileWrite(string name, byte[] data) — JS の Uint8Array は C# 側で byte[] に変換される。<br>
+    FileRead(string name) → byte[] を数値配列で返す。TextDecoder でデコード可能。<br>
+    ファイルサイズ確認は FileSize(string name)（GetFileSize ではない）。
+  </p>
+  <!--
+    SteamRemoteStorage.FileWrite(name, byte[]) — README の API に合わせて引数2つ。
+    SteamRemoteStorage.FileRead(name) — サイズ引数不要。byte[] を返す。
+    SteamRemoteStorage.FileSize(name) — GetFileSize ではなく FileSize。
+    SteamRemoteStorage.FileExists(name) — bool を返す。
+  -->
+  <button onclick="test_cloudWrite()">FileWrite(test-save.json)</button>
+  <button onclick="test_cloudRead()">FileRead(test-save.json)</button>
+  <button onclick="run('SteamRemoteStorage', 'FileSize', 'test-save.json')">FileSize(test-save.json)</button>
+  <button onclick="run('SteamRemoteStorage', 'FileExists', 'test-save.json')">FileExists(test-save.json)</button>
+</section>
 
 <!-- ログ -->
-<div id="log"></div>
-
-<p><a href="index.html">← 戻る</a></p>
-
-<!-- ブリッジの読み込み -->
-<script src="steam.js"></script>
+<section>
+  <h2>ログ</h2>
+  <div id="log"></div>
+  <button onclick="logEl.textContent=''" style="margin-top:6px">クリア</button>
+</section>
 
 <script>
-    function log(msg) {
-        const logEl = document.getElementById('log');
-        const entry = document.createElement('div');
-        entry.className = 'log-entry';
-        const time = new Date().toLocaleTimeString();
-        entry.innerHTML = `<span class="log-time">[${time}]</span> ${msg}`;
-        logEl.appendChild(entry);
-        logEl.scrollTop = logEl.scrollHeight;
-        console.log(`[SteamTest] ${msg}`);
+  const logEl = document.getElementById('log');
+  let _statVal = 1;
+
+  function appendLog(cls, text) {
+    const ts = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+    const line = document.createElement('div');
+    line.className = cls;
+    line.textContent = `[${ts}] ${text}`;
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  // 汎用ヘルパー: Steam.ClassName.MethodName(...args) を呼んでログに出す
+  async function run(className, methodName, ...args) {
+    const label = `${className}.${methodName}(${args.map(a => JSON.stringify(a)).join(', ')})`;
+    try {
+      const result = await Steam[className][methodName](...args);
+      appendLog('ok', `✓ ${label}: ${JSON.stringify(result)}`);
+    } catch (e) {
+      appendLog('err', `✗ ${label}: ${e?.message ?? e}`);
     }
+  }
 
-    // 初期化
-    async function initSteam() {
-        log("Steam.init() を呼び出しています...");
-        try {
-            const info = await Steam.init();
-            if (info.isAvailable) {
-                document.getElementById('steam-status').textContent = "Steam: 接続済み";
-                document.getElementById('steam-status').className = "status online";
-                
-                // UI反映
-                for (const key in info) {
-                    const el = document.getElementById(`val-${key}`);
-                    if (el) el.textContent = info[key];
-                }
-                log(`初期化成功: ${info.personaName} (ID: ${info.accountId})`);
-            } else {
-                log("初期化失敗: Steamに接続できないか、DLLがありません。");
-            }
-        } catch (e) {
-            log(`エラー: ${e.message}`);
-        }
+  // Achievement 構造体特例: Steam.Achievement.Trigger("ACH_NAME")
+  async function runAch(methodName) {
+    const achName = 'ACH_WIN_ONE_GAME';
+    const label   = `Achievement.${methodName}("${achName}")`;
+    try {
+      const result = await Steam.Achievement[methodName](achName);
+      appendLog('ok', `✓ ${label}: ${JSON.stringify(result)}`);
+    } catch (e) {
+      appendLog('err', `✗ ${label}: ${e?.message ?? e}`);
     }
+  }
 
-    // 実績解除
-    async function unlockAch() {
-        const id = document.getElementById('ach-id').value;
-        if (!id) return;
-        log(`実績解除試行: ${id}`);
-        const res = await Steam.unlockAchievement(id);
-        log(res.isOk ? "成功" : "失敗 (Steam側のログを確認してください)");
+  // Steam Cloud: FileWrite — Uint8Array → C# byte[] 変換のテスト
+  async function test_cloudWrite() {
+    const data  = JSON.stringify({ timestamp: Date.now(), note: 'test save' });
+    const bytes = new TextEncoder().encode(data);
+    // Array.from() で通常の数値配列に変換して送る
+    // （JS の Uint8Array は JSON.stringify すると {} になるため）
+    try {
+      const result = await Steam.SteamRemoteStorage.FileWrite(
+        'test-save.json',
+        Array.from(bytes)
+      );
+      appendLog('ok', `✓ FileWrite: ${JSON.stringify(result)}`);
+    } catch (e) {
+      appendLog('err', `✗ FileWrite: ${e?.message ?? e}`);
     }
+  }
 
-    // 実績クリア
-    async function clearAch() {
-        const id = document.getElementById('ach-id').value;
-        if (!id) return;
-        log(`実績リセット試行: ${id}`);
-        const res = await Steam.clearAchievement(id);
-        log(res.isOk ? "成功" : "失敗");
+  // Steam Cloud: FileRead — byte[] を数値配列で受け取り TextDecoder でデコード
+  async function test_cloudRead() {
+    try {
+      const result = await Steam.SteamRemoteStorage.FileRead('test-save.json');
+      // C# から数値配列 [104, 101, ...] で返ってくる
+      const text = new TextDecoder().decode(new Uint8Array(result));
+      appendLog('ok', `✓ FileRead: ${text}`);
+    } catch (e) {
+      appendLog('err', `✗ FileRead: ${e?.message ?? e}`);
     }
+  }
 
-    // URLを Steam 側 UI で開く
-    function openOvlUrl() {
-        const url = document.getElementById('ovl-url').value;
-        log(`Steam UI でURLを開く: ${url}`);
-        Steam.showOverlayURL(url);
-    }
+  // ---------- イベント受信 ----------
+  Steam.on('OnAchievementProgress', p => {
+    appendLog('evt',
+      `🏆 OnAchievementProgress: ${p.achievementName} ${p.currentProgress}/${p.maxProgress}`);
+  });
 
-    // DLC確認
-    async function checkDlc() {
-        const id = document.getElementById('dlc-id').value;
-        if (!id) return;
-        const res = await Steam.checkDlcInstalled([parseInt(id)]);
-        log(`DLC ${id} インストール状態: ${res.results}`);
-    }
+  Steam.on('OnGameOverlayActivated', p => {
+    appendLog('evt', `🎮 OnGameOverlayActivated: active=${p.active}`);
+  });
 
-    // イベント購読
-    Steam.on('on-game-overlay-activated', ({ isShowing }) => {
-        log(`Steam UI 状態変化イベント: ${isShowing ? "表示" : "非表示"}`);
-    });
-
-    Steam.on('on-dlc-installed', ({ appId }) => {
-        log(`DLCインストール検知: AppID ${appId}`);
-    });
-
-    // 起動時に実行
-    if (Steam.isAvailable()) {
-        initSteam();
-    } else {
-        log("ホスト外（ブラウザ等）で実行されています。Steam機能は無効です。");
-    }
+  appendLog('info', '準備完了 — AppID 480 (Spacewar) で動作確認できます');
+  appendLog('info', '実績: ACH_WIN_ONE_GAME / stat: NumGames, FeetTraveled');
 </script>
 </body>
 </html>

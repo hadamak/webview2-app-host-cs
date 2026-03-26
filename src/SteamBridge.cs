@@ -37,13 +37,13 @@ namespace WebView2AppHost
         public static SteamBridge? TryCreate(WebView2 webView, string appId, bool isDev)
         {
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var facepunchDll = Path.Combine(baseDir, "Facepunch.Steamworks.dll");
+            var facepunchDll = Path.Combine(baseDir, "Facepunch.Steamworks.Win64.dll");
             var steamApiDll  = Path.Combine(baseDir, "steam_api64.dll");
 
             if (!File.Exists(facepunchDll))
             {
                 AppLog.Log("INFO", "SteamBridge.TryCreate",
-                    "Facepunch.Steamworks.dll が見つかりません。Steam 機能は無効です。");
+                    "Facepunch.Steamworks.Win64.dll が見つかりません。Steam 機能は無効です。");
                 return null;
             }
 

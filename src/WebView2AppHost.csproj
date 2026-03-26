@@ -47,7 +47,7 @@
       WebView2AppHost.exe と同じフォルダに存在しない場合、
       SteamBridge.TryCreate() が null を返してクラッシュを回避する。
     -->
-    <PackageReference Include="Facepunch.Steamworks" />
+    <ProjectReference Include="../Facepunch.Steamworks\Facepunch.Steamworks\Facepunch.Steamworks.Win64.csproj" />
   </ItemGroup>
 
   <!-- WPF は使用しないので出力から除外 -->
