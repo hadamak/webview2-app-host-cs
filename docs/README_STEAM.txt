@@ -22,7 +22,6 @@ Steamサポートパッケージについて
 4. 必要に応じて steam-sample/ をそのまま動作確認に使えます
 
 補足:
-Steamworks SDK のダウンロードが必要なのは自分で Facepunch ライブラリをビルドし直す人だけです。
 通常のアプリ開発者や利用者は、このパッケージ内の Facepunch.Steamworks.Win64.dll / steam_api64.dll を使えば足ります。
 
 詳細:

@@ -22,7 +22,6 @@ Usage:
 4. Use `steam-sample/` as a ready-to-run validation sample if needed
 
 Note:
-Downloading the Steamworks SDK is only necessary for people who rebuild `Facepunch.Steamworks`.
 Regular app developers and end users can simply use the `Facepunch.Steamworks.Win64.dll` and `steam_api64.dll` included in this package.
 
 Details:

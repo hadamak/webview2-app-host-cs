@@ -79,7 +79,7 @@ The host provides a browser-compatible environment, so your content doesn't need
 - `visibilityState` / `visibilitychange` — detect window minimization
 
 ### 4. 🎮 Steam Integration
-Ship your web game on Steam without touching the Steamworks SDK. Add the Steam support ZIP and call `steam.js` from your HTML — that's the entire integration.
+Ship your web game on Steam without touching the Steamworks SDK. Add the Steam support ZIP and call the Facepunch.Steamworks API from your HTML via `steam.js` — that's the entire integration.
 
 Supported features:
 
@@ -335,7 +335,7 @@ Not provided. The design intent is to stay close to standard Web APIs rather tha
 
 ## 🎮 Steam Integration
 
-Steamworks support is optional. The host itself is designed around standard Web APIs, but Steam integration necessarily uses a proprietary API surface exposed through `steam.js`.
+Steamworks support is optional. The host itself is designed around standard Web APIs, but Steam integration uses the Facepunch.Steamworks API from JS via `steam.js`.
 
 For that reason, this README only points to dedicated, audience-specific documents.
 
@@ -344,8 +344,6 @@ For that reason, this README only points to dedicated, audience-specific documen
 - 🎯 Bundled sample: `samples/steam-complete/`
 
 Normal distribution files and Steam-related files are intended to be shipped separately. Add the Steam support bundle only when your app actually needs Steamworks.
-
-Downloading the Steamworks SDK is only necessary for people who want to modify Facepunch.Steamworks itself. Regular app developers can use the prebuilt Steam support package as-is.
 
 ---
 
