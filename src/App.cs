@@ -268,10 +268,23 @@ namespace WebView2AppHost
 
         private void TryInitSteam()
         {
-            _steamBridge = SteamBridge.TryCreate(
-                _webView,
-                _config.SteamAppId,
-                _config.SteamDevMode);
+            try
+            {
+                _steamBridge = SteamBridge.TryCreate(
+                    _webView,
+                    _config.SteamAppId,
+                    _config.SteamDevMode);
+            }
+            catch (InvalidOperationException ex) when (ex.Message == "STEAM_RESTART_REQUIRED")
+            {
+                // isDev=false（リリースモード）かつ Steam 経由で起動されていない場合。
+                // SteamClient.RestartAppIfNecessary が Steam にアプリの再起動を依頼済みのため、
+                // このプロセスを速やかに終了する必要がある。
+                AppLog.Log("INFO", "App.TryInitSteam",
+                    "Steam 再起動要求を受信しました。アプリケーションを終了します。");
+                Application.Exit();
+                return;
+            }
 
             if (_steamBridge == null) return;
 

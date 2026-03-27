@@ -45,6 +45,17 @@ namespace WebView2AppHost
         // デバッグログは #if DEBUG で囲む（プロジェクト内の他の箇所と統一）
 
         // ---------------------------------------------------------------------------
+        // 定数
+        // ---------------------------------------------------------------------------
+
+        /// <summary>
+        /// RestartAppIfNecessary が true を返した場合にスローする例外のメッセージ。
+        /// SteamBridge.TryCreate がリフレクション越しにこのメッセージを識別して再スローし、
+        /// App.TryInitSteam が Application.Exit() を呼ぶための識別子として使用する。
+        /// </summary>
+        internal const string SteamRestartRequiredMessage = "STEAM_RESTART_REQUIRED";
+
+        // ---------------------------------------------------------------------------
         // エンベロープ DataContract（JS → C# の外枠）
         // ---------------------------------------------------------------------------
 
@@ -81,10 +92,30 @@ namespace WebView2AppHost
             _webView      = webView;
             _steamworkAsm = typeof(SteamClient).Assembly;
 
-            if (uint.TryParse(appId, out var id))
-                SteamClient.Init(id, false);
-            else
+            if (!uint.TryParse(appId, out var id))
                 throw new ArgumentException($"無効な AppID: {appId}");
+
+            if (!isDev)
+            {
+                // リリースモード: SteamClient.Init より前に呼ぶ必要がある。
+                // Steam 経由で起動されていない場合、Steam がアプリを再起動するため
+                // true が返ったらプロセスを即座に終了しなければならない。
+                // SteamBridgeImpl は別 DLL のためリフレクション越しに例外メッセージで
+                // 通知し、呼び出し元（App.TryInitSteam）で Application.Exit() を行う。
+                if (SteamClient.RestartAppIfNecessary(id))
+                {
+                    AppLog.Log("INFO", "SteamBridgeImpl",
+                        "Steam 経由の起動ではありません。Steam による再起動を待機します。");
+                    throw new InvalidOperationException(SteamRestartRequiredMessage);
+                }
+            }
+
+            // asyncCallbacks=false: タイマーで RunCallbacks を手動呼び出しするため。
+            // 補足: SteamClient.Init は内部で環境変数 SteamAppId / SteamGameId を設定する。
+            //       isDev=true/false いずれも Init 経由で環境変数が設定されるため、
+            //       steam_appid.txt なしで動作する（isDev=false は上記の
+            //       RestartAppIfNecessary チェックを通過した後に Init を呼ぶ）。
+            SteamClient.Init(id, asyncCallbacks: false);
 
 #if DEBUG
             AppLog.Log("INFO", "SteamBridgeImpl", $"SteamClient 初期化完了 (appId={appId}, dev={isDev})");
@@ -554,9 +585,6 @@ namespace WebView2AppHost
             {
                 long id = System.Threading.Interlocked.Increment(ref _nextHandleId);
                 _handleRegistry[id] = result;
-                // Steamid 等の場合は string にフォールバックするか？ いいえ、SteamId構造体もメソッドがあるのでハンドルにする。 
-                // ただ SteamId をそのまま文字列や数値で欲しい場合は? Facepunch.Steamworks の SteamId は ulong へのキャスト等がある。
-                // とりあえず統一的にハンドルとして返す。
                 return new { __isHandle = true, __handleId = id, className = type.Name };
             }
 

@@ -21,10 +21,15 @@ namespace WebView2AppHost
     /// </summary>
     internal sealed class SteamBridge : IDisposable
     {
-        private readonly ISteamBridgeImpl? _impl;
+        // ISteamBridgeImpl は EXE と Steam DLL の両方にソースリンクでコンパイルされるため、
+        // 型同一性が異なる別の型として扱われる。Assembly.LoadFrom 経由でロードした
+        // SteamBridgeImpl インスタンスを ISteamBridgeImpl へキャストすると
+        // InvalidCastException になるため、object で保持してリフレクション経由で呼び出す。
+        // IDisposable は mscorlib 由来で共有されるためキャストは問題なく動く。
+        private readonly object? _impl;
         private bool _disposed;
 
-        private SteamBridge(ISteamBridgeImpl impl) => _impl = impl;
+        private SteamBridge(object impl) => _impl = impl;
 
         // ---------------------------------------------------------------------------
         // 静的ファクトリ
@@ -33,10 +38,19 @@ namespace WebView2AppHost
         /// <summary>
         /// WebView2AppHost.Steam.dll が存在する場合のみ初期化する。
         /// DLL が欠けている場合は null を返す（アプリはクラッシュしない）。
+        ///
+        /// <para>
+        /// <see cref="InvalidOperationException"/> に <c>"STEAM_RESTART_REQUIRED"</c> メッセージが
+        /// 付いた場合は Steam による再起動が必要なことを意味する。
+        /// 呼び出し元（App.TryInitSteam）はこの例外をキャッチして Application.Exit() を呼ぶこと。
+        /// </para>
         /// </summary>
+        /// <exception cref="InvalidOperationException">
+        /// SteamAPI_RestartAppIfNecessary が true を返した場合（メッセージ = "STEAM_RESTART_REQUIRED"）。
+        /// </exception>
         public static SteamBridge? TryCreate(WebView2 webView, string appId, bool isDev)
         {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            var baseDir  = AppDomain.CurrentDomain.BaseDirectory;
             var steamDll = Path.Combine(baseDir, "WebView2AppHost.Steam.dll");
 
             if (!File.Exists(steamDll))
@@ -57,8 +71,19 @@ namespace WebView2AppHost
                     return null;
                 }
 
-                var impl = (ISteamBridgeImpl)Activator.CreateInstance(implType, webView, appId, isDev)!;
+                var impl = Activator.CreateInstance(implType, webView, appId, isDev)!;
                 return new SteamBridge(impl);
+            }
+            catch (TargetInvocationException tie)
+                when (tie.InnerException is InvalidOperationException ioe
+                      && ioe.Message == "STEAM_RESTART_REQUIRED")
+            {
+                // SteamBridgeImpl コンストラクタ内で RestartAppIfNecessary が true を返した。
+                // Steam がアプリを再起動するためプロセスを終了しなければならない。
+                // リフレクション境界を越えて呼び出し元に通知するため、メッセージを保ちつつ再スロー。
+                AppLog.Log("INFO", "SteamBridge.TryCreate",
+                    "Steam による再起動が必要なため初期化を中断します。");
+                throw new InvalidOperationException("STEAM_RESTART_REQUIRED", tie.InnerException);
             }
             catch (Exception ex)
             {
@@ -78,7 +103,10 @@ namespace WebView2AppHost
         public void HandleWebMessage(string webMessageJson)
         {
             if (_disposed) return;
-            _impl?.HandleWebMessage(webMessageJson);
+            // ISteamBridgeImpl は型同一性の問題でキャストできないため、リフレクションで呼び出す。
+            _impl?.GetType()
+                  .GetMethod("HandleWebMessage", new[] { typeof(string) })
+                  ?.Invoke(_impl, new object[] { webMessageJson });
         }
 
         // ---------------------------------------------------------------------------
@@ -89,7 +117,8 @@ namespace WebView2AppHost
         {
             if (_disposed) return;
             _disposed = true;
-            _impl?.Dispose();
+            // IDisposable は mscorlib 由来のためアセンブリ境界を越えてキャスト可能。
+            (_impl as IDisposable)?.Dispose();
         }
     }
 }
