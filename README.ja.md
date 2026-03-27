@@ -428,13 +428,17 @@ Debug ビルドでは自動的に有効です。Release ビルドで有効にし
 │   └── app.ico
 ├── samples/
 │   └── steam-complete/     # Steam 連携の完全なサンプル
-├── src/
+├── src/                    # ホストアプリ（Steam 依存なし）
 │   ├── App.cs
 │   ├── AppConfig.cs
-│   ├── SteamBridge.cs
+│   ├── SteamBridge.cs      # プラグインローダー（リフレクションで Steam DLL を読み込み）
+│   ├── ISteamBridgeImpl.cs # Steam DLL とのインターフェース契約
 │   ├── WebResourceHandler.cs
 │   ├── WebView2AppHost.csproj
 │   └── ...
+├── src-steam/              # Steam DLL プロジェクト（個別ビルド）
+│   ├── SteamBridgeImpl.cs
+│   └── WebView2AppHost.Steam.csproj
 ├── steam-support/          # 配布用ビルド済み Steam サポート ZIP
 ├── test-www/               # 開発・動作確認用 Web コンテンツ
 ├── tests/

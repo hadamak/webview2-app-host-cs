@@ -430,13 +430,17 @@ Both modes can be used at the same time — you can pick the right location on a
 │   └── app.ico
 ├── samples/
 │   └── steam-complete/     # Full working Steam sample
-├── src/
+├── src/                    # Host application (no Steam dependency)
 │   ├── App.cs
 │   ├── AppConfig.cs
-│   ├── SteamBridge.cs
+│   ├── SteamBridge.cs      # Plugin loader (loads Steam DLL via reflection)
+│   ├── ISteamBridgeImpl.cs # Interface contract for Steam DLL
 │   ├── WebResourceHandler.cs
 │   ├── WebView2AppHost.csproj
 │   └── ...
+├── src-steam/              # Steam DLL project (separate build)
+│   ├── SteamBridgeImpl.cs
+│   └── WebView2AppHost.Steam.csproj
 ├── steam-support/          # Prebuilt Steam support ZIP for distribution
 ├── test-www/               # Dev/test web content
 ├── tests/

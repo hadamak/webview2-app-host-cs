@@ -35,8 +35,9 @@ MyGame/
 ├── Microsoft.Web.WebView2.Core.dll
 ├── Microsoft.Web.WebView2.WinForms.dll
 ├── WebView2Loader.dll
-├── steam_bridge.dll
-├── steam_api64.dll
+├── WebView2AppHost.Steam.dll          ← from Steam support ZIP
+├── Facepunch.Steamworks.Win64.dll     ← from Steam support ZIP
+├── steam_api64.dll                    ← from Steam support ZIP
 └── www/ or game.zip
     ├── index.html
     ├── steam.js

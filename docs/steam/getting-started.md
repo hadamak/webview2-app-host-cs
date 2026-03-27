@@ -21,20 +21,21 @@
 
 ## 1. DLL の配置（これだけで Steam 機能が有効になります）
 
-`WebView2AppHost.exe` と**同じフォルダ**に以下の2ファイルを置くだけです。
+`WebView2AppHost.exe` と**同じフォルダ**に以下の3ファイルを置くだけです。
 
 ```text
 MyGame/
 ├── WebView2AppHost.exe
-├── Facepunch.Steamworks.Win64.dll   ← Steam サポート ZIP に同梱
-├── steam_api64.dll                  ← Steam サポート ZIP に同梱
+├── WebView2AppHost.Steam.dll          ← Steam サポート ZIP に同梱
+├── Facepunch.Steamworks.Win64.dll     ← Steam サポート ZIP に同梱
+├── steam_api64.dll                    ← Steam サポート ZIP に同梱
 └── www/ または game.zip
     ├── index.html
     ├── steam.js
     └── app.conf.json
 ```
 
-2ファイルが存在しない場合、Steam 機能は自動的に無効になります（アプリはクラッシュしません）。
+`WebView2AppHost.Steam.dll` が存在しない場合、Steam 機能は自動的に無効になります（アプリはクラッシュしません）。
 
 ---
 

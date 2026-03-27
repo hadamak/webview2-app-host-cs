@@ -4,6 +4,7 @@ This ZIP contains the Steamworks-related files that are meant to be added on top
 
 Contents:
 
+- WebView2AppHost.Steam.dll: Steam bridge DLL for WebView2AppHost
 - Facepunch.Steamworks.Win64.dll: Managed bridge connecting WebView2AppHost to Steamworks SDK
 - steam_api64.dll: Steamworks SDK runtime DLL
 - steam.js: Proprietary Steam API used from HTML content

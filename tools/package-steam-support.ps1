@@ -5,14 +5,12 @@ $ErrorActionPreference = "Stop"
     WebView2AppHost の Steam サポート ZIP を作成する。
 
 .DESCRIPTION
-    以前は C++ DLL（steam_bridge.dll）をビルドしていたが、
-    Facepunch.Steamworks ベースへのリファクタリングにより、
-    NuGet で取得した DLL と steam_api64.dll を ZIP に固めるだけになった。
+    WebView2AppHost.Steam.dll プロジェクトをビルドし、
+    Steam 関連ファイルを ZIP に固めるスクリプト。
 
     必要なもの:
-      - ビルド済みの WebView2AppHost（Release x64）
-      - Steamworks SDK（steam_api64.dll の取得元）
-      - dotnet CLI（NuGet リストア用）
+      - Steamworks SDK（steam_api64.dll の取得元、Facepunch.Steamworks サブモジュールに同梱）
+      - dotnet CLI（ビルド・NuGet リストア用）
 
     使い方:
       .\tools\package-steam-support.ps1
@@ -22,14 +20,13 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 
 Push-Location $repoRoot
 try {
-    # --- 1. C# プロジェクトをビルド（Facepunch.Steamworks を NuGet リストア含む） ---
-    Write-Host "ビルド中..." -ForegroundColor Cyan
-    dotnet build src\WebView2AppHost.csproj `
+    # --- 1. Steam DLL プロジェクトをビルド ---
+    Write-Host "Steam DLL をビルド中..." -ForegroundColor Cyan
+    dotnet build src-steam\WebView2AppHost.Steam.csproj `
         -c Release -r win-x64 --no-self-contained `
-        /p:Platform=x64 `
-        -o "src\bin\x64\Release\net472"
+        /p:Platform=x64
 
-    $base   = "src\bin\x64\Release\net472"
+    $base   = "src-steam\bin\x64\Release\net472\win-x64"
     $outDir = "steam-support\_build\WebView2AppHost-SteamSupport-win-x64"
     $zipPath = "steam-support\WebView2AppHost-SteamSupport-win-x64.zip"
     $hashPath = "$zipPath.sha256"
@@ -45,14 +42,21 @@ try {
     # --- 3. ファイルをコピー ---
     Write-Host "ファイルをコピー中..." -ForegroundColor Cyan
 
-    # Facepunch.Steamworks DLL（Submodule ビルド出力から取得）
+    # WebView2AppHost.Steam.dll
+    $steamBridgeDll = Join-Path $base "WebView2AppHost.Steam.dll"
+    if (-not (Test-Path $steamBridgeDll)) {
+        throw "WebView2AppHost.Steam.dll が見つかりません: $steamBridgeDll`nビルドが成功していることを確認してください。"
+    }
+    Copy-Item $steamBridgeDll $outDir
+
+    # Facepunch.Steamworks DLL
     $facepunchDll = Join-Path $base "Facepunch.Steamworks.Win64.dll"
     if (-not (Test-Path $facepunchDll)) {
         throw "Facepunch.Steamworks.Win64.dll が見つかりません: $facepunchDll`nビルドが成功していることを確認してください。"
     }
     Copy-Item $facepunchDll $outDir
 
-    # Steamworks SDK の steam_api64.dll（ビルド出力から取得）
+    # Steamworks SDK の steam_api64.dll
     $steamApiDll = Join-Path $base "steam_api64.dll"
     if (-not (Test-Path $steamApiDll)) {
         throw "steam_api64.dll が見つかりません: $steamApiDll"

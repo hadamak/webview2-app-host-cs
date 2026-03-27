@@ -40,7 +40,7 @@ namespace WebView2AppHost
     /// Steam の該当 UI ウィンドウ（実績・フレンドリスト等）を開く動作は正常に機能する。
     /// これは旧 C++ ブリッジの showOverlay 系 API と同じ動作。
     /// </summary>
-    internal sealed class SteamBridgeImpl : ISteamBridgeImpl
+    public sealed class SteamBridgeImpl : ISteamBridgeImpl
     {
         // デバッグログは #if DEBUG で囲む（プロジェクト内の他の箇所と統一）
 

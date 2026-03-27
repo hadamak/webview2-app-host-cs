@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>WebView2AppHost.Steam</AssemblyName>
+    <RootNamespace>WebView2AppHost.Steam</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <Optimize>true</Optimize>
+    <PlatformTarget>x64</PlatformTarget>
+    <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
+    <DebugSymbols Condition="'$(Configuration)'=='Release'">false</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ホスト側の ISteamBridgeImpl / AppLog をソースリンクで参照 -->
+    <Compile Include="..\src\ISteamBridgeImpl.cs" Link="ISteamBridgeImpl.cs" />
+    <Compile Include="..\src\AppLog.cs" Link="AppLog.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Runtime.Serialization" />
+    <!--
+      System.Web.Extensions は .NET Framework GAC に含まれる。
+      JavaScriptSerializer を SteamBridgeImpl で使用するために参照する。
+    -->
+    <Reference Include="System.Web.Extensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" />
+    <ProjectReference Include="../Facepunch.Steamworks/Facepunch.Steamworks/Facepunch.Steamworks.Win64.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -4,7 +4,8 @@ Steamサポートパッケージについて
 
 含まれている内容:
 
-- Facepunch.Steamworks.Win64.dll: C#製の新しいSteamworks連携ライブラリ
+- WebView2AppHost.Steam.dll: WebView2AppHost 用の Steam ブリッジ DLL
+- Facepunch.Steamworks.Win64.dll: C#製の Steamworks 連携ライブラリ
 - steam_api64.dll: Steamworks SDK のランタイム DLL
 - steam.js: HTML 側から使う Steam 独自 API
 - steam-sample/: 完全に動作するサンプル

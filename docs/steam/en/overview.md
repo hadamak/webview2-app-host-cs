@@ -8,7 +8,7 @@ The intended flow is:
 2. Add the Steam support ZIP only when you need Steam features
 3. Call `steam.js` from your HTML / JavaScript game
 
-Normal app developers do not need to build `steam_bridge.dll`.  
+Normal app developers do not need to build the Steam bridge DLL.  
 Downloading the Steamworks SDK is only necessary for people who modify the bridge itself.
 
 ## What you can do

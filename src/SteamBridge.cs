@@ -1,16 +1,16 @@
 using System;
 using System.IO;
-using System.Runtime.CompilerServices;
+using System.Reflection;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace WebView2AppHost
 {
     /// <summary>
-    /// Facepunch.Steamworks を用いた Steam ブリッジのエントリーポイント。
+    /// Steam ブリッジのエントリーポイント。
     ///
-    /// このクラス自体は Facepunch.Steamworks の型を直接参照しない。
-    /// DLL が存在する場合のみ <see cref="SteamBridgeImpl"/> を生成し、
-    /// 存在しない場合は null を返すことで Steam なし環境でもクラッシュしない。
+    /// WebView2AppHost.Steam.dll が EXE と同じフォルダに存在する場合のみ
+    /// リフレクションで SteamBridgeImpl を生成し、存在しない場合は null を
+    /// 返すことで Steam なし環境でもクラッシュしない。
     ///
     /// JS ↔ C# メッセージフォーマット:
     ///   JS → C#: {"source":"steam","messageId":"invoke",
@@ -31,32 +31,34 @@ namespace WebView2AppHost
         // ---------------------------------------------------------------------------
 
         /// <summary>
-        /// Facepunch.Steamworks.Win64.dll と steam_api64.dll が存在する場合のみ初期化する。
-        /// いずれかが欠けている場合は null を返す（アプリはクラッシュしない）。
+        /// WebView2AppHost.Steam.dll が存在する場合のみ初期化する。
+        /// DLL が欠けている場合は null を返す（アプリはクラッシュしない）。
         /// </summary>
         public static SteamBridge? TryCreate(WebView2 webView, string appId, bool isDev)
         {
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var facepunchDll = Path.Combine(baseDir, "Facepunch.Steamworks.Win64.dll");
-            var steamApiDll  = Path.Combine(baseDir, "steam_api64.dll");
+            var steamDll = Path.Combine(baseDir, "WebView2AppHost.Steam.dll");
 
-            if (!File.Exists(facepunchDll))
+            if (!File.Exists(steamDll))
             {
                 AppLog.Log("INFO", "SteamBridge.TryCreate",
-                    "Facepunch.Steamworks.Win64.dll が見つかりません。Steam 機能は無効です。");
-                return null;
-            }
-
-            if (!File.Exists(steamApiDll))
-            {
-                AppLog.Log("INFO", "SteamBridge.TryCreate",
-                    "steam_api64.dll が見つかりません。Steam 機能は無効です。");
+                    "WebView2AppHost.Steam.dll が見つかりません。Steam 機能は無効です。");
                 return null;
             }
 
             try
             {
-                return CreateWithImpl(webView, appId, isDev);
+                var asm = Assembly.LoadFrom(steamDll);
+                var implType = asm.GetType("WebView2AppHost.SteamBridgeImpl");
+                if (implType == null)
+                {
+                    AppLog.Log("WARN", "SteamBridge.TryCreate",
+                        "WebView2AppHost.SteamBridgeImpl クラスが見つかりません。Steam 機能は無効です。");
+                    return null;
+                }
+
+                var impl = (ISteamBridgeImpl)Activator.CreateInstance(implType, webView, appId, isDev)!;
+                return new SteamBridge(impl);
             }
             catch (Exception ex)
             {
@@ -64,18 +66,6 @@ namespace WebView2AppHost
                     "Steam 機能の初期化に失敗しました。Steam 機能は無効です。", ex);
                 return null;
             }
-        }
-
-        /// <summary>
-        /// NoInlining により、JIT がこのメソッドを処理するのは実際に呼び出されたときだけ。
-        /// SteamBridgeImpl への参照（＝Facepunch.Steamworks アセンブリのロード）は
-        /// File.Exists チェック通過後にのみ発生する。
-        /// </summary>
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private static SteamBridge CreateWithImpl(WebView2 webView, string appId, bool isDev)
-        {
-            var impl = new SteamBridgeImpl(webView, appId, isDev);
-            return new SteamBridge(impl);
         }
 
         // ---------------------------------------------------------------------------

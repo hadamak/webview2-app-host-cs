@@ -7,7 +7,7 @@ namespace WebView2AppHost
     /// SteamBridge.cs は Facepunch.Steamworks の型を直接参照しないため、
     /// このインターフェース経由で実体クラスを呼び出す。
     /// </summary>
-    internal interface ISteamBridgeImpl : IDisposable
+    public interface ISteamBridgeImpl : IDisposable
     {
         void HandleWebMessage(string webMessageJson);
     }

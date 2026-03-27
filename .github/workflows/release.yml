@@ -26,6 +26,13 @@ jobs:
       - name: Build
         run: msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
 
+      - name: Build Steam DLL
+        run: dotnet build src-steam\WebView2AppHost.Steam.csproj -c Release -r win-x64 --no-self-contained /p:Platform=x64
+
+      - name: Package Steam support
+        shell: pwsh
+        run: .\tools\package-steam-support.ps1
+
       - name: Package distributable files
         shell: pwsh
         run: |
