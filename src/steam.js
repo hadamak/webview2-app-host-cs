@@ -45,6 +45,27 @@ const Steam = (() => {
     const _eventHandlers = new Map();
 
     // ---------------------------------------------------------------------------
+    // ハンドルの GC 通知（C# 側 _handleRegistry からの自動削除）
+    // ---------------------------------------------------------------------------
+
+    /**
+     * JS プロキシが GC された際に C# へ release メッセージを送る。
+     * FinalizationRegistry のコールバックは GC 後に非同期で呼ばれる（タイミング不保証）。
+     * FinalizationRegistry が未サポートの環境（テスト用 Node.js 旧版など）では null になり、
+     * 登録をスキップする（リークは起きるが動作は継続する）。
+     */
+    const _handleFinalizer = typeof FinalizationRegistry !== 'undefined'
+        ? new FinalizationRegistry((handleId) => {
+            if (!_isHost) return;
+            window.chrome.webview.postMessage(JSON.stringify({
+                source:    'steam',
+                messageId: 'release',
+                params:    { handleId },
+            }));
+        })
+        : null;
+
+    // ---------------------------------------------------------------------------
     // 再帰的にハンドルをプロキシに変換するヘルパー
     // ---------------------------------------------------------------------------
     function wrapHandles(val) {
@@ -56,7 +77,7 @@ const Steam = (() => {
         }
         
         if (typeof val === 'object' && val.__isHandle) {
-            return new Proxy(Object.create(null), {
+            const proxy = new Proxy(Object.create(null), {
                 get(_, methodName) {
                     if (typeof methodName !== 'string') return undefined;
                     if (methodName === 'then' || methodName === 'catch' || methodName === 'finally') return undefined;
@@ -67,6 +88,10 @@ const Steam = (() => {
                     return (...args) => invokeInstance(val.__handleId, methodName, args);
                 }
             });
+            // プロキシが GC されたら C# 側の _handleRegistry からも削除する。
+            // 第2引数 val.__handleId が "held value" としてファイナライザに渡される。
+            _handleFinalizer?.register(proxy, val.__handleId);
+            return proxy;
         }
         
         return val;

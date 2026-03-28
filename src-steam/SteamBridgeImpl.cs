@@ -143,6 +143,21 @@ namespace WebView2AppHost
                 var envelope = DeserializeEnvelope(webMessageJson);
                 if (envelope == null || envelope.Source != "steam") return;
 
+                if (envelope.MessageId == "release")
+                {
+                    var paramsJson = ExtractParamsJson(webMessageJson);
+                    var paramsDict = _jss.Deserialize<Dictionary<string, object>>(paramsJson);
+                    if (paramsDict.TryGetValue("handleId", out var rawId))
+                    {
+                        long handleId = Convert.ToInt64(rawId);
+                        _handleRegistry.TryRemove(handleId, out _);
+#if DEBUG
+                        AppLog.Log("INFO", "SteamBridgeImpl.Release", $"ハンドル {handleId} を解放しました");
+#endif
+                    }
+                    return;
+                }
+
                 if (envelope.MessageId != "invoke")
                 {
                     AppLog.Log("WARN", "SteamBridgeImpl.HandleWebMessage",
