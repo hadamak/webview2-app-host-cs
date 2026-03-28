@@ -61,7 +61,7 @@ namespace WebView2AppHost
             if (Directory.Exists(wwwDir))
             {
                 _sources.Add(new DirectorySource(wwwDir));
-                Console.WriteLine($"[ZipContentProvider] Mounted Individual Source: {wwwDir}");
+                AppLog.Log("INFO", "ZipContentProvider", $"Mounted Individual Source: {wwwDir}");
             }
         }
 
@@ -71,7 +71,7 @@ namespace WebView2AppHost
             if (args.Length >= 2 && File.Exists(args[1]))
             {
                 var src = ZipSource.FromFile(args[1]);
-                if (src != null) { _sources.Add(src); Console.WriteLine($"[ZipContentProvider] Mounted Arg Source: {args[1]}"); }
+                if (src != null) { _sources.Add(src); AppLog.Log("INFO", "ZipContentProvider", $"Mounted Arg Source: {args[1]}"); }
             }
         }
 
@@ -81,7 +81,7 @@ namespace WebView2AppHost
             if (File.Exists(zipPath))
             {
                 var src = ZipSource.FromFile(zipPath);
-                if (src != null) { _sources.Add(src); Console.WriteLine($"[ZipContentProvider] Mounted Sibling Source: {zipPath}"); }
+                if (src != null) { _sources.Add(src); AppLog.Log("INFO", "ZipContentProvider", $"Mounted Sibling Source: {zipPath}"); }
             }
         }
 
@@ -91,7 +91,7 @@ namespace WebView2AppHost
             try
             {
                 var src = ZipSource.FromAppendedFile(exePath);
-                if (src != null) { _sources.Add(src); Console.WriteLine("[ZipContentProvider] Mounted Bundled Source"); }
+                if (src != null) { _sources.Add(src); AppLog.Log("INFO", "ZipContentProvider", "Mounted Bundled Source"); }
             }
             catch (Exception ex) { AppLog.Log("ERROR", "ZipContentProvider.TryAddBundledSource", "Appended ZIP の検出に失敗", ex); }
         }
@@ -104,7 +104,7 @@ namespace WebView2AppHost
             if (stream != null)
             {
                 var src = ZipSource.FromStream(stream);
-                if (src != null) { _sources.Add(src); Console.WriteLine("[ZipContentProvider] Mounted Embedded Source"); }
+                if (src != null) { _sources.Add(src); AppLog.Log("INFO", "ZipContentProvider", "Mounted Embedded Source"); }
                 else { stream.Dispose(); }
             }
         }

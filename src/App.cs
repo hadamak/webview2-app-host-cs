@@ -22,12 +22,11 @@ namespace WebView2AppHost
         private bool _isMinimized = false;
 
         // 終了シーケンス管理
-        // _closeNavExpected : Navigate("about:blank") 発行済み、NavigationStarting 待ち
-        // _closeNavId       : NavigationStarting 受信後の NavigationId（0 = なし）
-        // _closeConfirmed   : about:blank 到達確認済み → Close() 発行可
-        private bool  _closeNavExpected = false;
-        private ulong _closeNavId       = 0;
-        private bool  _closeConfirmed   = false;
+        // about:blank 経由の beforeunload 発火 → NavigationCompleted 確認 → Close() の流れを追跡する。
+        // _closeNavId は NavigationStarting で記録した NavigationId の照合のみに使用し、
+        // それ以外の状態は CloseRequestState に集約する。
+        private readonly CloseRequestState _closeState = new CloseRequestState();
+        private ulong _closeNavId = 0;
 
         // フルスクリーン用
         private bool             _isFullscreen    = false;
@@ -131,20 +130,18 @@ namespace WebView2AppHost
             SetupFaviconTracking();
 
             // JS からのウィンドウクローズ要求 (window.close())
+            // about:blank ナビゲーションを経由しない直接クローズのため ConfirmDirectClose を使う。
             wv.WindowCloseRequested += (s, _) =>
             {
-                _closeConfirmed = true;
+                _closeState.ConfirmDirectClose();
                 Close();
             };
 
             // NavigationStarting で終了ナビゲーションの ID を確定する。
             wv.NavigationStarting += (s, e) =>
             {
-                if (_closeNavExpected && e.Uri == "about:blank")
-                {
-                    _closeNavExpected = false;
+                if (_closeState.IsHostCloseNavigationPending && e.Uri == "about:blank")
                     _closeNavId = e.NavigationId;
-                }
                 HandleNavigation(e.Uri, () => e.Cancel = true);
             };
 
@@ -153,11 +150,8 @@ namespace WebView2AppHost
             {
                 if (_closeNavId == 0 || e.NavigationId != _closeNavId) return;
                 _closeNavId = 0;
-                if (e.IsSuccess && wv.Source == "about:blank")
-                {
-                    _closeConfirmed = true;
+                if (_closeState.TryCompleteCloseNavigation(e.IsSuccess && wv.Source == "about:blank"))
                     Close();
-                }
             };
 
             // 外部リンク・ポップアップのハンドリング
@@ -663,14 +657,14 @@ namespace WebView2AppHost
 
         private void StartCloseNavigation()
         {
-            _closeNavExpected = true;
-            _closeNavId       = 0;
+            _closeState.BeginHostCloseNavigation();
+            _closeNavId = 0;
             _webView.CoreWebView2.Navigate("about:blank");
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            if (_closeConfirmed || _webView.CoreWebView2 == null)
+            if (_closeState.IsClosingConfirmed || _webView.CoreWebView2 == null)
             {
                 base.OnFormClosing(e);
                 return;
@@ -678,7 +672,7 @@ namespace WebView2AppHost
 
             e.Cancel = true;
 
-            if (_closeNavExpected || _closeNavId != 0)
+            if (_closeState.IsClosingInProgress)
                 return;
 
             StartCloseNavigation();

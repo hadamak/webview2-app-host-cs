@@ -26,6 +26,15 @@ namespace WebView2AppHost
             IsHostCloseNavigationPending = false;
         }
 
+        /// <summary>
+        /// JS の window.close() など、about:blank ナビゲーションを経由しない
+        /// 直接クローズ要求を確定する。
+        /// </summary>
+        public void ConfirmDirectClose()
+        {
+            IsClosingConfirmed = true;
+        }
+
         public bool ShouldConvertPageCloseRequestToHostClose()
         {
             return !IsClosingConfirmed && !IsHostCloseNavigationPending;

@@ -7,9 +7,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Runtime.Serialization;
-using System.Runtime.Serialization.Json;
-using System.Text;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
@@ -56,21 +53,6 @@ namespace WebView2AppHost
         internal const string SteamRestartRequiredMessage = "STEAM_RESTART_REQUIRED";
 
         // ---------------------------------------------------------------------------
-        // エンベロープ DataContract（JS → C# の外枠）
-        // ---------------------------------------------------------------------------
-
-        [DataContract]
-        private sealed class SteamEnvelope
-        {
-            [DataMember(Name = "source")]    public string Source    { get; set; } = "";
-            [DataMember(Name = "messageId")] public string MessageId { get; set; } = "";
-            [DataMember(Name = "asyncId")]   public double AsyncId   { get; set; } = -1.0;
-        }
-
-        private static readonly DataContractJsonSerializer s_envelopeSerializer =
-            new DataContractJsonSerializer(typeof(SteamEnvelope));
-
-        // ---------------------------------------------------------------------------
         // フィールド
         // ---------------------------------------------------------------------------
 
@@ -78,6 +60,12 @@ namespace WebView2AppHost
         private readonly System.Windows.Forms.Timer _callbackTimer;
         private readonly JavaScriptSerializer        _jss = new JavaScriptSerializer();
         private readonly Assembly                    _steamworkAsm;
+        /// <summary>
+        /// JS から指定可能な className のホワイトリスト。
+        /// 起動時に Steamworks アセンブリの公開型から構築する。
+        /// リフレクション呼び出しを Steamworks.* の公開型のみに限定するための防御策。
+        /// </summary>
+        private readonly HashSet<string>             _allowedClassNames;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<long, object> _handleRegistry
             = new System.Collections.Concurrent.ConcurrentDictionary<long, object>();
         private long _nextHandleId = 1;
@@ -91,6 +79,15 @@ namespace WebView2AppHost
         {
             _webView      = webView;
             _steamworkAsm = typeof(SteamClient).Assembly;
+
+            // Steamworks アセンブリの公開型名をホワイトリストとして構築する。
+            // GetExportedTypes() はアセンブリの公開型のみを返すため、
+            // 内部型への意図しないアクセスを防ぐ。
+            _allowedClassNames = new HashSet<string>(
+                _steamworkAsm.GetExportedTypes()
+                    .Where(t => t.Namespace == "Steamworks" || t.Namespace == "Steamworks.Data")
+                    .Select(t => t.Name),
+                StringComparer.Ordinal);
 
             if (!uint.TryParse(appId, out var id))
                 throw new ArgumentException($"無効な AppID: {appId}");
@@ -140,14 +137,20 @@ namespace WebView2AppHost
             if (_disposed) return;
             try
             {
-                var envelope = DeserializeEnvelope(webMessageJson);
-                if (envelope == null || envelope.Source != "steam") return;
+                // メッセージ全体を JavaScriptSerializer で1回だけパースする。
+                // これにより DataContractJsonSerializer との二重パース・手動文字列解析が不要になる。
+                var msg = _jss.Deserialize<Dictionary<string, object>>(webMessageJson);
+                if (msg == null) return;
+                if (!(msg.TryGetValue("source", out var src) && src as string == "steam")) return;
 
-                if (envelope.MessageId == "release")
+                var messageId = msg.TryGetValue("messageId", out var mid) ? mid as string : null;
+                var asyncId   = msg.TryGetValue("asyncId",   out var aid) && aid != null
+                                ? Convert.ToDouble(aid) : -1.0;
+
+                if (messageId == "release")
                 {
-                    var releaseParamsJson = ExtractParamsJson(webMessageJson);
-                    var paramsDict = _jss.Deserialize<Dictionary<string, object>>(releaseParamsJson);
-                    if (paramsDict.TryGetValue("handleId", out var rawId))
+                    var releaseParams = msg.TryGetValue("params", out var rp) ? rp as Dictionary<string, object> : null;
+                    if (releaseParams != null && releaseParams.TryGetValue("handleId", out var rawId))
                     {
                         long handleId = Convert.ToInt64(rawId);
                         _handleRegistry.TryRemove(handleId, out _);
@@ -158,16 +161,17 @@ namespace WebView2AppHost
                     return;
                 }
 
-                if (envelope.MessageId != "invoke")
+                if (messageId != "invoke")
                 {
                     AppLog.Log("WARN", "SteamBridgeImpl.HandleWebMessage",
-                        $"未知の messageId: {envelope.MessageId}");
+                        $"未知の messageId: {messageId}");
                     return;
                 }
 
-                var paramsJson = ExtractParamsJson(webMessageJson);
-                var asyncId    = envelope.AsyncId;
-                Task.Run(async () => { await DispatchInvokeAsync(paramsJson, asyncId); });
+                var paramsDict = msg.TryGetValue("params", out var p) ? p as Dictionary<string, object> : null;
+                if (paramsDict == null) return;
+
+                Task.Run(async () => { await DispatchInvokeAsync(paramsDict, asyncId); });
             }
             catch (Exception ex)
             {
@@ -179,15 +183,13 @@ namespace WebView2AppHost
         // 汎用ディスパッチャ
         // ---------------------------------------------------------------------------
 
-        private async Task DispatchInvokeAsync(string paramsJson, double asyncId)
+        private async Task DispatchInvokeAsync(Dictionary<string, object> paramsDict, double asyncId)
         {
             string logClassName = "Unknown";
             string logMethodName = "Unknown";
 
             try
             {
-                var paramsDict = _jss.Deserialize<Dictionary<string, object>>(paramsJson);
-
                 var argsRaw = paramsDict.TryGetValue("args", out var ar) && ar is ArrayList al
                     ? al.Cast<object>().ToArray()
                     : Array.Empty<object>();
@@ -263,6 +265,12 @@ namespace WebView2AppHost
                 }
 
                 // ---- 2 & 3. 静的メソッド、プロパティ getter、またはコンストラクタ ----
+
+                // Steamworks の公開型のみを許可する。ホワイトリスト外の className は
+                // WebView コンテンツが汚染されても任意型を呼び出せないよう弾く。
+                if (!_allowedClassNames.Contains(className))
+                    throw new TypeLoadException($"クラス '{className}' はホワイトリストに含まれていません。");
+
                 var type = _steamworkAsm.GetType($"Steamworks.{className}")
                            ?? _steamworkAsm.GetType($"Steamworks.Data.{className}")
                            ?? throw new TypeLoadException($"Steamworks または Steamworks.Data に {className} が見つかりません。");
@@ -653,46 +661,12 @@ namespace WebView2AppHost
             catch { return $"\"{EscapeJsonString(result.ToString() ?? "")}\""; }
         }
 
-        internal static string ExtractParamsJson(string json)
-        {
-            const string key = "\"params\":";
-            int keyIdx = json.IndexOf(key, StringComparison.Ordinal);
-            if (keyIdx < 0) return "{}";
-
-            int start = keyIdx + key.Length;
-            while (start < json.Length && json[start] == ' ') start++;
-            if (start >= json.Length) return "{}";
-
-            char opener = json[start];
-            if (opener != '[' && opener != '{') return "{}";
-            char closer = opener == '[' ? ']' : '}';
-
-            int depth = 0; bool inStr = false;
-            for (int i = start; i < json.Length; i++)
-            {
-                char c = json[i];
-                if (inStr) { if (c == '\\') i++; else if (c == '"') inStr = false; }
-                else if (c == '"')        inStr = true;
-                else if (c == opener)     depth++;
-                else if (c == closer && --depth == 0)
-                    return json.Substring(start, i - start + 1);
-            }
-            return "{}";
-        }
-
         private static string EscapeJsonString(string s) =>
             s.Replace("\\", "\\\\").Replace("\"", "\\\"")
              .Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
 
         private static string FormatDouble(double d) =>
             d.ToString("G", System.Globalization.CultureInfo.InvariantCulture);
-
-        private static SteamEnvelope? DeserializeEnvelope(string json)
-        {
-            var bytes = Encoding.UTF8.GetBytes(json);
-            using var ms = new MemoryStream(bytes);
-            return s_envelopeSerializer.ReadObject(ms) as SteamEnvelope;
-        }
 
         // ---------------------------------------------------------------------------
         // IDisposable

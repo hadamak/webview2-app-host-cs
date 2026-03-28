@@ -104,6 +104,9 @@ namespace HostTests
 
             // --- MimeTypes case-insensitivity tests ---
             RunMimeTypesCaseTests();
+
+            // --- CloseRequestState tests ---
+            RunCloseRequestStateTests();
         }
 
         // =====================================================================
@@ -926,6 +929,99 @@ namespace HostTests
             {
                 throw new InvalidOperationException($"Expected '{path}' to be rejected as a content source (Load should return false).");
             }
+        }
+        // =====================================================================
+        // CloseRequestState Tests
+        // =====================================================================
+
+        private static void RunCloseRequestStateTests()
+        {
+            // --- 初期状態 ---
+            {
+                var s = new WebView2AppHost.CloseRequestState();
+                AssertTrue(!s.IsClosingConfirmed,         "初期: IsClosingConfirmed は false");
+                AssertTrue(!s.IsClosingInProgress,        "初期: IsClosingInProgress は false");
+                AssertTrue(!s.IsHostCloseNavigationPending, "初期: IsHostCloseNavigationPending は false");
+                AssertTrue(s.ShouldConvertPageCloseRequestToHostClose(), "初期: ShouldConvert は true");
+            }
+
+            // --- BeginHostCloseNavigation ---
+            {
+                var s = new WebView2AppHost.CloseRequestState();
+                s.BeginHostCloseNavigation();
+                AssertTrue(s.IsClosingInProgress,          "Begin 後: IsClosingInProgress は true");
+                AssertTrue(s.IsHostCloseNavigationPending, "Begin 後: IsHostCloseNavigationPending は true");
+                AssertTrue(!s.ShouldConvertPageCloseRequestToHostClose(), "Begin 後: ShouldConvert は false（二重開始防止）");
+            }
+
+            // --- CancelHostCloseNavigation ---
+            {
+                var s = new WebView2AppHost.CloseRequestState();
+                s.BeginHostCloseNavigation();
+                s.CancelHostCloseNavigation();
+                AssertTrue(!s.IsClosingInProgress,          "Cancel 後: IsClosingInProgress は false");
+                AssertTrue(!s.IsHostCloseNavigationPending, "Cancel 後: IsHostCloseNavigationPending は false");
+                AssertTrue(!s.IsClosingConfirmed,           "Cancel 後: IsClosingConfirmed は false（未確定）");
+                AssertTrue(s.ShouldConvertPageCloseRequestToHostClose(), "Cancel 後: ShouldConvert は true（再試行可能）");
+            }
+
+            // --- TryCompleteCloseNavigation: 成功 ---
+            {
+                var s = new WebView2AppHost.CloseRequestState();
+                s.BeginHostCloseNavigation();
+                var result = s.TryCompleteCloseNavigation(isSuccess: true);
+                AssertTrue(result,                  "Complete(成功): true を返す");
+                AssertTrue(s.IsClosingConfirmed,    "Complete(成功): IsClosingConfirmed は true");
+                AssertTrue(!s.IsClosingInProgress,  "Complete(成功): IsClosingInProgress は false");
+                AssertTrue(!s.IsHostCloseNavigationPending, "Complete(成功): IsHostCloseNavigationPending は false");
+                AssertTrue(!s.ShouldConvertPageCloseRequestToHostClose(), "Complete(成功): ShouldConvert は false");
+            }
+
+            // --- TryCompleteCloseNavigation: 失敗（ナビゲーションエラー） ---
+            {
+                var s = new WebView2AppHost.CloseRequestState();
+                s.BeginHostCloseNavigation();
+                var result = s.TryCompleteCloseNavigation(isSuccess: false);
+                AssertTrue(!result,                  "Complete(失敗): false を返す");
+                AssertTrue(!s.IsClosingConfirmed,    "Complete(失敗): IsClosingConfirmed は false（未確定）");
+                AssertTrue(!s.IsClosingInProgress,   "Complete(失敗): IsClosingInProgress は false（リセット済み）");
+                AssertTrue(!s.IsHostCloseNavigationPending, "Complete(失敗): IsHostCloseNavigationPending は false");
+                AssertTrue(s.ShouldConvertPageCloseRequestToHostClose(), "Complete(失敗): ShouldConvert は true（再試行可能）");
+            }
+
+            // --- TryCompleteCloseNavigation: Pending でない場合は無視 ---
+            {
+                var s = new WebView2AppHost.CloseRequestState();
+                var result = s.TryCompleteCloseNavigation(isSuccess: true);
+                AssertTrue(!result,               "Complete(Pending なし): false を返す（無視）");
+                AssertTrue(!s.IsClosingConfirmed, "Complete(Pending なし): IsClosingConfirmed は false");
+            }
+
+            // --- ConfirmDirectClose（window.close() 用） ---
+            {
+                var s = new WebView2AppHost.CloseRequestState();
+                s.ConfirmDirectClose();
+                AssertTrue(s.IsClosingConfirmed,   "DirectClose 後: IsClosingConfirmed は true");
+                AssertTrue(!s.IsClosingInProgress, "DirectClose 後: IsClosingInProgress は false（ナビ不要）");
+                AssertTrue(!s.ShouldConvertPageCloseRequestToHostClose(), "DirectClose 後: ShouldConvert は false");
+            }
+
+            // --- Begin → ConfirmDirect の混在は起きないが、状態の独立性を確認 ---
+            {
+                var s = new WebView2AppHost.CloseRequestState();
+                s.BeginHostCloseNavigation();
+                s.ConfirmDirectClose();
+                AssertTrue(s.IsClosingConfirmed,          "混在: IsClosingConfirmed は true");
+                AssertTrue(s.IsClosingInProgress,         "混在: IsClosingInProgress は true（Begin 由来）");
+            }
+
+            Console.WriteLine("CloseRequestState: all tests passed.");
+        }
+
+        private static void AssertTrue(bool condition, string label)
+        {
+            if (!condition)
+                throw new InvalidOperationException($"CloseRequestState test failed: {label}");
         }
     }
 }

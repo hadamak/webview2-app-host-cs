@@ -18,6 +18,10 @@
     <Compile Include="..\..\src\MimeTypes.cs" />
     <Compile Include="..\..\src\AppLog.cs" />
     <Compile Include="..\..\src\AppConfig.cs" />
+    <Compile Include="..\..\src\CloseRequestState.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Runtime.Serialization" />
