@@ -145,8 +145,8 @@ namespace WebView2AppHost
 
                 if (envelope.MessageId == "release")
                 {
-                    var paramsJson = ExtractParamsJson(webMessageJson);
-                    var paramsDict = _jss.Deserialize<Dictionary<string, object>>(paramsJson);
+                    var releaseParamsJson = ExtractParamsJson(webMessageJson);
+                    var paramsDict = _jss.Deserialize<Dictionary<string, object>>(releaseParamsJson);
                     if (paramsDict.TryGetValue("handleId", out var rawId))
                     {
                         long handleId = Convert.ToInt64(rawId);
