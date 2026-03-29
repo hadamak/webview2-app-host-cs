@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using Microsoft.Web.WebView2.WinForms;
@@ -60,6 +61,12 @@ namespace WebView2AppHost
                 return null;
             }
 
+            // ⑥ 簡易整合性チェック: Steam DLL の AssemblyVersion が EXE と一致するか確認する。
+            // ハッシュ検証は運用コストが高いため、ビルド時に揃うバージョン番号で代替する。
+            // 不一致の場合は WARN ログのみで処理を続行する（クラッシュより安全側に倒す）。
+            // 本格的なコード署名検証は将来の検討事項（docs/future-considerations.md 参照）。
+            CheckSteamDllVersion(steamDll);
+
             try
             {
                 var asm = Assembly.LoadFrom(steamDll);
@@ -78,9 +85,6 @@ namespace WebView2AppHost
                 when (tie.InnerException is InvalidOperationException ioe
                       && ioe.Message == "STEAM_RESTART_REQUIRED")
             {
-                // SteamBridgeImpl コンストラクタ内で RestartAppIfNecessary が true を返した。
-                // Steam がアプリを再起動するためプロセスを終了しなければならない。
-                // リフレクション境界を越えて呼び出し元に通知するため、メッセージを保ちつつ再スロー。
                 AppLog.Log("INFO", "SteamBridge.TryCreate",
                     "Steam による再起動が必要なため初期化を中断します。");
                 throw new InvalidOperationException("STEAM_RESTART_REQUIRED", tie.InnerException);
@@ -90,6 +94,42 @@ namespace WebView2AppHost
                 AppLog.Log("WARN", "SteamBridge.TryCreate",
                     "Steam 機能の初期化に失敗しました。Steam 機能は無効です。", ex);
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// ⑥ Steam DLL の AssemblyVersion を EXE のバージョンと照合する。
+        /// 不一致は WARN ログを出力するのみで処理を中断しない。
+        /// </summary>
+        private static void CheckSteamDllVersion(string steamDllPath)
+        {
+            try
+            {
+                var dllVersion = FileVersionInfo.GetVersionInfo(steamDllPath).FileVersion;
+                var exeVersion = FileVersionInfo.GetVersionInfo(
+                    System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName!).FileVersion;
+
+                if (!string.IsNullOrEmpty(dllVersion)
+                    && !string.IsNullOrEmpty(exeVersion)
+                    && dllVersion != exeVersion)
+                {
+                    AppLog.Log("WARN", "SteamBridge.CheckSteamDllVersion",
+                        $"Steam DLL のバージョン ({dllVersion}) が EXE のバージョン ({exeVersion}) と一致しません。" +
+                        "異なるバージョンのビルド成果物が混在している可能性があります。");
+                }
+                else
+                {
+#if DEBUG
+                    AppLog.Log("INFO", "SteamBridge.CheckSteamDllVersion",
+                        $"バージョン整合性 OK: {dllVersion}");
+#endif
+                }
+            }
+            catch (Exception ex)
+            {
+                // バージョン情報の取得失敗は致命的でないためログのみ
+                AppLog.Log("WARN", "SteamBridge.CheckSteamDllVersion",
+                    "Steam DLL のバージョン情報を取得できませんでした。", ex);
             }
         }
 

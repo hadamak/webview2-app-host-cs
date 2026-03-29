@@ -5,6 +5,30 @@ namespace WebView2AppHost
     /// <summary>
     /// about:blank 経由の終了シーケンスを追跡する。
     /// キャンセル・失敗時の状態リセットを一箇所にまとめ、App から単体テスト可能にする。
+    ///
+    /// 状態遷移:
+    ///
+    ///   [Initial]
+    ///     │
+    ///     │ BeginHostCloseNavigation()
+    ///     ▼
+    ///   [InProgress]  ──── CancelHostCloseNavigation() ────▶ [Initial]
+    ///     │
+    ///     │ TryCompleteCloseNavigation(isSuccess: true)
+    ///     ▼
+    ///   [Confirmed]  (閉じる処理を進める)
+    ///
+    ///   ※ TryCompleteCloseNavigation(isSuccess: false) は [Initial] に戻る
+    ///      （beforeunload でキャンセルされた場合など）
+    ///
+    ///   別パス: window.close() などによる直接クローズ要求
+    ///   [任意の状態]
+    ///     │
+    ///     │ ConfirmDirectClose()
+    ///     ▼
+    ///   [Confirmed]
+    ///
+    /// IsClosingConfirmed == true になると OnFormClosing が閉じを許可する。
     /// </summary>
     internal sealed class CloseRequestState
     {

@@ -9,6 +9,11 @@ namespace WebView2AppHost
     /// </summary>
     internal static class WebResourceHandler
     {
+        // ⑤ 修正: 毎回パースされていた Regex を static readonly に昇格し Compiled を付与する。
+        // Range ヘッダはリクエストごとに呼ばれるため、コンパイル済み Regex の効果が大きい。
+        private static readonly Regex s_rangeRegex =
+            new Regex(@"^bytes=(\d*)-(\d*)$", RegexOptions.Compiled);
+
         /// <summary>
         /// Range ヘッダを解析して (start, end) を返す。
         /// フォーマット不正・逆転レンジは null（416 を返すべきケース）。
@@ -18,7 +23,7 @@ namespace WebView2AppHost
         {
             if (total <= 0) return null;
 
-            var m = Regex.Match(header, @"^bytes=(\d*)-(\d*)$");
+            var m = s_rangeRegex.Match(header);
             if (!m.Success) return null;
 
             var startStr = m.Groups[1].Value;

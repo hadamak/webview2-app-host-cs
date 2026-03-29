@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Steam Auto Test</title>
+  <script src="steam.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      font-size: 13px;
+      background: #1b2838;
+      color: #c7d5e0;
+      padding: 20px;
+    }
+
+    h1 {
+      font-size: 16px;
+      font-weight: 500;
+      color: #66c0f4;
+      margin-bottom: 4px;
+    }
+
+    .meta {
+      font-size: 11px;
+      color: #8fa9ba;
+      margin-bottom: 16px;
+    }
+
+    /* サマリーバー */
+    #summary {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      background: #2a475e;
+      border-radius: 6px;
+      padding: 10px 14px;
+      margin-bottom: 14px;
+      font-size: 13px;
+    }
+    .count { font-weight: 500; }
+    .count.pass { color: #6bcf7f; }
+    .count.fail { color: #f4826e; }
+    .count.skip { color: #aaa; }
+
+    /* 全体の状態表示 */
+    #status-badge {
+      margin-left: auto;
+      padding: 4px 12px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    #status-badge.running { background: #1a3a56; color: #66c0f4; }
+    #status-badge.pass    { background: #1a3d24; color: #6bcf7f; }
+    #status-badge.fail    { background: #3d1a1a; color: #f4826e; }
+
+    /* テスト結果リスト */
+    #results {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .result-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      background: #213547;
+      border-radius: 4px;
+      padding: 7px 10px;
+    }
+    .result-row.pass { border-left: 3px solid #6bcf7f; }
+    .result-row.fail { border-left: 3px solid #f4826e; }
+    .result-row.skip { border-left: 3px solid #555; opacity: 0.7; }
+    .result-row.running { border-left: 3px solid #66c0f4; }
+
+    .icon { font-size: 13px; flex-shrink: 0; width: 16px; text-align: center; }
+    .name { flex: 1; }
+    .value {
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      color: #8fa9ba;
+      max-width: 320px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .elapsed { font-size: 11px; color: #6b8a9e; flex-shrink: 0; }
+
+    /* エラー詳細 */
+    .error-detail {
+      font-family: Consolas, monospace;
+      font-size: 11px;
+      color: #f4826e;
+      margin-top: 4px;
+      padding-left: 24px;
+    }
+
+    /* ボタン */
+    #controls {
+      margin-top: 14px;
+      display: flex;
+      gap: 8px;
+    }
+    button {
+      background: #1a9fff;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      padding: 6px 14px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    button:hover { background: #66c0f4; }
+    button.subtle { background: #2a475e; }
+    button.subtle:hover { background: #3a5a70; }
+  </style>
+</head>
+<body>
+
+<h1>Steam Auto Test</h1>
+<div class="meta" id="meta">AppID: 480 (Spacewar) — 読み込み中...</div>
+
+<div id="summary">
+  <span class="count pass">✓ <span id="cnt-pass">0</span></span>
+  <span class="count fail">✗ <span id="cnt-fail">0</span></span>
+  <span class="count skip">- <span id="cnt-skip">0</span></span>
+  <span id="status-badge" class="running">実行中...</span>
+</div>
+
+<div id="results"></div>
+
+<div id="controls">
+  <button onclick="runAll()">再実行</button>
+  <button class="subtle" onclick="window.close()">閉じる</button>
+</div>
+
+<script>
+'use strict';
+
+// ---------------------------------------------------------------------------
+// テスト定義
+// ---------------------------------------------------------------------------
+//
+// 各テストは { name, fn } の形式。
+// fn は値を返す（または throw する）非同期関数。
+// 返値は文字列に変換して「値」列に表示する。
+// SKIP_REASON を throw すると skip 扱いになる。
+//
+// AppID 480 (Spacewar) で有効な名前を使う:
+//   Achievement : ACH_WIN_ONE_GAME
+//   Int stat    : NumGames
+//   Float stat  : FeetTraveled
+//   Leaderboard : Feet Traveled
+//
+const SKIP = Symbol('skip');
+
+function skip(reason) {
+  const e = new Error(reason);
+  e.__skip = true;
+  throw e;
+}
+
+const TESTS = [
+  // ---- 接続確認 ----
+  {
+    name: 'SteamClient.IsValid',
+    fn: async () => {
+      const v = await Steam.SteamClient.IsValid();
+      if (!v) throw new Error('Steam が初期化されていません。Steam クライアントが起動しているか確認してください。');
+      return v;
+    }
+  },
+  {
+    name: 'SteamClient.Name',
+    fn: async () => {
+      const name = await Steam.SteamClient.Name();
+      if (!name) throw new Error('ペルソナ名が空です');
+      return name;
+    }
+  },
+  {
+    name: 'SteamClient.SteamId',
+    fn: async () => {
+      const id = await Steam.SteamClient.SteamId();
+      if (!id) throw new Error('SteamID が取得できませんでした');
+      return String(id);
+    }
+  },
+
+  // ---- User Stats ----
+  {
+    name: 'SteamUserStats.RequestCurrentStats',
+    fn: async () => {
+      const ok = await Steam.SteamUserStats.RequestCurrentStats();
+      if (!ok) throw new Error('RequestCurrentStats が false を返しました');
+      return ok;
+    }
+  },
+  {
+    name: 'SteamUserStats.GetStatInt (NumGames)',
+    fn: async () => {
+      const v = await Steam.SteamUserStats.GetStatInt('NumGames');
+      if (typeof v !== 'number') throw new Error(`number を期待しましたが ${typeof v} が返りました`);
+      return v;
+    }
+  },
+  {
+    name: 'SteamUserStats.SetStat int (NumGames)',
+    fn: async () => {
+      const before = await Steam.SteamUserStats.GetStatInt('NumGames');
+      const ok = await Steam.SteamUserStats.SetStat('NumGames', before);
+      if (!ok) throw new Error('SetStat が false を返しました');
+      return `${before} → ${before} (変更なし)`;
+    }
+  },
+  {
+    name: 'SteamUserStats.GetStatFloat (FeetTraveled)',
+    fn: async () => {
+      const v = await Steam.SteamUserStats.GetStatFloat('FeetTraveled');
+      if (typeof v !== 'number') throw new Error(`number を期待しましたが ${typeof v} が返りました`);
+      return v.toFixed(2);
+    }
+  },
+  {
+    name: 'SteamUserStats.StoreStats',
+    fn: async () => {
+      const ok = await Steam.SteamUserStats.StoreStats();
+      if (!ok) throw new Error('StoreStats が false を返しました');
+      return ok;
+    }
+  },
+
+  // ---- Achievement ----
+  {
+    name: 'Achievement.Create + State (ACH_WIN_ONE_GAME)',
+    fn: async () => {
+      const ach = await Steam.Achievement.Create('ACH_WIN_ONE_GAME');
+      if (!ach) throw new Error('Achievement.Create が null を返しました');
+      const state = await ach.State();
+      return `unlocked: ${state}`;
+    }
+  },
+
+  // ---- Steam Cloud ----
+  {
+    name: 'SteamRemoteStorage.FileWrite + FileRead',
+    fn: async () => {
+      const fileName = '__auto_test_tmp__.json';
+      const payload  = JSON.stringify({ ts: Date.now(), test: 'auto' });
+      const bytes    = Array.from(new TextEncoder().encode(payload));
+
+      const wrote = await Steam.SteamRemoteStorage.FileWrite(fileName, bytes);
+      if (!wrote) throw new Error('FileWrite が false を返しました');
+
+      const readBytes = await Steam.SteamRemoteStorage.FileRead(fileName);
+      if (!readBytes) throw new Error('FileRead が null を返しました');
+
+      const text = new TextDecoder().decode(new Uint8Array(readBytes));
+      if (text !== payload) throw new Error(`読み返した内容が一致しません: ${text}`);
+
+      // 後片付け
+      await Steam.SteamRemoteStorage.FileDelete(fileName);
+
+      return `${bytes.length} bytes 書き込み・読み返し OK`;
+    }
+  },
+  {
+    name: 'SteamRemoteStorage.FileExists (存在しないファイル)',
+    fn: async () => {
+      const exists = await Steam.SteamRemoteStorage.FileExists('__nonexistent_auto_test__.json');
+      if (exists) throw new Error('存在しないはずのファイルが exists == true になりました');
+      return false;
+    }
+  },
+
+  // ---- Leaderboard ----
+  {
+    name: 'SteamUserStats.FindOrCreateLeaderboardAsync (Feet Traveled)',
+    fn: async () => {
+      const board = await Steam.SteamUserStats.FindOrCreateLeaderboardAsync('Feet Traveled', 2, 1);
+      if (!board || !board.__isHandle) throw new Error('ハンドルが返りませんでした');
+      return `handle: ${board.__handleId}`;
+    }
+  },
+
+  // ---- Rich Presence ----
+  {
+    name: 'SteamFriends.SetRichPresence + ClearRichPresence',
+    fn: async () => {
+      Steam.SteamFriends.SetRichPresence('status', 'auto test running');
+      Steam.SteamFriends.ClearRichPresence();
+      return 'set & cleared';
+    }
+  },
+
+  // ---- DLC / Ownership ----
+  {
+    name: 'SteamApps.IsSubscribedApp (AppID 480 自身)',
+    fn: async () => {
+      // AppID 480 (Spacewar) を所有しているかを確認
+      const subscribed = await Steam.SteamApps.IsSubscribedApp(480);
+      if (!subscribed) throw new Error('AppID 480 が未所有として返りました（Steam アカウントを確認してください）');
+      return subscribed;
+    }
+  },
+];
+
+// ---------------------------------------------------------------------------
+// 実行エンジン
+// ---------------------------------------------------------------------------
+
+let results = [];
+
+function fmt(v) {
+  if (v === undefined || v === null) return String(v);
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+}
+
+function updateSummary() {
+  const pass = results.filter(r => r.status === 'pass').length;
+  const fail = results.filter(r => r.status === 'fail').length;
+  const skip = results.filter(r => r.status === 'skip').length;
+  document.getElementById('cnt-pass').textContent = pass;
+  document.getElementById('cnt-fail').textContent = fail;
+  document.getElementById('cnt-skip').textContent = skip;
+
+  const running = results.some(r => r.status === 'running');
+  const badge = document.getElementById('status-badge');
+  if (running) {
+    badge.textContent = '実行中...';
+    badge.className = 'running';
+  } else if (fail > 0) {
+    badge.textContent = `FAIL (${fail}件)`;
+    badge.className = 'fail';
+  } else {
+    badge.textContent = `PASS (${pass}件)`;
+    badge.className = 'pass';
+  }
+}
+
+function renderRow(result) {
+  const { name, status, value, error, elapsed } = result;
+  const icons = { pass: '✓', fail: '✗', skip: '−', running: '⋯' };
+  const el = document.createElement('div');
+  el.className = `result-row ${status}`;
+  el.id = `row-${name.replace(/\s+/g, '_')}`;
+
+  el.innerHTML = `
+    <span class="icon">${icons[status] ?? '?'}</span>
+    <span class="name">${name}</span>
+    <span class="value">${value ?? ''}</span>
+    <span class="elapsed">${elapsed != null ? elapsed + 'ms' : ''}</span>
+  `;
+
+  if (error) {
+    const detail = document.createElement('div');
+    detail.className = 'error-detail';
+    detail.textContent = error;
+    el.appendChild(detail);
+  }
+
+  return el;
+}
+
+function upsertRow(result) {
+  const el = renderRow(result);
+  const existing = document.getElementById(`row-${result.name.replace(/\s+/g, '_')}`);
+  if (existing) {
+    existing.replaceWith(el);
+  } else {
+    document.getElementById('results').appendChild(el);
+  }
+}
+
+async function runAll() {
+  results = [];
+  document.getElementById('results').innerHTML = '';
+
+  // Steam が利用可能かを最初に確認
+  let steamAvailable = true;
+  try {
+    const valid = await Steam.SteamClient.IsValid();
+    steamAvailable = !!valid;
+  } catch {
+    steamAvailable = false;
+  }
+
+  document.getElementById('meta').textContent =
+    `AppID: 480 (Spacewar) — Steam: ${steamAvailable ? '利用可能' : '利用不可（Steam クライアントが起動していない可能性があります）'}`;
+
+  for (const test of TESTS) {
+    const result = { name: test.name, status: 'running', value: null, error: null, elapsed: null };
+    results.push(result);
+    upsertRow(result);
+    updateSummary();
+
+    const t0 = performance.now();
+    try {
+      const v = await test.fn();
+      result.status  = 'pass';
+      result.value   = fmt(v);
+    } catch (e) {
+      if (e.__skip) {
+        result.status = 'skip';
+        result.value  = e.message;
+      } else {
+        result.status = 'fail';
+        result.error  = e?.message ?? String(e);
+      }
+    }
+    result.elapsed = Math.round(performance.now() - t0);
+    upsertRow(result);
+    updateSummary();
+  }
+}
+
+// ページ読み込み時に自動実行
+window.addEventListener('DOMContentLoaded', runAll);
+</script>
+
+</body>
+</html>

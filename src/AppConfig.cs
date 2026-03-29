@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
+using System.Text.RegularExpressions;
 
 namespace WebView2AppHost
 {
@@ -14,9 +15,14 @@ namespace WebView2AppHost
     internal sealed class AppConfig
     {
         // ウィンドウサイズの許容範囲
-        private const int MinSize   =  160;   // 操作可能な最小値
-        private const int MaxWidth  = 7680;   // 8K 横
-        private const int MaxHeight = 4320;   // 8K 縦
+        private const int MinSize   =  160;
+        private const int MaxWidth  = 7680;
+        private const int MaxHeight = 4320;
+
+        // ⑤ 修正: Sanitize で毎回インスタンス化していた Regex を static readonly に昇格する。
+        // Compiled を付与することで初回以降の呼び出しコストを削減する。
+        private static readonly Regex s_controlCharRegex =
+            new Regex(@"[\p{C}]", RegexOptions.Compiled);
 
         [DataMember(Name = "title")]
         public string Title { get; private set; } = "WebView2 App Host";
@@ -41,7 +47,6 @@ namespace WebView2AppHost
         /// <summary>
         /// Steam AppID。Steamworks 機能を使う場合に設定する。
         /// 空または未設定の場合は steam_appid.txt または Steam 起動時の自動検出に委ねる。
-        /// 例: "480" (SpaceWarデモ)
         /// </summary>
         [DataMember(Name = "steamAppId")]
         public string SteamAppId { get; private set; } = "";
@@ -131,10 +136,8 @@ namespace WebView2AppHost
             }
             else
             {
-                // 制御文字を除去してトリム（タイトルバーに表示する文字列として適切な形に整える）
-                Title = System.Text.RegularExpressions.Regex
-                    .Replace(Title, @"[\p{C}]", "")
-                    .Trim();
+                // ⑤ static readonly の Regex を使用する（毎回インスタンス化を回避）
+                Title = s_controlCharRegex.Replace(Title, "").Trim();
                 if (Title.Length == 0) Title = "WebView2 App Host";
             }
 

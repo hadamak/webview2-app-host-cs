@@ -24,6 +24,15 @@ jobs:
     - name: Build
       run: msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
 
+    - name: Build HostTests
+      run: msbuild tests\HostTests\HostTests.csproj /t:Restore;Build /p:Configuration=Debug /p:Platform=x64
+
+    - name: Run HostTests
+      run: tests\HostTests\bin\x64\Debug\net472\HostTests.exe
+
+    - name: Run steam.js unit tests
+      run: node tests/steam-js/steam.test.js
+
     - name: Upload artifact
       uses: actions/upload-artifact@v7
       with:

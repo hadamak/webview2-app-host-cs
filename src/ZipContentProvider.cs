@@ -254,11 +254,15 @@ namespace WebView2AppHost
                         return null;
                     }
 
-                    uint cdSize = BitConverter.ToUInt32(buffer, eocdIdx + 12);
+                    uint cdSize   = BitConverter.ToUInt32(buffer, eocdIdx + 12);
                     uint cdOffset = BitConverter.ToUInt32(buffer, eocdIdx + 16);
                     uint commentLenFound = BitConverter.ToUInt16(buffer, eocdIdx + 20);
 
-                    long totalZipSize = cdOffset + cdSize + 22 + commentLenFound;
+                    // ① 修正: uint 同士の演算を long に昇格してからオーバーフローを防ぐ。
+                    // 変更前: cdOffset + cdSize は uint 演算のため 4GB 付近でオーバーフローし、
+                    //         その後 long に昇格しても誤った負値になる。
+                    long totalZipSize = (long)cdOffset + cdSize + 22 + commentLenFound;
+
                     if (totalZipSize > fs.Length || totalZipSize <= 0)
                     {
                         fs.Dispose();
@@ -292,6 +296,18 @@ namespace WebView2AppHost
                 var entryName = virtualPath.TrimStart('/');
                 var entry     = _archive.GetEntry(entryName);
                 if (entry == null) return null;
+
+                // ④ 修正: entry.Length が int の範囲を超える場合に明示的なエラーを返す。
+                // 2GB を超えるファイルは (int)entry.Length がオーバーフローし、
+                // MemoryStream の初期容量が負値になって ArgumentOutOfRangeException が発生する。
+                // 動画・音声など大きなファイルは www/ フォルダへの個別配置を推奨する。
+                if (entry.Length > int.MaxValue)
+                {
+                    AppLog.Log("WARN", "ZipSource.OpenEntry",
+                        $"エントリが大きすぎるため ZIP からの展開をスキップします: {entry.FullName} ({entry.Length:N0} bytes)。" +
+                        "動画・音声など大きなファイルは www/ フォルダへの個別配置を推奨します。");
+                    return null;
+                }
 
                 // エントリ全体を MemoryStream に展開して返す。
                 // シーク可能になるため Range Request に対応できる。

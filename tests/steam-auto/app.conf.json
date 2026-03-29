@@ -1,0 +1,8 @@
+{
+  "title": "Steam Auto Test",
+  "width": 800,
+  "height": 600,
+  "fullscreen": false,
+  "steamAppId": "480",
+  "steamDevMode": true
+}

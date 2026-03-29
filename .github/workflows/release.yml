@@ -26,9 +26,18 @@ jobs:
       - name: Build
         run: msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
 
-      - name: Build Steam DLL
-        run: dotnet build src-steam\WebView2AppHost.Steam.csproj -c Release -r win-x64 --no-self-contained /p:Platform=x64
+      - name: Build HostTests
+        run: msbuild tests\HostTests\HostTests.csproj /t:Restore;Build /p:Configuration=Debug /p:Platform=x64
 
+      - name: Run HostTests
+        run: tests\HostTests\bin\x64\Debug\net472\HostTests.exe
+
+      - name: Run steam.js unit tests
+        run: node tests/steam-js/steam.test.js
+
+      # Build Steam DLL ステップは package-steam-support.ps1 に統合済み。
+      # Facepunch.Steamworks サブモジュール（submodules: recursive で取得済み）に
+      # steam_api64.dll が含まれるため、CI 上でも ZIP を完全に生成できる。
       - name: Package Steam support
         shell: pwsh
         run: .\tools\package-steam-support.ps1

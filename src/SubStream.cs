@@ -7,6 +7,18 @@ namespace WebView2AppHost
     // SubStream: Stream の部分範囲を別の Stream として公開（Range Request 用）
     // ---------------------------------------------------------------------------
 
+    /// <summary>
+    /// 親 Stream の特定バイト範囲を独立した Stream として公開する。Range Request 応答に使用する。
+    ///
+    /// <para>
+    /// スレッド安全性について:
+    /// このクラスは WebView2 の WebResourceRequested コールバックスレッドからの
+    /// 単一スレッドアクセスを前提として設計されている。内部ロック (_lock) は
+    /// Read/Position の競合を防ぐが、_inner（親 Stream）自体はスレッドセーフではないため、
+    /// 複数スレッドから同一インスタンスの Position を同時に操作する場合は
+    /// 呼び出し元が外部同期を行う必要がある。
+    /// </para>
+    /// </summary>
     internal sealed class SubStream : Stream
     {
         private readonly Stream _inner;

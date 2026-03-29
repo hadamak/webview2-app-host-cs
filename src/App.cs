@@ -2,6 +2,7 @@ using System;
 using System.Drawing;
 using System.IO;
 using System.Net.Http;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -11,7 +12,15 @@ namespace WebView2AppHost
     internal sealed class App : Form
     {
         private readonly WebView2         _webView  = new WebView2();
-        private static readonly HttpClient _httpClient = new HttpClient();
+
+        // ③ 修正: タイムアウトを設定する。
+        // 設定なしでは応答しないプロキシ先でスレッドが長時間保持される。
+        // タイムアウト超過時は HandleProxyRequestAsync 内で TaskCanceledException を捕捉し 504 を返す。
+        private static readonly HttpClient _httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(15)
+        };
+
         private readonly ZipContentProvider _zip;
         private readonly AppConfig        _config;
         private readonly string           _initialUri;
@@ -22,9 +31,6 @@ namespace WebView2AppHost
         private bool _isMinimized = false;
 
         // 終了シーケンス管理
-        // about:blank 経由の beforeunload 発火 → NavigationCompleted 確認 → Close() の流れを追跡する。
-        // _closeNavId は NavigationStarting で記録した NavigationId の照合のみに使用し、
-        // それ以外の状態は CloseRequestState に集約する。
         private readonly CloseRequestState _closeState = new CloseRequestState();
         private ulong _closeNavId = 0;
 
@@ -33,10 +39,10 @@ namespace WebView2AppHost
         private FormBorderStyle  _prevBorderStyle = FormBorderStyle.Sizable;
         private FormWindowState  _prevWindowState = FormWindowState.Normal;
 
-        // favicon 管理（前のアイコンを Dispose するために保持）
+        // favicon 管理
         private Icon? _favicon = null;
 
-        // Steam ブリッジ（steam_bridge.dll が存在する場合のみ非 null）
+        // Steam ブリッジ
         private SteamBridge? _steamBridge;
 
         // ---------------------------------------------------------------------------
@@ -56,17 +62,14 @@ namespace WebView2AppHost
             _disposeZipOnClose = disposeZipOnClose;
             _popupWindowOptions = popupWindowOptions;
 
-            // ウィンドウ基本設定
             Text            = config.Title;
             ClientSize      = new Size(_popupWindowOptions?.Width ?? config.Width, _popupWindowOptions?.Height ?? config.Height);
             StartPosition   = (_popupWindowOptions?.HasPosition == true) ? FormStartPosition.Manual : FormStartPosition.CenterScreen;
             if (_popupWindowOptions?.HasPosition == true)
                 Location = new Point(_popupWindowOptions.Left, _popupWindowOptions.Top);
 
-            // アイコン（EXE に埋め込まれたアイコンをそのまま使う）
             Icon = IconUtils.GetAppIcon();
 
-            // WebView2 をフォームいっぱいに配置
             _webView.Dock = DockStyle.Fill;
             Controls.Add(_webView);
         }
@@ -94,10 +97,8 @@ namespace WebView2AppHost
             }
         }
 
-        private async System.Threading.Tasks.Task InitWebViewAsync()
+        private async Task InitWebViewAsync()
         {
-            // ユーザーデータディレクトリを EXE 名から自動決定
-            // 例: MyApp.exe → %LOCALAPPDATA%\MyApp\WebView2\
             var exeName  = Path.GetFileNameWithoutExtension(
                 System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName!);
             var dataDir  = Path.Combine(
@@ -109,35 +110,28 @@ namespace WebView2AppHost
 
             var wv = _webView.CoreWebView2;
 
-            // WebView2 設定
 #if DEBUG
             wv.Settings.AreDevToolsEnabled = true;
 #else
             wv.Settings.AreDevToolsEnabled = false;
 #endif
 
-            // カスタムスキームの登録（https://app.local/*）
             RegisterCustomScheme();
 
-            // <title> 変化をウィンドウタイトルに反映
             wv.DocumentTitleChanged += (s, _) =>
             {
                 if (!string.IsNullOrEmpty(wv.DocumentTitle))
                     Text = wv.DocumentTitle;
             };
 
-            // favicon 追従
             SetupFaviconTracking();
 
-            // JS からのウィンドウクローズ要求 (window.close())
-            // about:blank ナビゲーションを経由しない直接クローズのため ConfirmDirectClose を使う。
             wv.WindowCloseRequested += (s, _) =>
             {
                 _closeState.ConfirmDirectClose();
                 Close();
             };
 
-            // NavigationStarting で終了ナビゲーションの ID を確定する。
             wv.NavigationStarting += (s, e) =>
             {
                 if (_closeState.IsHostCloseNavigationPending && e.Uri == "about:blank")
@@ -145,7 +139,6 @@ namespace WebView2AppHost
                 HandleNavigation(e.Uri, () => e.Cancel = true);
             };
 
-            // NavigationId 照合で終了ナビゲーションの完了のみを処理する。
             wv.NavigationCompleted += (s, e) =>
             {
                 if (_closeNavId == 0 || e.NavigationId != _closeNavId) return;
@@ -154,10 +147,8 @@ namespace WebView2AppHost
                     Close();
             };
 
-            // 外部リンク・ポップアップのハンドリング
             wv.NewWindowRequested += (s, e) => HandleNewWindowRequest(e);
 
-            // 通知権限ハンドリング
             wv.PermissionRequested += (s, e) =>
             {
                 if (e.PermissionKind != CoreWebView2PermissionKind.Notifications) return;
@@ -182,7 +173,6 @@ namespace WebView2AppHost
                 }
             };
 
-            // visibilitychange 用スクリプト注入
             await wv.AddScriptToExecuteOnDocumentCreatedAsync(@"
                 const __wv2VisibilityDeduper = {
                     lastState: document.visibilityState,
@@ -227,7 +217,6 @@ namespace WebView2AppHost
                 });
             ");
 
-            // フルスクリーン状態の同期
             wv.ContainsFullScreenElementChanged += (s, e) =>
             {
                 if (wv.ContainsFullScreenElement)
@@ -240,18 +229,13 @@ namespace WebView2AppHost
                 }
             };
 
-            // ---------------------------------------------------------------------------
-            // Steam ブリッジの初期化（メインウィンドウのみ。ポップアップは不要）
-            // ---------------------------------------------------------------------------
             if (_popupWindowOptions == null)
             {
                 TryInitSteam();
             }
 
-            // index.html へナビゲート
             wv.Navigate(_initialUri);
 
-            // 起動時フルスクリーン
             if (_config.Fullscreen)
                 RequestFullscreen();
         }
@@ -271,9 +255,6 @@ namespace WebView2AppHost
             }
             catch (InvalidOperationException ex) when (ex.Message == "STEAM_RESTART_REQUIRED")
             {
-                // isDev=false（リリースモード）かつ Steam 経由で起動されていない場合。
-                // SteamClient.RestartAppIfNecessary が Steam にアプリの再起動を依頼済みのため、
-                // このプロセスを速やかに終了する必要がある。
                 AppLog.Log("INFO", "App.TryInitSteam",
                     "Steam 再起動要求を受信しました。アプリケーションを終了します。");
                 Application.Exit();
@@ -282,7 +263,6 @@ namespace WebView2AppHost
 
             if (_steamBridge == null) return;
 
-            // JS からの Steam メッセージを受信して DLL へ転送
             _webView.CoreWebView2.WebMessageReceived += (s, e) =>
             {
                 try
@@ -301,7 +281,7 @@ namespace WebView2AppHost
         }
 
         // ---------------------------------------------------------------------------
-        // カスタムスキーム（https://app.local/ → ZIP からオンデマンド配信）
+        // カスタムスキーム
         // ---------------------------------------------------------------------------
 
         private void RegisterCustomScheme()
@@ -329,7 +309,13 @@ namespace WebView2AppHost
 
             if (_config.IsProxyAllowed(uri))
             {
-                HandleProxyRequest(e, uri);
+                // ② 修正: async void から async Task に変更し例外を適切に伝播させる。
+                // ContinueWith で失敗時のみログを記録し、deferral.Complete() は
+                // HandleProxyRequestAsync の finally で保証されているため問題ない。
+                _ = HandleProxyRequestAsync(e, uri).ContinueWith(
+                    t => AppLog.Log("ERROR", "App.HandleProxyRequest",
+                        t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown"),
+                    TaskContinuationOptions.OnlyOnFaulted);
                 return;
             }
 
@@ -395,56 +381,69 @@ namespace WebView2AppHost
             }
         }
 
-        private async void HandleProxyRequest(CoreWebView2WebResourceRequestedEventArgs e, Uri targetUri)
+        // ② 修正: async void → async Task。
+        // 呼び出し元が _ = HandleProxyRequestAsync(...).ContinueWith(...) で
+        // 失敗時ログを担保するため、このメソッド自体は例外を握りつぶさない。
+        private async Task HandleProxyRequestAsync(CoreWebView2WebResourceRequestedEventArgs e, Uri targetUri)
         {
+            var deferral = e.GetDeferral();
             try
             {
-                var deferral = e.GetDeferral();
-                try
+                var method  = new HttpMethod(e.Request.Method ?? "GET");
+                var request = new HttpRequestMessage(method, targetUri);
+
+                foreach (var header in e.Request.Headers)
                 {
-                    var method  = new HttpMethod(e.Request.Method ?? "GET");
-                    var request = new HttpRequestMessage(method, targetUri);
-
-                    foreach (var header in e.Request.Headers)
-                    {
-                        var name = header.Key;
-                        if (name.Equals("Host",    StringComparison.OrdinalIgnoreCase) ||
-                            name.Equals("Origin",  StringComparison.OrdinalIgnoreCase) ||
-                            name.Equals("Referer", StringComparison.OrdinalIgnoreCase))
-                            continue;
-                        try { request.Headers.TryAddWithoutValidation(name, header.Value); } catch { }
-                    }
-
-                    var response = await _httpClient.SendAsync(
-                        request, HttpCompletionOption.ResponseContentRead);
-
-                    var body = await response.Content.ReadAsByteArrayAsync();
-                    var ms   = new System.IO.MemoryStream(body);
-
-                    var contentType = response.Content.Headers.ContentType?.ToString()
-                        ?? "application/octet-stream";
-                    var headers = $"Content-Type: {contentType}\r\n"
-                        + $"Content-Length: {body.Length}\r\n"
-                        + "Access-Control-Allow-Origin: *\r\n"
-                        + "Cache-Control: no-store";
-
-                    e.Response = _webView.CoreWebView2.Environment
-                        .CreateWebResourceResponse(
-                            ms,
-                            (int)response.StatusCode,
-                            response.ReasonPhrase ?? "OK",
-                            headers);
+                    var name = header.Key;
+                    if (name.Equals("Host",    StringComparison.OrdinalIgnoreCase) ||
+                        name.Equals("Origin",  StringComparison.OrdinalIgnoreCase) ||
+                        name.Equals("Referer", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    try { request.Headers.TryAddWithoutValidation(name, header.Value); } catch { }
                 }
-                finally
-                {
-                    deferral.Complete();
-                }
+
+                // ③ タイムアウト超過は TaskCanceledException として到達する
+                var response = await _httpClient.SendAsync(
+                    request, HttpCompletionOption.ResponseContentRead);
+
+                var body = await response.Content.ReadAsByteArrayAsync();
+                var ms   = new System.IO.MemoryStream(body);
+
+                var contentType = response.Content.Headers.ContentType?.ToString()
+                    ?? "application/octet-stream";
+                var headers = $"Content-Type: {contentType}\r\n"
+                    + $"Content-Length: {body.Length}\r\n"
+                    + "Access-Control-Allow-Origin: *\r\n"
+                    + "Cache-Control: no-store";
+
+                e.Response = _webView.CoreWebView2.Environment
+                    .CreateWebResourceResponse(
+                        ms,
+                        (int)response.StatusCode,
+                        response.ReasonPhrase ?? "OK",
+                        headers);
+            }
+            catch (TaskCanceledException)
+            {
+                // ③ タイムアウト: 504 Gateway Timeout を返す
+                AppLog.Log("WARN", "App.HandleProxyRequestAsync",
+                    $"プロキシ転送がタイムアウトしました (15s): {targetUri.AbsoluteUri}");
+                e.Response = _webView.CoreWebView2.Environment
+                    .CreateWebResourceResponse(null, 504, "Gateway Timeout",
+                        "Content-Type: text/plain");
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", "App.HandleProxyRequest", $"プロキシ転送失敗: {targetUri.AbsoluteUri}", ex);
+                AppLog.Log("ERROR", "App.HandleProxyRequestAsync",
+                    $"プロキシ転送失敗: {targetUri.AbsoluteUri}", ex);
                 e.Response = _webView.CoreWebView2.Environment
-                    .CreateWebResourceResponse(null, 502, "Bad Gateway", "Content-Type: text/plain");
+                    .CreateWebResourceResponse(null, 502, "Bad Gateway",
+                        "Content-Type: text/plain");
+                throw;  // ContinueWith でログされる
+            }
+            finally
+            {
+                deferral.Complete();
             }
         }
 
@@ -652,7 +651,7 @@ namespace WebView2AppHost
         }
 
         // ---------------------------------------------------------------------------
-        // 終了ナビゲーション（beforeunload 発火）
+        // 終了ナビゲーション
         // ---------------------------------------------------------------------------
 
         private void StartCloseNavigation()
