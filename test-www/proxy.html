@@ -55,12 +55,12 @@
   <div class="result" id="res-query">—</div>
 </div>
 
-<!-- POST リクエスト（制限確認） -->
+<!-- POST リクエスト -->
 <div class="card">
-  <h2>③ POST — 制限確認（ボディ非対応）</h2>
+  <h2>③ POST — ボディ転送テスト</h2>
   <div class="row">
     <code>fetch('https://httpbin.org/post', { method: 'POST', body: '{...}' })</code>
-    <span style="font-size:11px;color:#888">→ WebView2 制限によりボディ転送不可</span>
+    <span style="font-size:11px;color:#888">→ CDP プロキシによりボディも転送されます</span>
   </div>
   <div class="row">
     <button onclick="testPost()">実行</button>
@@ -109,10 +109,10 @@ async function testPost() {
       body: JSON.stringify({ message: 'hello from WebView2' })
     });
     const json = await res.json();
-    // ボディが転送されていない場合 json.json は null になる
+    // ボディが転送されている場合 json.json にデータが入る
     const bodyReceived = json.json !== null && json.json !== undefined;
-    el.textContent = (bodyReceived ? '⚠ ボディあり（予期しない動作）' : '✓ ステータス ' + res.status + ' — ボディは未転送（想定通り）') + '\n' + JSON.stringify(json.json, null, 2);
-    el.className = bodyReceived ? 'result warn' : 'result ok';
+    el.textContent = (bodyReceived ? '✓ ステータス ' + res.status + ' — ボディ転送成功' : '✗ ボディなし（転送失敗）') + '\n' + JSON.stringify(json.json, null, 2);
+    el.className = bodyReceived ? 'result ok' : 'result err';
   } catch (e) {
     el.textContent = '✗ ' + e.name + ': ' + e.message;
     el.className = 'result err';

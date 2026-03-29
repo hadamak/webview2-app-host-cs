@@ -45,6 +45,8 @@ namespace WebView2AppHost
         // Steam ブリッジ
         private SteamBridge? _steamBridge;
 
+        private CdpProxyHandler? _cdpProxy;
+
         // ---------------------------------------------------------------------------
         // コンストラクタ
         // ---------------------------------------------------------------------------
@@ -117,6 +119,15 @@ namespace WebView2AppHost
 #endif
 
             RegisterCustomScheme();
+
+            // proxyOrigins が設定されている場合は CDP 透過プロキシを有効化する。
+            // WebResourceRequested ベースの GET 専用実装（旧）を CDP Fetch ドメインで置き換え、
+            // POST / PUT / DELETE 等のリクエストボディも透過転送できるようになる。
+            if (_config.ProxyOrigins?.Length > 0)
+            {
+                _cdpProxy = new CdpProxyHandler(wv, _config.ProxyOrigins, _httpClient);
+                await _cdpProxy.EnableAsync();
+            }
 
             wv.DocumentTitleChanged += (s, _) =>
             {
@@ -286,17 +297,12 @@ namespace WebView2AppHost
 
         private void RegisterCustomScheme()
         {
+            // app.local のコンテンツ配信のみ WebResourceRequested で処理する。
+            // 外部オリジン（proxyOrigins）へのリクエストは CdpProxyHandler が
+            // CDP Fetch ドメインでインターセプトするため、ここには登録しない。
             _webView.CoreWebView2.AddWebResourceRequestedFilter(
                 "https://app.local/*",
                 CoreWebView2WebResourceContext.All);
-
-            foreach (var origin in _config.ProxyOrigins ?? Array.Empty<string>())
-            {
-                var normalized = origin.TrimEnd('/');
-                _webView.CoreWebView2.AddWebResourceRequestedFilter(
-                    normalized + "/*",
-                    CoreWebView2WebResourceContext.All);
-            }
 
             _webView.CoreWebView2.WebResourceRequested += (s, e) =>
                 HandleWebResourceRequest(e);
@@ -304,20 +310,9 @@ namespace WebView2AppHost
 
         private void HandleWebResourceRequest(CoreWebView2WebResourceRequestedEventArgs e)
         {
+            // このハンドラは https://app.local/* のみに呼ばれる（外部オリジンは CDP が処理）。
             var uri  = new Uri(e.Request.Uri);
             var path = Uri.UnescapeDataString(uri.AbsolutePath);
-
-            if (_config.IsProxyAllowed(uri))
-            {
-                // ② 修正: async void から async Task に変更し例外を適切に伝播させる。
-                // ContinueWith で失敗時のみログを記録し、deferral.Complete() は
-                // HandleProxyRequestAsync の finally で保証されているため問題ない。
-                _ = HandleProxyRequestAsync(e, uri).ContinueWith(
-                    t => AppLog.Log("ERROR", "App.HandleProxyRequest",
-                        t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown"),
-                    TaskContinuationOptions.OnlyOnFaulted);
-                return;
-            }
 
             var rangeHeader = e.Request.Headers.Contains("Range")
                 ? e.Request.Headers.GetHeader("Range")
@@ -682,6 +677,7 @@ namespace WebView2AppHost
             if (disposing)
             {
                 _favicon?.Dispose();
+                _cdpProxy?.Dispose();
                 _steamBridge?.Dispose();
                 if (_disposeZipOnClose)
                     _zip.Dispose();

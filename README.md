@@ -264,7 +264,13 @@ const res = await fetch('https://api.example.com/v1/data');
 
 Requests to origins not in the allow list are handled by WebView2 as usual (and may fail due to CORS).
 
-> ⚠️ **Limitation:** Due to a WebView2 restriction, request bodies cannot be read from `WebResourceRequested` events. Only GET requests are proxied. POST/PUT with a body are not supported.
+> ℹ️ **Implementation note:** Proxying is implemented via CDP's Fetch domain,
+> which intercepts requests before they reach the network stack.
+> This allows forwarding of GET, POST, PUT, DELETE, and other HTTP methods,
+> including request bodies (JSON, `application/x-www-form-urlencoded`, etc.).
+>
+> Binary request bodies (`multipart/form-data` file uploads) are not fully supported.
+> For those use cases, consider configuring CORS on your server side instead.
 
 ### `user.conf.json`
 

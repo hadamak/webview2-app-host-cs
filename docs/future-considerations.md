@@ -18,16 +18,33 @@
 
 ---
 
-## 2. 外部オリジン CORS プロキシ ✅ 実装済み
-
-### 現状
-`https://app.local/` から外部 API（別ドメインの `http(s)://`）への `fetch` は CORS でブロックされる。コンテンツ側でサーバーレスプロキシを用意するか、あきらめるしかない。
-
-### 対応
-`proxyOrigins` に登録した外部オリジンを `AddWebResourceRequestedFilter` で登録し、`HandleWebResourceRequest` で `HttpClient` 転送。コンテンツ側は通常の URL で `fetch` でき、ブラウザとの互換性が保たれる。ホスト固有の URL 記述不要。
-
+## 2. 外部オリジン CORS プロキシ ✅ CDP ベース実装済み（POST/PUT 対応）
+ 
+### 旧実装（WebResourceRequested 版）の制約
+`https://app.local/` から外部 API への `fetch` は CORS でブロックされる。
+以前の実装は `WebResourceRequested` + `HttpClient` 転送で対応したが、
+WebView2 の `WebResourceRequested` イベントでは `e.Request.Content` が常に null を返す
+既知の制約があり、POST / PUT 等のボディ転送は非対応（GET のみ機能）だった。
+ 
+### 新実装（CDP Fetch ドメイン版）
+CDP の `Fetch.enable` でリクエストをインターセプトし、
+`Fetch.requestPaused` イベントで `postData`（リクエストボディ）を取得して転送する。
+ 
+動作フロー:
+1. `Fetch.enable` で `proxyOrigins` に一致する URL パターンを登録
+2. `Fetch.requestPaused` イベントでリクエスト全体（URL・メソッド・ヘッダ・ボディ）を取得
+3. `HttpClient` で外部 API へ転送（タイムアウト 15 秒）
+4. `Fetch.fulfillRequest` でレスポンスを WebView2 に返す（ボディは base64 エンコード）
+5. 失敗時は `Fetch.failRequest` でリクエストを終了（ブラウザハング防止）
+ 
+実装クラス: `src/CdpProxyHandler.cs`
+ 
 ### 残存制限
-WebView2 の `WebResourceRequested` イベントでは `e.Request.Content`（リクエストボディ）が常に null を返す既知の制約があり、POST / PUT 等のボディ転送は非対応。GET リクエストのみ機能する。解決するには `WebResourceResponseReceived` と `NavigateWithWebResourceRequest` を組み合わせる手法が必要だが、実装コストが高い。
+- `postData` は文字列型。multipart/form-data 等の純バイナリボディは文字化けする可能性がある。
+  JSON / `application/x-www-form-urlencoded` は問題なし。
+- CDP がボディを省略した場合（`hasPostData=true` かつ `postData=null`、大きなボディで発生し得る）は
+  `Fetch.getRequestPostData` で取得する実装が必要。現時点は警告ログのみで転送を継続する。
+- 非常に大きなレスポンスはメモリを圧迫する可能性がある（動画等は `www/` フォルダを推奨）。
 
 ---
 

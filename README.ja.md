@@ -262,7 +262,12 @@ const res = await fetch('https://api.example.com/v1/data');
 
 許可リストにないオリジンへのリクエストは通常通り WebView2 が処理します（CORS エラーになる場合があります）。
 
-> ⚠️ **制限**: WebView2 の `WebResourceRequested` イベントではリクエストボディが取得できないため、POST / PUT 等のボディを伴うリクエストは転送されません。GET リクエストのみ対応しています。
+> ℹ️ **実装メモ**: プロキシは CDP（Chrome DevTools Protocol）の Fetch ドメインを使って実装されています。
+> リクエストをネットワークスタックより手前でインターセプトするため、
+> GET に加え POST / PUT / DELETE などのメソッドとリクエストボディ（JSON・フォームデータ等）も転送できます。
+>
+> `multipart/form-data` によるバイナリファイルアップロードは完全にはサポートされていません。
+> その場合はサーバー側で CORS を設定することを検討してください。
 
 ### `user.conf.json`
 
