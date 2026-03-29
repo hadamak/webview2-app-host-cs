@@ -24,14 +24,14 @@
 </head>
 <body>
 
-<h1>CORS プロキシテスト</h1>
+<h1>CORS プロキシテスト (CDP版)</h1>
 <p class="note">
-  ホストの <code>proxyOrigins</code> に登録された外部オリジンへの <code>fetch()</code> が、コンテンツ側の URL 変更なしに動作することを確認します。<br>
-  ブラウザで開いた場合はネットワーク接続があれば通常の CORS リクエストが試みられ、CORS エラーになります（プロキシは機能しません）。<br>
+  ホストの <code>proxyOrigins</code> に登録された外部オリジンへの <code>fetch()</code> が透過的に動作することを確認します。<br>
+  CDP (Chrome DevTools Protocol) により、GET 以外のメソッドやリクエストボディ、カスタムヘッダもサポートされています。<br>
   <a href="index.html">← index.html へ戻る</a>
 </p>
 
-<!-- GET リクエスト -->
+<!-- ① GET リクエスト -->
 <div class="card">
   <h2>① GET — JSON データ取得</h2>
   <div class="row">
@@ -43,7 +43,7 @@
   <div class="result" id="res-get">—</div>
 </div>
 
-<!-- GET クエリパラメータ -->
+<!-- ② GET クエリパラメータ -->
 <div class="card">
   <h2>② GET — クエリパラメータ付き</h2>
   <div class="row">
@@ -55,12 +55,11 @@
   <div class="result" id="res-query">—</div>
 </div>
 
-<!-- POST リクエスト -->
+<!-- ③ POST リクエスト -->
 <div class="card">
-  <h2>③ POST — ボディ転送テスト</h2>
+  <h2>③ POST — ボディ転送 (JSON)</h2>
   <div class="row">
     <code>fetch('https://httpbin.org/post', { method: 'POST', body: '{...}' })</code>
-    <span style="font-size:11px;color:#888">→ CDP プロキシによりボディも転送されます</span>
   </div>
   <div class="row">
     <button onclick="testPost()">実行</button>
@@ -68,9 +67,58 @@
   <div class="result" id="res-post">—</div>
 </div>
 
-<!-- 未登録オリジン -->
+<!-- ④ PUT リクエスト -->
 <div class="card">
-  <h2>④ 未登録オリジン（ブロック確認）</h2>
+  <h2>④ PUT — データ更新</h2>
+  <div class="row">
+    <code>fetch('https://httpbin.org/put', { method: 'PUT', body: '{...}' })</code>
+  </div>
+  <div class="row">
+    <button onclick="testPut()">実行</button>
+  </div>
+  <div class="result" id="res-put">—</div>
+</div>
+
+<!-- ⑤ カスタムヘッダ -->
+<div class="card">
+  <h2>⑤ ヘッダ — 送受信テスト</h2>
+  <div class="row">
+    <code>X-Custom-Request</code> を送信し、<br>
+    <code>X-Custom-Response</code> を受信できるか
+  </div>
+  <div class="row">
+    <button onclick="testHeaders()">実行</button>
+  </div>
+  <div class="result" id="res-headers">—</div>
+</div>
+
+<!-- ⑥ エラー応答 -->
+<div class="card">
+  <h2>⑥ エラー — 404 Not Found</h2>
+  <div class="row">
+    <code>fetch('https://httpbin.org/status/404')</code>
+  </div>
+  <div class="row">
+    <button onclick="testError()">実行</button>
+  </div>
+  <div class="result" id="res-error">—</div>
+</div>
+
+<!-- ⑦ フォームデータ -->
+<div class="card">
+  <h2>⑦ POST — フォーム形式</h2>
+  <div class="row">
+    <code>application/x-www-form-urlencoded</code>
+  </div>
+  <div class="row">
+    <button onclick="testForm()">実行</button>
+  </div>
+  <div class="result" id="res-form">—</div>
+</div>
+
+<!-- ⑧ 未登録オリジン -->
+<div class="card">
+  <h2>⑧ ブロック確認 (未登録オリジン)</h2>
   <div class="row">
     <code>fetch('https://example.com/')</code>
     <span style="font-size:11px;color:#888">→ proxyOrigins 未登録</span>
@@ -99,24 +147,81 @@ async function testGetQuery() {
 }
 
 async function testPost() {
-  const el = document.getElementById('res-post');
-  el.className = 'result warn';
-  el.textContent = '実行中…';
-  try {
+  await run('res-post', async () => {
     const res = await fetch('https://httpbin.org/post', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: 'hello from WebView2' })
     });
     const json = await res.json();
-    // ボディが転送されている場合 json.json にデータが入る
     const bodyReceived = json.json !== null && json.json !== undefined;
-    el.textContent = (bodyReceived ? '✓ ステータス ' + res.status + ' — ボディ転送成功' : '✗ ボディなし（転送失敗）') + '\n' + JSON.stringify(json.json, null, 2);
-    el.className = bodyReceived ? 'result ok' : 'result err';
-  } catch (e) {
-    el.textContent = '✗ ' + e.name + ': ' + e.message;
-    el.className = 'result err';
-  }
+    return {
+      status: res.status,
+      ok: res.ok,
+      message: bodyReceived ? '✅ ボディ転送成功' : '❌ ボディなし',
+      data: json.json
+    };
+  });
+}
+
+async function testPut() {
+  await run('res-put', async () => {
+    const res = await fetch('https://httpbin.org/put', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ update: 'success', time: new Date().toISOString() })
+    });
+    const json = await res.json();
+    return { status: res.status, data: json.json };
+  });
+}
+
+async function testHeaders() {
+  await run('res-headers', async () => {
+    // 1. リクエストヘッダの送信確認 (httpbin.org/get は受信したヘッダをボディに含めて返す)
+    const res1 = await fetch('https://httpbin.org/get', {
+      headers: { 'X-Custom-Request': 'Hello-From-Client' }
+    });
+    const json1 = await res1.json();
+    const sentOk = json1.headers['X-Custom-Request'] === 'Hello-From-Client';
+
+    // 2. レスポンスヘッダの受信確認 (httpbin.org/response-headers はクエリをレスポンスヘッダにして返す)
+    const res2 = await fetch('https://httpbin.org/response-headers?X-Custom-Response=Antigravity-Proxy-OK');
+    const received = res2.headers.get('X-Custom-Response');
+    
+    return {
+      requestHeaderForwarded: sentOk ? '✅ 成功' : '❌ 失敗',
+      responseHeaderReceived: (received === 'Antigravity-Proxy-OK') ? '✅ 成功' : '❌ 失敗 (' + received + ')'
+    };
+  });
+}
+
+async function testError() {
+  await run('res-error', async () => {
+    const res = await fetch('https://httpbin.org/status/404');
+    return {
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      message: '✓ 404 ステータスを正しく受信しました'
+    };
+  });
+}
+
+async function testForm() {
+  await run('res-form', async () => {
+    const res = await fetch('https://httpbin.org/post', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        action: 'test',
+        user: 'webview2-user',
+        platform: 'windows'
+      })
+    });
+    const json = await res.json();
+    return { status: res.status, form: json.form };
+  });
 }
 
 async function testBlocked() {
@@ -125,12 +230,11 @@ async function testBlocked() {
   el.className = 'result warn';
   try {
     const res = await fetch('https://example.com/');
-    // ホストはフィルタ登録していないので WebView2 がそのままリクエストを処理。
-    // CORS ポリシーによりエラーになるかレスポンスを得る（環境依存）。
-    el.textContent = `status: ${res.status} — プロキシを経由していません`;
+    // 通常、CORS ポリシーによりエラーになる（プロキシ対象外のため）
+    el.textContent = `status: ${res.status} — プロキシを経由していません\n（期待される挙動: 開発環境では CORS エラーで catch される）`;
     el.className = 'result warn';
   } catch (e) {
-    el.textContent = `✓ エラー（CORS ブロック）: ${e.message}`;
+    el.textContent = `✓ 期待通りの動作 (CORS ブロック): ${e.message}`;
     el.className = 'result ok';
   }
 }

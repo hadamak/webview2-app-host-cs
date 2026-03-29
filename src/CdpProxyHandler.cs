@@ -263,21 +263,48 @@ namespace WebView2AppHost
         {
             var headers = new List<string>();
 
-            foreach (var h in response.Headers)
-                foreach (var v in h.Value)
-                    headers.Add(
-                        $"{{\"name\":\"{EscapeJsonString(h.Key)}\",\"value\":\"{EscapeJsonString(v)}\"}}");
+            // 1. 元のヘッダをコピー（ただし、転送してはいけないものは除外する）
+            AddFilteredHeaders(headers, response.Headers);
+            AddFilteredHeaders(headers, response.Content.Headers);
 
-            foreach (var h in response.Content.Headers)
-                foreach (var v in h.Value)
-                    headers.Add(
-                        $"{{\"name\":\"{EscapeJsonString(h.Key)}\",\"value\":\"{EscapeJsonString(v)}\"}}");
-
-            // CORS ヘッダ付与（app.local からのアクセスを許可）
+            // 2. CORS ヘッダおよび制御用ヘッダを付与
+            // Access-Control-Allow-Origin 等が重複するとブラウザ側で Failed to fetch になるため、
+            // 元のレスポンスに含まれていた場合は AddFilteredHeaders で除外されている。
             headers.Add("{\"name\":\"Access-Control-Allow-Origin\",\"value\":\"*\"}");
+            headers.Add("{\"name\":\"Access-Control-Allow-Methods\",\"value\":\"GET, POST, PUT, DELETE, OPTIONS\"}");
+            headers.Add("{\"name\":\"Access-Control-Allow-Headers\",\"value\":\"*\"}");
+            headers.Add("{\"name\":\"Access-Control-Expose-Headers\",\"value\":\"*\"}");
             headers.Add("{\"name\":\"Cache-Control\",\"value\":\"no-store\"}");
 
             return headers;
+        }
+
+        /// <summary>
+        /// HTTP レスポンスヘッダからパッシブなヘッダのみを抽出し、プロキシ転送用のリストに追加する。
+        /// CORS ヘッダやホップバイホップヘッダ（Transfer-Encoding等）は、
+        /// ブラウザ側の動作や重複によるエラーを防ぐために除外する。
+        /// </summary>
+        private static void AddFilteredHeaders(List<string> dest, System.Net.Http.Headers.HttpHeaders headers)
+        {
+            foreach (var h in headers)
+            {
+                var name = h.Key;
+
+                // ホップバイホップヘッダを除外
+                if (IsHopByHopHeader(name)) continue;
+
+                // CORS ヘッダはホスト側で一括制御するため除外（重複防止）
+                if (name.StartsWith("Access-Control-", StringComparison.OrdinalIgnoreCase)) continue;
+
+                // Content-Length は FulfillRequest 時に自動計算されるか、
+                // 送信データと矛盾する可能性があるため除外
+                if (name.Equals("Content-Length", StringComparison.OrdinalIgnoreCase)) continue;
+
+                foreach (var v in h.Value)
+                {
+                    dest.Add($"{{\"name\":\"{EscapeJsonString(name)}\",\"value\":\"{EscapeJsonString(v)}\"}}");
+                }
+            }
         }
 
         // ---------------------------------------------------------------------------
@@ -323,14 +350,20 @@ namespace WebView2AppHost
         }
 
         /// <summary>
-        /// ホップバイホップヘッダ（プロキシで書き換えるべきヘッダ）を判定する。
+        /// ホップバイホップヘッダ（プロキシで書き換えるべき、または中継してはいけない管理用ヘッダ）を判定する。
         /// </summary>
         private static bool IsHopByHopHeader(string name) =>
             name.Equals("Host",              StringComparison.OrdinalIgnoreCase) ||
             name.Equals("Origin",            StringComparison.OrdinalIgnoreCase) ||
             name.Equals("Referer",           StringComparison.OrdinalIgnoreCase) ||
             name.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase) ||
-            name.Equals("Connection",        StringComparison.OrdinalIgnoreCase);
+            name.Equals("Connection",        StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("Keep-Alive",        StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("Proxy-Authenticate",StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("Proxy-Authorization",StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("TE",                StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("Trailers",          StringComparison.OrdinalIgnoreCase) ||
+            name.Equals("Upgrade",           StringComparison.OrdinalIgnoreCase);
 
         private static string EscapeJsonString(string s) =>
             s.Replace("\\", "\\\\").Replace("\"", "\\\"")
