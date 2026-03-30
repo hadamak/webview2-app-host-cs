@@ -13,4 +13,7 @@ ZIPファイルに含まれている内容について
 - README_TEMPLATE.en.txt: アプリケーション配布時のREADMEテンプレート (英語)
 
 注意:
-この通常パッケージはエンドユーザー向け配布の土台であり、Steam 関連 DLL、Steam サンプル、Steam API 文書は含まれていません。
+この通常パッケージは「Core (本体)」配布の土台であり、以下のものは含まれていません。
+- Newtonsoft.Json.dll (※ExtensionBase パッケージが必要)
+- Steam 連携機能 (※SteamSupport パッケージが必要)
+- Node.js 連携機能 (※NodeSupport パッケージが必要)

@@ -26,6 +26,12 @@ jobs:
       - name: Build
         run: msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
 
+      - name: Build Steam DLL
+        run: msbuild src-steam\WebView2AppHost.Steam.csproj /p:Configuration=Release /p:Platform=x64
+
+      - name: Build Node DLL
+        run: msbuild src-node\WebView2AppHost.Node.csproj /p:Configuration=Release /p:Platform=x64
+
       - name: Build HostTests
         run: msbuild tests\HostTests\HostTests.csproj "/t:Restore;Build" /p:Configuration=Debug /p:Platform=x64
 
@@ -35,56 +41,35 @@ jobs:
       - name: Run steam.js unit tests
         run: node tests/steam-js/steam.test.js
 
-      # Build Steam DLL ステップは package-steam-support.ps1 に統合済み。
-      # Facepunch.Steamworks サブモジュール（submodules: recursive で取得済み）に
-      # steam_api64.dll が含まれるため、CI 上でも ZIP を完全に生成できる。
+      - name: Package Core
+        shell: pwsh
+        run: .\tools\package-core.ps1
+
+      - name: Package ExtensionBase
+        shell: pwsh
+        run: .\tools\package-extension-base.ps1
+
       - name: Package Steam support
         shell: pwsh
         run: .\tools\package-steam-support.ps1
 
-      - name: Package distributable files
+      - name: Package Node support
         shell: pwsh
-        run: |
-          $version = if ("${{ github.ref_type }}" -eq "tag") { "${{ github.ref_name }}" } else { "manual-${{ github.run_number }}" }
-          $base = "src/bin/x64/Release/net472"
+        run: .\tools\package-node-support.ps1
 
-          $outDir = "dist/WebView2AppHost-$version-win-x64"
-          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-
-          # 通常版パッケージ
-          Copy-Item "$base/WebView2AppHost.exe" $outDir
-          Copy-Item "$base/WebView2AppHost.exe.config" $outDir
-          Copy-Item "$base/Microsoft.Web.WebView2.Core.dll" $outDir
-          Copy-Item "$base/Microsoft.Web.WebView2.WinForms.dll" $outDir
-          Copy-Item "$base/WebView2Loader.dll" $outDir
-          Copy-Item "web-content" "$outDir/www" -Recurse
-          Copy-Item "README.md" $outDir
-          Copy-Item "README.ja.md" $outDir
-          Copy-Item "LICENSE" $outDir
-          Copy-Item "THIRD_PARTY_NOTICES.md" $outDir
-          Copy-Item "docs/README_TEMPLATE.txt" $outDir
-          Copy-Item "docs/README_TEMPLATE.en.txt" $outDir
-          Copy-Item "docs/README.txt" $outDir
-          Copy-Item "docs/README.en.txt" $outDir
-
-          # ZIP パッケージ化
-          $zipPath = "dist/WebView2AppHost-$version-win-x64.zip"
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          [System.IO.Compression.ZipFile]::CreateFromDirectory($outDir, $zipPath)
-
-          # ハッシュ生成
-          $hash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
-          "$hash  $(Split-Path -Leaf $zipPath)" | Out-File "$zipPath.sha256" -Encoding ascii
-
-      - name: Upload release bundle artifact
-        uses: actions/upload-artifact@v7
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: release-bundle-${{ github.ref_name || github.sha }}
+          name: release-artifacts-${{ github.ref_name || github.sha }}
           path: |
             dist/*.zip
             dist/*.sha256
+            extension-base/*.zip
+            extension-base/*.sha256
             steam-support/*.zip
             steam-support/*.sha256
+            node-support/*.zip
+            node-support/*.sha256
 
       - name: Create GitHub Release
         if: github.ref_type == 'tag'
@@ -95,5 +80,9 @@ jobs:
           files: |
             dist/*.zip
             dist/*.sha256
+            extension-base/*.zip
+            extension-base/*.sha256
             steam-support/*.zip
             steam-support/*.sha256
+            node-support/*.zip
+            node-support/*.sha256

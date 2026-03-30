@@ -166,6 +166,11 @@ namespace WebView2AppHost
                     // アセンブリ境界を越えた型同一性の問題を回避するため、
                     // IHostPlugin への直接キャストではなくリフレクション経由ラッパーを使う。
                     var instance = Activator.CreateInstance(type, webView)!;
+
+                    // Initialize() メソッドがあれば呼び出す（サイドカープロセスの起動など）
+                    type.GetMethod("Initialize", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null)
+                        ?.Invoke(instance, null);
+
                     var wrapper  = new ReflectionPluginWrapper(instance, pluginName);
                     _plugins.Add(wrapper);
 

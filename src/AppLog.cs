@@ -37,14 +37,31 @@ namespace WebView2AppHost
 
         public static void Log(string level, string source, string message, Exception? ex = null)
         {
-            var line = ex == null
-                ? $"[{level}] [{source}] {message}"
-                : $"[{level}] [{source}] {message}: {ex.GetType().Name}: {ex.Message}";
-
+            var line = $"[{level}] [{source}] {message}";
+            if (ex != null)
+            {
+                line += $": {ex.GetType().Name}: {ex.Message}";
+            }
             Write(line);
 
-            if (ex?.StackTrace != null)
+            if (ex != null)
+            {
+                LogExceptionDetails(ex);
+            }
+        }
+
+        private static void LogExceptionDetails(Exception ex)
+        {
+            if (ex.StackTrace != null)
+            {
                 Write(ex.StackTrace);
+            }
+
+            if (ex.InnerException != null)
+            {
+                Write($"---> (InnerException) {ex.InnerException.GetType().Name}: {ex.InnerException.Message}");
+                LogExceptionDetails(ex.InnerException);
+            }
         }
 
         private static void Write(string line)

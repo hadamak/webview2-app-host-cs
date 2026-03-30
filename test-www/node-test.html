@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Node.js プラグインテスト</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', sans-serif;
+    font-size: 13px;
+    background: #f5f5f5;
+    color: #222;
+    padding: 16px;
+  }
+  .card {
+    background: #fff;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 16px;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 18px; margin-bottom: 16px; }
+  h2 { font-size: 14px; margin-bottom: 12px; color: #555; border-bottom: 1px solid #eee; padding-bottom: 8px; }
+  .row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  button {
+    padding: 6px 16px;
+    border: 1px solid #bbb;
+    border-radius: 4px;
+    background: #fafafa;
+    cursor: pointer;
+  }
+  button:hover { background: #f0f0f0; }
+  .result {
+    font-family: monospace;
+    font-size: 12px;
+    background: #f9f9f9;
+    border: 1px solid #eee;
+    padding: 12px;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    min-height: 40px;
+  }
+  .nav { margin-top: 16px; text-align: center; }
+  a { color: #0078d4; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>Node.js プラグインテスト</h1>
+  
+  <section>
+    <h2>Node.js サイドカー情報</h2>
+    <div class="row">
+      <button onclick="getNodeVersion()">Node.js バージョン取得</button>
+    </div>
+    <div class="result" id="res-version">情報を取得していません</div>
+  </section>
+
+  <div class="nav">
+    <a href="index.html">← トップに戻る</a>
+  </div>
+</div>
+
+<script>
+/**
+ * Node.js プラグインへメッセージを送信し、レスポンスを待機する。
+ */
+async function callNode(className, methodName, args = []) {
+  if (!window.chrome?.webview) {
+    throw new Error('WebView2 環境ではありません');
+  }
+
+  const asyncId = Math.floor(Math.random() * 1000000);
+  const message = {
+    source: 'Node',
+    messageId: 'invoke',
+    params: { className, methodName, args },
+    asyncId
+  };
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      window.chrome.webview.removeEventListener('message', handler);
+      reject(new Error('タイムアウト: Node.js サイドカーから応答がありません'));
+    }, 5000);
+
+    const handler = (e) => {
+      try {
+        const data = (typeof e.data === 'string') ? JSON.parse(e.data) : e.data;
+        if (data.source === 'Node' && data.messageId === 'invoke-result' && data.asyncId === asyncId) {
+          clearTimeout(timeout);
+          window.chrome.webview.removeEventListener('message', handler);
+          if (data.error) {
+            reject(new Error(data.error));
+          } else {
+            resolve(data.result);
+          }
+        }
+      } catch (err) {
+        // JSON パースエラー等は無視（他のメッセージの可能性があるため）
+      }
+    };
+
+    window.chrome.webview.addEventListener('message', handler);
+    window.chrome.webview.postMessage(message);
+  });
+}
+
+async function getNodeVersion() {
+  const el = document.getElementById('res-version');
+  el.textContent = '取得中...';
+  
+  try {
+    const info = await callNode('Node', 'version');
+    el.textContent = JSON.stringify(info, null, 2);
+  } catch (err) {
+    el.textContent = 'エラー: ' + err.message;
+    console.error(err);
+  }
+}
+</script>
+
+</body>
+</html>

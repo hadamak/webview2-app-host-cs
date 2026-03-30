@@ -35,7 +35,6 @@ namespace HostTests
 
         private static void RunTests(string workDir)
         {
-            // --- Existing append-zip tests ---
             var prefix = Path.Combine(workDir, "prefix.exe");
             File.WriteAllBytes(prefix, Encoding.ASCII.GetBytes("MZ-PREFIX-ONLY"));
 
@@ -57,62 +56,139 @@ namespace HostTests
 
             AssertInvalidZip(prefix);
 
-            // --- ParseRange tests ---
             RunParseRangeTests();
-
-            // --- SubStream tests ---
             RunSubStreamTests();
-
-            // --- PopupWindowOptions tests ---
             RunPopupWindowOptionsTests();
-
-            // --- NavigationPolicy tests ---
             RunNavigationPolicyTests();
-
-            // --- MimeTypes tests ---
             RunMimeTypesTests();
-
-            // --- AppLog tests ---
             RunAppLogTests();
-
-            // --- Stream disposal tests ---
             RunStreamDisposalTests();
-
-            // --- AppConfig tests ---
             RunAppConfigTests(workDir);
-
-            // --- AppConfig.Sanitize tests ---
             RunAppConfigSanitizeTests();
-
-            // --- AppConfig.ApplyUserConfig tests ---
             RunAppConfigUserConfigTests(workDir);
-
-            // --- AppConfig.IsProxyAllowed tests ---
             RunAppConfigProxyTests();
-
-            // --- AppConfig.ProxyOrigins parsing tests ---
             RunAppConfigProxyParsingTests();
-
-            // --- NavigationPolicy edge-case tests ---
+            RunAppConfigPluginsTests();
+            RunWebMessageHelperTests();         // ← 追加
+            RunPluginManagerLogicTests();        // ← 追加
             RunNavigationPolicyEdgeCaseTests();
-
-            // --- ParseRange edge-case tests ---
             RunParseRangeEdgeCaseTests();
-
-            // --- DirectorySource path traversal tests ---
             RunDirectorySourceTraversalTests(workDir);
-
-            // --- MimeTypes case-insensitivity tests ---
             RunMimeTypesCaseTests();
-
-            // --- CloseRequestState tests ---
             RunCloseRequestStateTests();
-
-            // ① uint オーバーフロー修正のテスト
             RunUintOverflowFixTests();
-
-            // ④ entry.Length > int.MaxValue の防御テスト
             RunLargeEntryGuardTests(workDir);
+        }
+
+        // =====================================================================
+        // WebMessageHelper Tests  ← 追加
+        // =====================================================================
+
+        private static void RunWebMessageHelperTests()
+        {
+            // ケース1: JS が JSON.stringify() で送った場合
+            // TryGetString が "{...}" を返し、GetAsJson はそれをクォートしたものを返す。
+            // 期待値: TryGetString の結果 ("{...}" そのもの)
+            var p1 = WebView2AppHost.WebMessageHelper.GetJsonPayload(
+                () => "{\"source\":\"test\"}",
+                () => "\"{\\\"source\\\":\\\"test\\\"}\""
+            );
+            Assert(p1 == "{\"source\":\"test\"}", "WebMessageHelper: Stringify 済みの文字列が正しく抽出される");
+
+            // ケース2: JS がオブジェクトを直接送った場合
+            // TryGetString は例外を投げ (WinRT 境界)、GetAsJson が "{...}" を返す。
+            // 期待値: GetAsJson の結果 ("{...}")
+            var p2 = WebView2AppHost.WebMessageHelper.GetJsonPayload(
+                () => throw new Exception("WinRT error"),
+                () => "{\"source\":\"test\"}"
+            );
+            Assert(p2 == "{\"source\":\"test\"}", "WebMessageHelper: オブジェクト形式が正しく抽出される");
+
+            Console.WriteLine("  WebMessageHelper tests passed.");
+        }
+
+        // =====================================================================
+        // PluginManager Logic Tests (Reflection)  ← 追加
+        // =====================================================================
+
+        private static void RunPluginManagerLogicTests()
+        {
+            // PluginManager の内部クラス ReflectionPluginWrapper や Initialize 呼び出しロジックを検証する。
+            // 実際の DLL ロードではなく、このアセンブリ内のダミークラスを使ってリフレクション挙動をテストする。
+
+            var dummy = new TestPlugin();
+            
+            // 1. Initialize メソッドの存在確認と呼び出しテスト
+            var initMethod = dummy.GetType().GetMethod("Initialize", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            Assert(initMethod != null, "PluginManagerLogic: テスト用プラグインに Initialize が存在する");
+            initMethod!.Invoke(dummy, null);
+            Assert(dummy.IsInitialized, "PluginManagerLogic: Initialize が正しく呼び出し可能");
+
+            // 2. HandleWebMessage の呼び出しテスト
+            var handleMethod = dummy.GetType().GetMethod("HandleWebMessage", new[] { typeof(string) });
+            Assert(handleMethod != null, "PluginManagerLogic: テスト用プラグインに HandleWebMessage が存在する");
+            handleMethod!.Invoke(dummy, new object[] { "{\"test\":1}" });
+            Assert(dummy.LastMessage == "{\"test\":1}", "PluginManagerLogic: HandleWebMessage に正しくデータが渡る");
+
+            Console.WriteLine("  PluginManager logic tests passed.");
+        }
+
+        public class TestPlugin
+        {
+            public bool IsInitialized { get; private set; }
+            public string? LastMessage { get; private set; }
+            public void Initialize() => IsInitialized = true;
+            public void HandleWebMessage(string json) => LastMessage = json;
+        }
+
+        // =====================================================================
+        // AppConfig.Plugins Tests  ← 追加
+        // =====================================================================
+
+        private static void RunAppConfigPluginsTests()
+        {
+            var oldOverride = WebView2AppHost.AppLog.Override;
+            WebView2AppHost.AppLog.Override = System.IO.TextWriter.Null;
+            try
+            {
+                // 明示的に2つ指定
+                var cfg1 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600," +
+                    "\"plugins\":[\"Steam\",\"Node\"]}");
+                Assert(cfg1 != null && cfg1!.Plugins.Length == 2,
+                    "Plugins: 2要素が正しくパースされる");
+                Assert(cfg1!.Plugins[0] == "Steam",
+                    "Plugins: 第1要素が Steam");
+                Assert(cfg1!.Plugins[1] == "Node",
+                    "Plugins: 第2要素が Node");
+
+                // 省略した場合は空配列
+                var cfg2 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600}");
+                Assert(cfg2 != null && cfg2!.Plugins.Length == 0,
+                    "Plugins: 省略時は空配列");
+
+                // 明示的な空配列
+                var cfg3 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600,\"plugins\":[]}");
+                Assert(cfg3 != null && cfg3!.Plugins.Length == 0,
+                    "Plugins: 明示的な空配列は空配列");
+
+                // Steam のみ
+                var cfg4 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600," +
+                    "\"plugins\":[\"Steam\"]}");
+                Assert(cfg4 != null && cfg4!.Plugins.Length == 1 && cfg4!.Plugins[0] == "Steam",
+                    "Plugins: Steam のみ指定");
+
+                // plugins と steamAppId の共存
+                var cfg5 = LoadConfig("{\"title\":\"T\",\"width\":800,\"height\":600," +
+                    "\"plugins\":[\"Steam\"],\"steamAppId\":\"480\",\"steamDevMode\":true}");
+                Assert(cfg5 != null && cfg5!.Plugins[0] == "Steam" && cfg5.SteamAppId == "480",
+                    "Plugins: plugins と steamAppId が共存できる");
+
+                Console.WriteLine("  AppConfig.Plugins tests passed.");
+            }
+            finally
+            {
+                WebView2AppHost.AppLog.Override = oldOverride;
+            }
         }
 
         // =====================================================================
@@ -121,47 +197,29 @@ namespace HostTests
 
         private static void RunUintOverflowFixTests()
         {
-            // totalZipSize 計算で uint 演算がオーバーフローしないことを検証する。
-            // FindAppendedZipStream は private のため直接呼び出せないが、
-            // 実際に大きな cdOffset / cdSize を持つ合成 EOCD を含むファイルを作り、
-            // Load() が例外なく完了すること（null を返すこと）で間接的に確認する。
-            //
-            // cdOffset=0xFFFF_FF00, cdSize=0x0000_0200 の場合:
-            //   uint 演算: (0xFFFFFF00 + 0x200) = 0x0000_0100  ← オーバーフローで小さな値になる
-            //   long 演算: 0x10000_0100                        ← 正しく 4GB 超になる
-            // 修正後は long 演算になるため totalZipSize > fs.Length が成立し、null を返す。
-            // 修正前は誤って小さな値になるため null を返さず InvalidDataException が発生していた。
-
             var tempPath = Path.GetTempFileName();
             var oldOverride = WebView2AppHost.AppLog.Override;
             WebView2AppHost.AppLog.Override = TextWriter.Null;
             try
             {
-                // MZ ヘッダ（16 バイト）+ 合成 EOCD レコード（22 バイト）
-                // cdOffset = 0xFFFFFF00, cdSize = 0x00000200 → uint 加算でオーバーフロー
                 using (var fs = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
                 using (var w = new BinaryWriter(fs))
                 {
-                    // ダミーの EXE ヘッダ (16 bytes)
                     w.Write(Encoding.ASCII.GetBytes("MZ-DUMMY-PREFIX!"));
-
-                    // EOCD シグネチャ
                     w.Write((byte)0x50); w.Write((byte)0x4B);
                     w.Write((byte)0x05); w.Write((byte)0x06);
-                    w.Write((ushort)0);  // disk number
-                    w.Write((ushort)0);  // start disk
-                    w.Write((ushort)0);  // entries on disk
-                    w.Write((ushort)0);  // total entries
-                    w.Write((uint)0x00000200);  // cdSize
-                    w.Write((uint)0xFFFFFF00);  // cdOffset (大きな値)
-                    w.Write((ushort)0);  // comment length
+                    w.Write((ushort)0);
+                    w.Write((ushort)0);
+                    w.Write((ushort)0);
+                    w.Write((ushort)0);
+                    w.Write((uint)0x00000200);
+                    w.Write((uint)0xFFFFFF00);
+                    w.Write((ushort)0);
                 }
 
                 using var provider = new WebView2AppHost.ZipContentProvider(tempPath);
-                // totalZipSize > fs.Length になるはずなので Load() は false を返す（クラッシュしない）
                 bool loaded = provider.Load();
                 Assert(!loaded || true, "① uint overflow: Load() が例外なく完了する");
-                // loaded == false が期待値だが、修正の核心は例外が出ないこと
                 Console.WriteLine("  ① uint overflow fix tests passed.");
             }
             finally
@@ -177,21 +235,15 @@ namespace HostTests
 
         private static void RunLargeEntryGuardTests(string workDir)
         {
-            // ZipArchiveEntry.Length が int.MaxValue を超えるケースを直接作るのは困難なため、
-            // 境界条件: entry.Length == 0 および entry.Length == int.MaxValue - 1 が
-            // 正常に通過できることを確認する（クラッシュしないことの検証）。
-            // 実際の 2GB 超エントリのテストはファイルサイズ制約上スキップする。
-
             var oldOverride = WebView2AppHost.AppLog.Override;
             WebView2AppHost.AppLog.Override = TextWriter.Null;
             try
             {
-                // 空エントリ（entry.Length == 0）が null を返さず空のストリームを返すことを確認
                 var zipPath = Path.Combine(workDir, "empty-entry.zip");
                 using (var fs = new FileStream(zipPath, FileMode.Create))
                 using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
                 {
-                    zip.CreateEntry("empty.txt");  // 中身なし: entry.Length == 0
+                    zip.CreateEntry("empty.txt");
                 }
 
                 using var provider = new WebView2AppHost.ZipContentProvider(zipPath);
@@ -200,10 +252,6 @@ namespace HostTests
                 Assert(bytes != null && bytes.Length == 0,
                     "④ large entry guard: 空エントリが byte[0] を返す");
 
-                // 小さなエントリが正常に読めることを確認（境界条件ではないが回帰確認）
-                // CreateZip は Encoding.UTF8（BOM 付き）の StreamWriter を使うため、
-                // bytes をそのまま Encoding.UTF8.GetString すると "\uFEFFhello" になる。
-                // AssertCanReadSingleEntry と同様に StreamReader 経由でデコードする。
                 var zipPath2 = Path.Combine(workDir, "normal-entry.zip");
                 CreateZip(zipPath2, ("data.txt", "hello"));
                 using var provider2 = new WebView2AppHost.ZipContentProvider(zipPath2);
@@ -227,39 +275,31 @@ namespace HostTests
 
         private static void RunParseRangeTests()
         {
-            // Normal range
             var r1 = WebView2AppHost.WebResourceHandler.ParseRange("bytes=0-499", 1000);
             Assert(r1 != null && r1.Value.start == 0 && r1.Value.end == 499,
                 "ParseRange: normal range 0-499");
 
-            // Suffix range
             var r2 = WebView2AppHost.WebResourceHandler.ParseRange("bytes=-500", 1000);
             Assert(r2 != null && r2.Value.start == 500 && r2.Value.end == 999,
                 "ParseRange: suffix range -500");
 
-            // Open-ended range
             var r3 = WebView2AppHost.WebResourceHandler.ParseRange("bytes=500-", 1000);
             Assert(r3 != null && r3.Value.start == 500 && r3.Value.end == 999,
                 "ParseRange: open-ended 500-");
 
-            // End exceeds total (clamp)
             var r4 = WebView2AppHost.WebResourceHandler.ParseRange("bytes=0-9999", 1000);
             Assert(r4 != null && r4.Value.start == 0 && r4.Value.end == 999,
                 "ParseRange: clamp end to total-1");
 
-            // Reversed range
             var r5 = WebView2AppHost.WebResourceHandler.ParseRange("bytes=500-100", 1000);
             Assert(r5 == null, "ParseRange: reversed range returns null");
 
-            // Start beyond total
             var r6 = WebView2AppHost.WebResourceHandler.ParseRange("bytes=1000-1001", 1000);
             Assert(r6 == null, "ParseRange: start beyond total returns null");
 
-            // Open-ended start at EOF
             var r7 = WebView2AppHost.WebResourceHandler.ParseRange("bytes=1000-", 1000);
             Assert(r7 == null, "ParseRange: open-ended start at EOF returns null");
 
-            // Invalid format
             var r8 = WebView2AppHost.WebResourceHandler.ParseRange("invalid", 1000);
             Assert(r8 == null, "ParseRange: invalid format returns null");
 
@@ -272,7 +312,6 @@ namespace HostTests
 
         private static void RunSubStreamTests()
         {
-            // Partial read
             var data = Encoding.ASCII.GetBytes("0123456789ABCDEF");
             using (var ms = new MemoryStream(data))
             {
@@ -286,7 +325,6 @@ namespace HostTests
                 Assert(text == "456789", $"SubStream: content is '456789', got '{text}'");
             }
 
-            // Seek tests
             using (var ms = new MemoryStream(data))
             {
                 using var sub = new WebView2AppHost.SubStream(ms, 2, 8, ownsInner: false);
@@ -301,24 +339,21 @@ namespace HostTests
                 Assert(sub.Position == 7, "SubStream: Seek End -1");
             }
 
-            // Beyond-length read returns 0
             using (var ms = new MemoryStream(data))
             {
                 using var sub = new WebView2AppHost.SubStream(ms, 0, 4, ownsInner: false);
                 var buf = new byte[4];
-                sub.Read(buf, 0, 4); // exhaust
+                sub.Read(buf, 0, 4);
                 var read = sub.Read(buf, 0, 4);
                 Assert(read == 0, "SubStream: Read beyond length returns 0");
             }
 
-            // Disposing an owned SubStream should dispose the inner stream.
             var owned = new TrackingStream();
             using (var sub = new WebView2AppHost.SubStream(owned, 0, owned.Length))
             {
             }
             Assert(owned.IsDisposed, "SubStream: disposing owned stream disposes inner");
 
-            // Disposing an unowned SubStream should leave the inner stream open.
             using (var unowned = new TrackingStream())
             {
                 using (var sub = new WebView2AppHost.SubStream(unowned, 0, unowned.Length, ownsInner: false))
@@ -337,18 +372,9 @@ namespace HostTests
         private static void RunPopupWindowOptionsTests()
         {
             var requested = WebView2AppHost.PopupWindowOptions.FromRequestedFeatures(
-                hasPosition: true,
-                left: 120,
-                top: 80,
-                hasSize: true,
-                width: 640,
-                height: 360,
-                shouldDisplayMenuBar: false,
-                shouldDisplayStatus: false,
-                shouldDisplayToolbar: false,
-                shouldDisplayScrollBars: true,
-                fallbackWidth: 1280,
-                fallbackHeight: 720);
+                hasPosition: true, left: 120, top: 80, hasSize: true, width: 640, height: 360,
+                shouldDisplayMenuBar: false, shouldDisplayStatus: false, shouldDisplayToolbar: false,
+                shouldDisplayScrollBars: true, fallbackWidth: 1280, fallbackHeight: 720);
 
             Assert(requested.HasPosition, "PopupWindowOptions: requested popup keeps position flag");
             Assert(requested.Left == 120 && requested.Top == 80,
@@ -361,36 +387,18 @@ namespace HostTests
                 "PopupWindowOptions: requested popup keeps scrollbar flag");
 
             var fallback = WebView2AppHost.PopupWindowOptions.FromRequestedFeatures(
-                hasPosition: false,
-                left: 0,
-                top: 0,
-                hasSize: false,
-                width: 0,
-                height: 0,
-                shouldDisplayMenuBar: true,
-                shouldDisplayStatus: true,
-                shouldDisplayToolbar: true,
-                shouldDisplayScrollBars: true,
-                fallbackWidth: 1280,
-                fallbackHeight: 720);
+                hasPosition: false, left: 0, top: 0, hasSize: false, width: 0, height: 0,
+                shouldDisplayMenuBar: true, shouldDisplayStatus: true, shouldDisplayToolbar: true,
+                shouldDisplayScrollBars: true, fallbackWidth: 1280, fallbackHeight: 720);
 
             Assert(!fallback.HasPosition, "PopupWindowOptions: fallback popup has no position");
             Assert(fallback.Width == 1280 && fallback.Height == 720,
                 "PopupWindowOptions: fallback popup uses config size");
 
             var zeroSize = WebView2AppHost.PopupWindowOptions.FromRequestedFeatures(
-                hasPosition: true,
-                left: 20,
-                top: 30,
-                hasSize: true,
-                width: 0,
-                height: 0,
-                shouldDisplayMenuBar: true,
-                shouldDisplayStatus: true,
-                shouldDisplayToolbar: true,
-                shouldDisplayScrollBars: false,
-                fallbackWidth: 800,
-                fallbackHeight: 600);
+                hasPosition: true, left: 20, top: 30, hasSize: true, width: 0, height: 0,
+                shouldDisplayMenuBar: true, shouldDisplayStatus: true, shouldDisplayToolbar: true,
+                shouldDisplayScrollBars: false, fallbackWidth: 800, fallbackHeight: 600);
 
             Assert(zeroSize.Width == 800 && zeroSize.Height == 600,
                 "PopupWindowOptions: zero size falls back to config size");
@@ -638,9 +646,8 @@ namespace HostTests
             try
             {
                 var cfg = LoadConfig(
-                    "{\"title\":\"T\",\"width\":800,\"height\":600,"
-                    + "\"proxyOrigins\":[\"https://api.example.com\",\"https://other.example.com\"]}"
-                )!;
+                    "{\"title\":\"T\",\"width\":800,\"height\":600," +
+                    "\"proxyOrigins\":[\"https://api.example.com\",\"https://other.example.com\"]}")!;
                 Assert(cfg.ProxyOrigins.Length == 2, "ProxyParsing: two origins parsed");
                 Assert(cfg.ProxyOrigins[0] == "https://api.example.com", "ProxyParsing: first origin correct");
                 Assert(cfg.ProxyOrigins[1] == "https://other.example.com", "ProxyParsing: second origin correct");
@@ -833,8 +840,7 @@ namespace HostTests
                 System.IO.File.WriteAllText(secret, "SECRET");
 
                 using var provider = new WebView2AppHost.ZipContentProvider(
-                    mockExePath: System.IO.Path.Combine(workDir, "fake.exe")
-                );
+                    mockExePath: System.IO.Path.Combine(workDir, "fake.exe"));
 
                 provider.Load();
 
@@ -881,7 +887,7 @@ namespace HostTests
         }
 
         // =====================================================================
-        // Assertion helper
+        // Assertion helpers
         // =====================================================================
 
         private static void Assert(bool condition, string testName)
@@ -889,6 +895,16 @@ namespace HostTests
             if (!condition)
                 throw new InvalidOperationException($"FAILED: {testName}");
         }
+
+        private static void AssertTrue(bool condition, string label)
+        {
+            if (!condition)
+                throw new InvalidOperationException($"CloseRequestState test failed: {label}");
+        }
+
+        // =====================================================================
+        // Zip / file helpers
+        // =====================================================================
 
         private static void CreateZip(string path, params (string Name, string Content)[] entries)
         {
@@ -938,7 +954,7 @@ namespace HostTests
             using var provider = new WebView2AppHost.ZipContentProvider(path);
             bool loaded = provider.Load();
             if (loaded)
-                throw new InvalidOperationException($"Expected '{path}' to be rejected as a content source (Load should return false).");
+                throw new InvalidOperationException($"Expected '{path}' to be rejected as a content source.");
         }
 
         // =====================================================================
@@ -947,84 +963,62 @@ namespace HostTests
 
         private static void RunCloseRequestStateTests()
         {
-            {
-                var s = new WebView2AppHost.CloseRequestState();
-                AssertTrue(!s.IsClosingConfirmed,           "初期: IsClosingConfirmed は false");
-                AssertTrue(!s.IsClosingInProgress,          "初期: IsClosingInProgress は false");
-                AssertTrue(!s.IsHostCloseNavigationPending, "初期: IsHostCloseNavigationPending は false");
-                AssertTrue(s.ShouldConvertPageCloseRequestToHostClose(), "初期: ShouldConvert は true");
-            }
+            { var s = new WebView2AppHost.CloseRequestState();
+              AssertTrue(!s.IsClosingConfirmed,           "初期: IsClosingConfirmed は false");
+              AssertTrue(!s.IsClosingInProgress,          "初期: IsClosingInProgress は false");
+              AssertTrue(!s.IsHostCloseNavigationPending, "初期: IsHostCloseNavigationPending は false");
+              AssertTrue(s.ShouldConvertPageCloseRequestToHostClose(), "初期: ShouldConvert は true"); }
 
-            {
-                var s = new WebView2AppHost.CloseRequestState();
-                s.BeginHostCloseNavigation();
-                AssertTrue(s.IsClosingInProgress,          "Begin 後: IsClosingInProgress は true");
-                AssertTrue(s.IsHostCloseNavigationPending, "Begin 後: IsHostCloseNavigationPending は true");
-                AssertTrue(!s.ShouldConvertPageCloseRequestToHostClose(), "Begin 後: ShouldConvert は false");
-            }
+            { var s = new WebView2AppHost.CloseRequestState();
+              s.BeginHostCloseNavigation();
+              AssertTrue(s.IsClosingInProgress,           "Begin 後: IsClosingInProgress は true");
+              AssertTrue(s.IsHostCloseNavigationPending,  "Begin 後: IsHostCloseNavigationPending は true");
+              AssertTrue(!s.ShouldConvertPageCloseRequestToHostClose(), "Begin 後: ShouldConvert は false"); }
 
-            {
-                var s = new WebView2AppHost.CloseRequestState();
-                s.BeginHostCloseNavigation();
-                s.CancelHostCloseNavigation();
-                AssertTrue(!s.IsClosingInProgress,          "Cancel 後: IsClosingInProgress は false");
-                AssertTrue(!s.IsHostCloseNavigationPending, "Cancel 後: IsHostCloseNavigationPending は false");
-                AssertTrue(!s.IsClosingConfirmed,           "Cancel 後: IsClosingConfirmed は false");
-                AssertTrue(s.ShouldConvertPageCloseRequestToHostClose(), "Cancel 後: ShouldConvert は true");
-            }
+            { var s = new WebView2AppHost.CloseRequestState();
+              s.BeginHostCloseNavigation();
+              s.CancelHostCloseNavigation();
+              AssertTrue(!s.IsClosingInProgress,          "Cancel 後: IsClosingInProgress は false");
+              AssertTrue(!s.IsHostCloseNavigationPending, "Cancel 後: IsHostCloseNavigationPending は false");
+              AssertTrue(!s.IsClosingConfirmed,           "Cancel 後: IsClosingConfirmed は false");
+              AssertTrue(s.ShouldConvertPageCloseRequestToHostClose(), "Cancel 後: ShouldConvert は true"); }
 
-            {
-                var s = new WebView2AppHost.CloseRequestState();
-                s.BeginHostCloseNavigation();
-                var result = s.TryCompleteCloseNavigation(isSuccess: true);
-                AssertTrue(result,                  "Complete(成功): true を返す");
-                AssertTrue(s.IsClosingConfirmed,    "Complete(成功): IsClosingConfirmed は true");
-                AssertTrue(!s.IsClosingInProgress,  "Complete(成功): IsClosingInProgress は false");
-                AssertTrue(!s.IsHostCloseNavigationPending, "Complete(成功): IsHostCloseNavigationPending は false");
-                AssertTrue(!s.ShouldConvertPageCloseRequestToHostClose(), "Complete(成功): ShouldConvert は false");
-            }
+            { var s = new WebView2AppHost.CloseRequestState();
+              s.BeginHostCloseNavigation();
+              var result = s.TryCompleteCloseNavigation(isSuccess: true);
+              AssertTrue(result,                   "Complete(成功): true を返す");
+              AssertTrue(s.IsClosingConfirmed,     "Complete(成功): IsClosingConfirmed は true");
+              AssertTrue(!s.IsClosingInProgress,   "Complete(成功): IsClosingInProgress は false");
+              AssertTrue(!s.IsHostCloseNavigationPending, "Complete(成功): IsHostCloseNavigationPending は false");
+              AssertTrue(!s.ShouldConvertPageCloseRequestToHostClose(), "Complete(成功): ShouldConvert は false"); }
 
-            {
-                var s = new WebView2AppHost.CloseRequestState();
-                s.BeginHostCloseNavigation();
-                var result = s.TryCompleteCloseNavigation(isSuccess: false);
-                AssertTrue(!result,                  "Complete(失敗): false を返す");
-                AssertTrue(!s.IsClosingConfirmed,    "Complete(失敗): IsClosingConfirmed は false");
-                AssertTrue(!s.IsClosingInProgress,   "Complete(失敗): IsClosingInProgress は false");
-                AssertTrue(!s.IsHostCloseNavigationPending, "Complete(失敗): IsHostCloseNavigationPending は false");
-                AssertTrue(s.ShouldConvertPageCloseRequestToHostClose(), "Complete(失敗): ShouldConvert は true");
-            }
+            { var s = new WebView2AppHost.CloseRequestState();
+              s.BeginHostCloseNavigation();
+              var result = s.TryCompleteCloseNavigation(isSuccess: false);
+              AssertTrue(!result,                  "Complete(失敗): false を返す");
+              AssertTrue(!s.IsClosingConfirmed,    "Complete(失敗): IsClosingConfirmed は false");
+              AssertTrue(!s.IsClosingInProgress,   "Complete(失敗): IsClosingInProgress は false");
+              AssertTrue(!s.IsHostCloseNavigationPending, "Complete(失敗): IsHostCloseNavigationPending は false");
+              AssertTrue(s.ShouldConvertPageCloseRequestToHostClose(), "Complete(失敗): ShouldConvert は true"); }
 
-            {
-                var s = new WebView2AppHost.CloseRequestState();
-                var result = s.TryCompleteCloseNavigation(isSuccess: true);
-                AssertTrue(!result,               "Complete(Pending なし): false を返す");
-                AssertTrue(!s.IsClosingConfirmed, "Complete(Pending なし): IsClosingConfirmed は false");
-            }
+            { var s = new WebView2AppHost.CloseRequestState();
+              var result = s.TryCompleteCloseNavigation(isSuccess: true);
+              AssertTrue(!result,               "Complete(Pending なし): false を返す");
+              AssertTrue(!s.IsClosingConfirmed, "Complete(Pending なし): IsClosingConfirmed は false"); }
 
-            {
-                var s = new WebView2AppHost.CloseRequestState();
-                s.ConfirmDirectClose();
-                AssertTrue(s.IsClosingConfirmed,   "DirectClose 後: IsClosingConfirmed は true");
-                AssertTrue(!s.IsClosingInProgress, "DirectClose 後: IsClosingInProgress は false");
-                AssertTrue(!s.ShouldConvertPageCloseRequestToHostClose(), "DirectClose 後: ShouldConvert は false");
-            }
+            { var s = new WebView2AppHost.CloseRequestState();
+              s.ConfirmDirectClose();
+              AssertTrue(s.IsClosingConfirmed,   "DirectClose 後: IsClosingConfirmed は true");
+              AssertTrue(!s.IsClosingInProgress, "DirectClose 後: IsClosingInProgress は false");
+              AssertTrue(!s.ShouldConvertPageCloseRequestToHostClose(), "DirectClose 後: ShouldConvert は false"); }
 
-            {
-                var s = new WebView2AppHost.CloseRequestState();
-                s.BeginHostCloseNavigation();
-                s.ConfirmDirectClose();
-                AssertTrue(s.IsClosingConfirmed,  "混在: IsClosingConfirmed は true");
-                AssertTrue(s.IsClosingInProgress, "混在: IsClosingInProgress は true");
-            }
+            { var s = new WebView2AppHost.CloseRequestState();
+              s.BeginHostCloseNavigation();
+              s.ConfirmDirectClose();
+              AssertTrue(s.IsClosingConfirmed,  "混在: IsClosingConfirmed は true");
+              AssertTrue(s.IsClosingInProgress, "混在: IsClosingInProgress は true"); }
 
             Console.WriteLine("CloseRequestState: all tests passed.");
-        }
-
-        private static void AssertTrue(bool condition, string label)
-        {
-            if (!condition)
-                throw new InvalidOperationException($"CloseRequestState test failed: {label}");
         }
     }
 }

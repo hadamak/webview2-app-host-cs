@@ -81,14 +81,21 @@ The host provides a browser-compatible environment, so your content doesn't need
 ### 4. 🎮 Steam Integration
 Ship your web game on Steam without touching the Steamworks SDK. Add the Steam support ZIP and call the Facepunch.Steamworks API from your HTML via `steam.js` — that's the entire integration.
 
-Supported features:
+### 5. ⚡ Node.js Support (Sidecar)
+Need to access the local file system or run complex server-side tasks? Add the Node.js support components and run a local Node.js sidecar process. Communication happens via standard `postMessage()` / `WebMessageReceived`, providing a familiar bridge for web developers.
 
-- 🏆 Achievements — unlock Steam achievements from JavaScript
-- 📊 User Stats — store and retrieve numeric stats
-- ☁️ Steam Cloud — sync save files and settings across devices
-- 🏅 Leaderboards — submit and read global rankings
-- 👥 Rich Presence — show current game state in the friends list
-- 🎁 Ownership / DLC — check app and DLC ownership status
+---
+
+## 📦 Modular Distribution
+
+To keep the application as lightweight as possible, WebView2 App Host is distributed in four separate parts. You only need to download and bundle the parts your specific application requires.
+
+1.  **Core (Host)** - The minimal WebView2 host (~900KB).
+2.  **Extension Base** - Shared base libraries (e.g., `Newtonsoft.Json.dll`) required by all plugins.
+3.  **Steam Support** - Optional plugin for Steamworks API integration.
+4.  **Node.js Support** - Optional plugin for running a local Node.js sidecar.
+
+> ℹ️ **Node.js Note:** The Node.js runtime (`node.exe`) is not included in the release package for size reasons. Application authors should provide their own Node.exe in the `node-runtime/` directory.
 
 ---
 

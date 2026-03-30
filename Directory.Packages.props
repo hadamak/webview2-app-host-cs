@@ -5,5 +5,11 @@
 
   <ItemGroup>
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.3650.58" />
+    <!--
+      Newtonsoft.Json はプラグイン DLL（Steam / Node）専用。
+      ホスト本体（WebView2AppHost.csproj）は DataContractJsonSerializer を使い続けるため参照しない。
+      バージョンは LTS である 13.0.3 を固定する。
+    -->
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,5 @@
+C:\Users\btqwm\Documents\webview2-app-host-cs\src-node\obj\x64\Release\net472\WebView2AppHost.Node.csproj.AssemblyReference.cache
+C:\Users\btqwm\Documents\webview2-app-host-cs\src-node\obj\x64\Release\net472\WebView2AppHost.Node.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\btqwm\Documents\webview2-app-host-cs\src-node\obj\x64\Release\net472\WebView2AppHost.Node.AssemblyInfoInputs.cache
+C:\Users\btqwm\Documents\webview2-app-host-cs\src-node\obj\x64\Release\net472\WebView2AppHost.Node.AssemblyInfo.cs
+C:\Users\btqwm\Documents\webview2-app-host-cs\src-node\obj\x64\Release\net472\WebView2AppHost.Node.csproj.CoreCompileInputs.cache

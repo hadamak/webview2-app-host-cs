@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -8,10 +7,11 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
-using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using Steamworks;
 using Steamworks.Data;
 
@@ -23,6 +23,12 @@ namespace WebView2AppHost
     /// JS から届く invoke メッセージをリフレクションで Steamworks.* の静的メソッド/プロパティへ
     /// ディスパッチする汎用パススルー型ブリッジ。API 追加時は JS・C# ともに変更不要。
     ///
+    /// JSON シリアライザの選択:
+    ///   受信メッセージの解析・結果の送信ともに Newtonsoft.Json を使用する。
+    ///   プラグインが受け取る args の型は JS 由来で不定（数値/文字列/配列/オブジェクト混在）のため、
+    ///   JObject/JArray/JValue による柔軟な型解釈が必要。
+    ///   ホスト本体の固定スキーマ（AppConfig 等）は DataContractJsonSerializer を使い続ける。
+    ///
     /// ディスパッチ優先順位:
     ///   1. TriggerScreenshot 特例（WebView2 キャプチャ → WriteScreenshot）
     ///   2. Achievement 構造体特例  Steam.Achievement.Trigger("ACH_NAME")
@@ -30,27 +36,40 @@ namespace WebView2AppHost
     ///   3. 静的メソッド  Steam.SteamUserStats.GetStatInt("NumGames")
     ///   4. 静的プロパティ getter  Steam.SteamClient.Name
     ///      （メソッドが見つからない場合に自動フォールバック）
-    ///
-    /// 【オーバーレイの動作について】
-    /// SteamFriends.OpenOverlay(string) は ISteamFriends::ActivateGameOverlay と同等。
-    /// WebView2 は DirectX フックに対応しないため画面への重畳は機能しないが、
-    /// Steam の該当 UI ウィンドウ（実績・フレンドリスト等）を開く動作は正常に機能する。
-    /// これは旧 C++ ブリッジの showOverlay 系 API と同じ動作。
     /// </summary>
     public sealed class SteamBridgeImpl : ISteamBridgeImpl
     {
-        // デバッグログは #if DEBUG で囲む（プロジェクト内の他の箇所と統一）
-
         // ---------------------------------------------------------------------------
         // 定数
         // ---------------------------------------------------------------------------
 
-        /// <summary>
-        /// RestartAppIfNecessary が true を返した場合にスローする例外のメッセージ。
-        /// SteamBridge.TryCreate がリフレクション越しにこのメッセージを識別して再スローし、
-        /// App.TryInitSteam が Application.Exit() を呼ぶための識別子として使用する。
-        /// </summary>
         internal const string SteamRestartRequiredMessage = "STEAM_RESTART_REQUIRED";
+
+        // ---------------------------------------------------------------------------
+        // byte[] を JS 互換の数値配列 [0-255] としてシリアライズするカスタムコンバーター。
+        // Newtonsoft.Json のデフォルトは Base64 文字列だが、JS 側は
+        // new Uint8Array(result) として使用するため数値配列が必要。
+        // ---------------------------------------------------------------------------
+        private sealed class ByteArrayAsIntArrayConverter : JsonConverter<byte[]>
+        {
+            public static readonly ByteArrayAsIntArrayConverter Instance = new ByteArrayAsIntArrayConverter();
+
+            public override void WriteJson(JsonWriter writer, byte[]? value, JsonSerializer serializer)
+            {
+                writer.WriteStartArray();
+                if (value != null)
+                    foreach (var b in value) writer.WriteValue((int)b);
+                writer.WriteEndArray();
+            }
+
+            public override byte[]? ReadJson(JsonReader reader, Type objectType, byte[]? existingValue, bool hasExistingValue, JsonSerializer serializer)
+                => throw new NotSupportedException();
+
+            public override bool CanRead => false;
+        }
+
+        private static readonly JsonSerializer s_serializer = JsonSerializer.Create(
+            new JsonSerializerSettings { Converters = { ByteArrayAsIntArrayConverter.Instance } });
 
         // ---------------------------------------------------------------------------
         // フィールド
@@ -58,13 +77,7 @@ namespace WebView2AppHost
 
         private readonly WebView2                    _webView;
         private readonly System.Windows.Forms.Timer _callbackTimer;
-        private readonly JavaScriptSerializer        _jss = new JavaScriptSerializer();
         private readonly Assembly                    _steamworkAsm;
-        /// <summary>
-        /// JS から指定可能な className のホワイトリスト。
-        /// 起動時に Steamworks アセンブリの公開型から構築する。
-        /// リフレクション呼び出しを Steamworks.* の公開型のみに限定するための防御策。
-        /// </summary>
         private readonly HashSet<string>             _allowedClassNames;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<long, object> _handleRegistry
             = new System.Collections.Concurrent.ConcurrentDictionary<long, object>();
@@ -80,9 +93,6 @@ namespace WebView2AppHost
             _webView      = webView;
             _steamworkAsm = typeof(SteamClient).Assembly;
 
-            // Steamworks アセンブリの公開型名をホワイトリストとして構築する。
-            // GetExportedTypes() はアセンブリの公開型のみを返すため、
-            // 内部型への意図しないアクセスを防ぐ。
             _allowedClassNames = new HashSet<string>(
                 _steamworkAsm.GetExportedTypes()
                     .Where(t => t.Namespace == "Steamworks" || t.Namespace == "Steamworks.Data")
@@ -94,11 +104,6 @@ namespace WebView2AppHost
 
             if (!isDev)
             {
-                // リリースモード: SteamClient.Init より前に呼ぶ必要がある。
-                // Steam 経由で起動されていない場合、Steam がアプリを再起動するため
-                // true が返ったらプロセスを即座に終了しなければならない。
-                // SteamBridgeImpl は別 DLL のためリフレクション越しに例外メッセージで
-                // 通知し、呼び出し元（App.TryInitSteam）で Application.Exit() を行う。
                 if (SteamClient.RestartAppIfNecessary(id))
                 {
                     AppLog.Log("INFO", "SteamBridgeImpl",
@@ -107,11 +112,6 @@ namespace WebView2AppHost
                 }
             }
 
-            // asyncCallbacks=false: タイマーで RunCallbacks を手動呼び出しするため。
-            // 補足: SteamClient.Init は内部で環境変数 SteamAppId / SteamGameId を設定する。
-            //       isDev=true/false いずれも Init 経由で環境変数が設定されるため、
-            //       steam_appid.txt なしで動作する（isDev=false は上記の
-            //       RestartAppIfNecessary チェックを通過した後に Init を呼ぶ）。
             SteamClient.Init(id, asyncCallbacks: false);
 
 #if DEBUG
@@ -134,27 +134,28 @@ namespace WebView2AppHost
 
         public void HandleWebMessage(string webMessageJson)
         {
-            if (_disposed) return;
+            if (_disposed || string.IsNullOrWhiteSpace(webMessageJson)) return;
+
             try
             {
-                // メッセージ全体を JavaScriptSerializer で1回だけパースする。
-                // これにより DataContractJsonSerializer との二重パース・手動文字列解析が不要になる。
-                var msg = _jss.Deserialize<Dictionary<string, object>>(webMessageJson);
-                if (msg == null) return;
-                if (!(msg.TryGetValue("source", out var src)
-                    && string.Equals(src as string, "steam", StringComparison.OrdinalIgnoreCase))) return;
+                // Newtonsoft.Json で JObject としてパースする。
+                // プラグインが受け取る args は型不定（JS の number/string/array/object 混在）のため
+                // JObject/JArray/JValue による動的型解釈が必要。
+                // ホスト固定スキーマ（AppConfig 等）は DataContractJsonSerializer を使い続ける。
+                var msg = JObject.Parse(webMessageJson);
 
-                var messageId = msg.TryGetValue("messageId", out var mid) ? mid as string : null;
-                var asyncId   = msg.TryGetValue("asyncId",   out var aid) && aid != null
-                                ? Convert.ToDouble(aid) : -1.0;
+                var src = msg["source"]?.ToString();
+                if (!string.Equals(src, "steam", StringComparison.OrdinalIgnoreCase)) return;
+
+                var messageId = msg["messageId"]?.ToString();
+                var asyncId   = msg["asyncId"]?.Value<double>() ?? -1.0;
 
                 if (messageId == "release")
                 {
-                    var releaseParams = msg.TryGetValue("params", out var rp) ? rp as Dictionary<string, object> : null;
-                    if (releaseParams != null && releaseParams.TryGetValue("handleId", out var rawId))
+                    var handleId = msg["params"]?["handleId"]?.Value<long>();
+                    if (handleId.HasValue)
                     {
-                        long handleId = Convert.ToInt64(rawId);
-                        _handleRegistry.TryRemove(handleId, out _);
+                        _handleRegistry.TryRemove(handleId.Value, out _);
 #if DEBUG
                         AppLog.Log("INFO", "SteamBridgeImpl.Release", $"ハンドル {handleId} を解放しました");
 #endif
@@ -164,15 +165,14 @@ namespace WebView2AppHost
 
                 if (messageId != "invoke")
                 {
-                    AppLog.Log("WARN", "SteamBridgeImpl.HandleWebMessage",
-                        $"未知の messageId: {messageId}");
+                    AppLog.Log("WARN", "SteamBridgeImpl.HandleWebMessage", $"未知の messageId: {messageId}");
                     return;
                 }
 
-                var paramsDict = msg.TryGetValue("params", out var p) ? p as Dictionary<string, object> : null;
-                if (paramsDict == null) return;
+                var paramsObj = msg["params"] as JObject;
+                if (paramsObj == null) return;
 
-                Task.Run(async () => { await DispatchInvokeAsync(paramsDict, asyncId); });
+                Task.Run(async () => { await DispatchInvokeAsync(paramsObj, asyncId); });
             }
             catch (Exception ex)
             {
@@ -184,29 +184,34 @@ namespace WebView2AppHost
         // 汎用ディスパッチャ
         // ---------------------------------------------------------------------------
 
-        private async Task DispatchInvokeAsync(Dictionary<string, object> paramsDict, double asyncId)
+        private async Task DispatchInvokeAsync(JObject paramsObj, double asyncId)
         {
-            string logClassName = "Unknown";
+            string logClassName  = "Unknown";
             string logMethodName = "Unknown";
 
             try
             {
-                var argsRaw = paramsDict.TryGetValue("args", out var ar) && ar is ArrayList al
-                    ? al.Cast<object>().ToArray()
-                    : Array.Empty<object>();
+                // args は JArray → object?[] に変換して以降の処理へ渡す
+                var argsRaw = paramsObj["args"] is JArray jarr
+                    ? jarr.Cast<object?>().ToArray()
+                    : Array.Empty<object?>();
 
                 // ---- 0. インスタンスメソッド呼び出し (Handle Dispatch) ----
-                if (paramsDict.TryGetValue("handleId", out var rawHandleId))
+                var handleToken = paramsObj["handleId"];
+                if (handleToken != null && handleToken.Type != JTokenType.Null)
                 {
-                    long handleId = Convert.ToInt64(rawHandleId);
+                    long handleId = handleToken.Value<long>();
                     if (!_handleRegistry.TryGetValue(handleId, out var targetInstance))
                         throw new InvalidOperationException($"ハンドルID {handleId} が見つかりません。");
 
-                    logClassName = targetInstance.GetType().Name;
-                    var instMethodName = paramsDict["methodName"]?.ToString() ?? throw new ArgumentException("methodName が空です。");
+                    logClassName  = targetInstance.GetType().Name;
+                    var instMethodName = paramsObj["methodName"]?.ToString()
+                        ?? throw new ArgumentException("methodName が空です。");
                     logMethodName = instMethodName;
 
-                    var method = targetInstance.GetType().GetMethod(instMethodName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+                    var method = targetInstance.GetType().GetMethod(instMethodName,
+                        BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+
                     object? instResult;
                     if (method != null)
                     {
@@ -215,48 +220,40 @@ namespace WebView2AppHost
                     }
                     else
                     {
-                        // Fallback to property
-                        var prop = targetInstance.GetType().GetProperty(instMethodName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+                        var prop = targetInstance.GetType().GetProperty(instMethodName,
+                            BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
                         if (prop != null)
-                        {
                             instResult = prop.GetValue(targetInstance);
-                        }
                         else
                         {
-                            // Fallback to field
-                            var field = targetInstance.GetType().GetField(instMethodName, BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+                            var field = targetInstance.GetType().GetField(instMethodName,
+                                BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
                             if (field != null)
-                            {
                                 instResult = field.GetValue(targetInstance);
-                            }
                             else
-                            {
                                 throw new MissingMethodException($"{logClassName}.{instMethodName} が見つかりません。");
-                            }
                         }
                     }
 
                     if (instResult is Task instTask)
                     {
                         await instTask.ConfigureAwait(false);
-                        instResult = instTask.GetType().IsGenericType ? instTask.GetType().GetProperty("Result")?.GetValue(instTask) : null;
+                        instResult = instTask.GetType().IsGenericType
+                            ? instTask.GetType().GetProperty("Result")?.GetValue(instTask) : null;
                     }
                     SendResultToJs(asyncId, instResult, null);
                     return;
                 }
 
-                // ---- Static Method / Property / Constructor ----
-                var rawClassName  = paramsDict.TryGetValue("className",  out var cn) ? cn as string : null;
-                var rawMethodName = paramsDict.TryGetValue("methodName", out var mn) ? mn as string : null;
+                // ---- 静的メソッド / プロパティ / コンストラクタ ----
+                var className  = paramsObj["className"]?.ToString();
+                var methodName = paramsObj["methodName"]?.ToString();
 
-                if (string.IsNullOrEmpty(rawClassName) || string.IsNullOrEmpty(rawMethodName))
+                if (string.IsNullOrEmpty(className) || string.IsNullOrEmpty(methodName))
                     throw new ArgumentException("className または methodName が空です。");
 
-                string className = rawClassName!;
-                string methodName = rawMethodName!;
-
-                logClassName = className;
-                logMethodName = methodName;
+                logClassName  = className!;
+                logMethodName = methodName!;
 
                 // ---- 1. スクリーンショット特例 ----
                 if (className == "SteamScreenshots" && methodName == "TriggerScreenshot")
@@ -265,11 +262,8 @@ namespace WebView2AppHost
                     return;
                 }
 
-                // ---- 2 & 3. 静的メソッド、プロパティ getter、またはコンストラクタ ----
-
-                // Steamworks の公開型のみを許可する。ホワイトリスト外の className は
-                // WebView コンテンツが汚染されても任意型を呼び出せないよう弾く。
-                if (!_allowedClassNames.Contains(className))
+                // ---- 2 & 3. 静的メンバー / コンストラクタ ----
+                if (!_allowedClassNames.Contains(className!))
                     throw new TypeLoadException($"クラス '{className}' はホワイトリストに含まれていません。");
 
                 var type = _steamworkAsm.GetType($"Steamworks.{className}")
@@ -281,22 +275,21 @@ namespace WebView2AppHost
                 if (methodName == ".ctor" || methodName == "Create")
                 {
                     var ctors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
-                    var ctor = ctors.OrderBy(c => c.GetParameters().Length == argsRaw.Length ? 0 : 1).FirstOrDefault();
-                    if (ctor == null) throw new MissingMethodException($"{className} のコンストラクタが見つかりません。");
-
+                    var ctor  = ctors.OrderBy(c => c.GetParameters().Length == argsRaw.Length ? 0 : 1)
+                                     .FirstOrDefault()
+                        ?? throw new MissingMethodException($"{className} のコンストラクタが見つかりません。");
                     result = ctor.Invoke(ConvertArgs(ctor.GetParameters(), argsRaw));
                 }
                 else
                 {
-                    result = InvokeStaticMemberOrProperty(type, methodName, argsRaw);
+                    result = InvokeStaticMemberOrProperty(type, methodName!, argsRaw);
                 }
 
                 if (result is Task task)
                 {
                     await task.ConfigureAwait(false);
                     result = task.GetType().IsGenericType
-                        ? task.GetType().GetProperty("Result")?.GetValue(task)
-                        : null;
+                        ? task.GetType().GetProperty("Result")?.GetValue(task) : null;
                 }
 
                 SendResultToJs(asyncId, result, null);
@@ -311,17 +304,10 @@ namespace WebView2AppHost
         }
 
         // ---------------------------------------------------------------------------
-        // 静的メンバー呼び出し（メソッド優先 → プロパティ getter フォールバック）
+        // 静的メンバー呼び出し
         // ---------------------------------------------------------------------------
 
-        /// <summary>
-        /// 静的メソッドを引数数・型でベストマッチを選んで呼び出す。
-        /// メソッドが存在しない場合は静的プロパティ getter にフォールバックする。
-        /// これにより SteamClient.Name / SteamClient.SteamId 等のプロパティを
-        /// Steam.SteamClient.Name() として JS から呼び出せる。
-        /// </summary>
-        private static object? InvokeStaticMemberOrProperty(
-            Type type, string memberName, object[] rawArgs)
+        private static object? InvokeStaticMemberOrProperty(Type type, string memberName, object?[] rawArgs)
         {
             var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Static)
                 .Where(m => m.Name == memberName)
@@ -330,36 +316,25 @@ namespace WebView2AppHost
 
             if (methods.Count > 0)
             {
-                // 引数数が一致する候補を順に試す
                 foreach (var m in methods.Where(m => m.GetParameters().Length == rawArgs.Length))
                 {
-                    try
-                    {
-                        return m.Invoke(null, ConvertArgs(m.GetParameters(), rawArgs));
-                    }
+                    try { return m.Invoke(null, ConvertArgs(m.GetParameters(), rawArgs)); }
                     catch (ArgumentException) { }
                     catch (InvalidCastException) { }
                 }
 
-                // 引数なしフォールバック
                 var noParam = methods.FirstOrDefault(m => m.GetParameters().Length == 0);
-                if (noParam != null)
-                    return noParam.Invoke(null, Array.Empty<object?>());
+                if (noParam != null) return noParam.Invoke(null, Array.Empty<object?>());
 
-                // 最終フォールバック（最初の候補）
                 var first = methods[0];
                 return first.Invoke(null, ConvertArgs(first.GetParameters(), rawArgs));
             }
 
-            // 静的プロパティ getter にフォールバック
             var prop = type.GetProperty(memberName, BindingFlags.Public | BindingFlags.Static);
-            if (prop != null)
-                return prop.GetValue(null);
+            if (prop != null) return prop.GetValue(null);
 
-            // 静的フィールド getter にフォールバック
             var field = type.GetField(memberName, BindingFlags.Public | BindingFlags.Static);
-            if (field != null)
-                return field.GetValue(null);
+            if (field != null) return field.GetValue(null);
 
             throw new MissingMethodException($"{type.Name}.{memberName} が見つかりません。");
         }
@@ -368,7 +343,7 @@ namespace WebView2AppHost
         // 引数変換
         // ---------------------------------------------------------------------------
 
-        private static object?[] ConvertArgs(ParameterInfo[] parameters, object[] rawArgs)
+        private static object?[] ConvertArgs(ParameterInfo[] parameters, object?[] rawArgs)
         {
             var result = new object?[parameters.Length];
             for (int i = 0; i < parameters.Length; i++)
@@ -379,8 +354,19 @@ namespace WebView2AppHost
             return result;
         }
 
+        /// <summary>
+        /// Newtonsoft.Json の JToken を C# の具体的な型に変換する。
+        ///
+        /// JS → C# で届く値は JValue / JArray / JObject のいずれか。
+        ///   JValue: string, long, double, bool, null の .NET 値を持つ
+        ///   JArray: 配列（byte[] や列挙型に変換する場合がある）
+        ///   JObject: 複合オブジェクト（通常はそのまま渡す）
+        /// </summary>
         private static object? ConvertArg(object? raw, Type targetType)
         {
+            // --- JValue: 基本型ラッパーを .NET 値に展開 ---
+            if (raw is JValue jv) raw = jv.Value;
+
             if (raw == null)
                 return targetType.IsValueType ? Activator.CreateInstance(targetType) : null;
 
@@ -391,32 +377,33 @@ namespace WebView2AppHost
             // 型が既に一致
             if (targetType.IsAssignableFrom(raw.GetType())) return raw;
 
-            // byte[] — JS の数値配列は JavaScriptSerializer により ArrayList<int> になる
+            // --- byte[]: JArray（数値配列）または既存 byte[] を受け付ける ---
             if (targetType == typeof(byte[]))
             {
                 if (raw is byte[] already) return already;
-                if (raw is ArrayList byteList)
-                    return byteList.Cast<object>().Select(o => Convert.ToByte(o)).ToArray();
+                if (raw is JArray byteArray)
+                    return byteArray.Select(t => Convert.ToByte(t.Value<int>())).ToArray();
+                // フォールバック: Base64 文字列（将来対応）
                 if (raw is string b64)
                     return Convert.FromBase64String(b64);
             }
 
-            // enum 変換
+            // --- enum: 文字列名または数値から変換 ---
             if (targetType.IsEnum)
             {
                 if (raw is string s) return Enum.Parse(targetType, s, ignoreCase: true);
                 return Enum.ToObject(targetType, Convert.ToInt64(raw));
             }
 
-            // 特殊な Facepunch 構造体のキャスト
-            if (targetType == typeof(AppId)) return new AppId { Value = Convert.ToUInt32(raw) };
-            if (targetType == typeof(SteamId)) return new SteamId { Value = Convert.ToUInt64(raw) };
-            if (targetType == typeof(DepotId)) return new DepotId { Value = Convert.ToUInt32(raw) };
-            if (targetType == typeof(GameId)) return new GameId { Value = Convert.ToUInt64(raw) };
-            if (targetType == typeof(InventoryDefId)) return new InventoryDefId { Value = Convert.ToInt32(raw) };
+            // --- Facepunch.Steamworks 特殊構造体 ---
+            if (targetType == typeof(AppId))        return new AppId        { Value = Convert.ToUInt32(raw) };
+            if (targetType == typeof(SteamId))      return new SteamId      { Value = Convert.ToUInt64(raw) };
+            if (targetType == typeof(DepotId))      return new DepotId      { Value = Convert.ToUInt32(raw) };
+            if (targetType == typeof(GameId))       return new GameId       { Value = Convert.ToUInt64(raw) };
+            if (targetType == typeof(InventoryDefId))  return new InventoryDefId  { Value = Convert.ToInt32(raw) };
             if (targetType == typeof(InventoryItemId)) return new InventoryItemId { Value = Convert.ToUInt64(raw) };
 
-            // IConvertible（int, float, ulong, bool, string など）
+            // --- IConvertible（int / float / ulong / bool / string など） ---
             try
             {
                 return Convert.ChangeType(raw, targetType,
@@ -466,13 +453,10 @@ namespace WebView2AppHost
 
                 using var bmp = new Bitmap(pngStream);
                 var (rgb, width, height) = BitmapToRgb(bmp);
-
-                // WriteScreenshot(byte[] pubRGB, int nWidth, int nHeight)
                 SteamScreenshots.WriteScreenshot(rgb, width, height);
 
 #if DEBUG
-                AppLog.Log("INFO", "SteamBridgeImpl.Screenshot",
-                    $"WriteScreenshot 完了 ({width}x{height})");
+                AppLog.Log("INFO", "SteamBridgeImpl.Screenshot", $"WriteScreenshot 完了 ({width}x{height})");
 #endif
             }
             catch (Exception ex)
@@ -486,10 +470,8 @@ namespace WebView2AppHost
             int width  = bmp.Width;
             int height = bmp.Height;
 
-            var bmpData = bmp.LockBits(
-                new Rectangle(0, 0, width, height),
-                ImageLockMode.ReadOnly,
-                PixelFormat.Format32bppArgb);
+            var bmpData = bmp.LockBits(new Rectangle(0, 0, width, height),
+                ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
             try
             {
                 int stride   = bmpData.Stride;
@@ -568,16 +550,34 @@ namespace WebView2AppHost
                     string payload;
                     if (error != null)
                     {
-                        payload = $"{{\"source\":\"steam\",\"messageId\":\"invoke-result\"," +
-                                  $"\"error\":\"{EscapeJsonString(error)}\"," +
-                                  $"\"asyncId\":{FormatDouble(asyncId)}}}";
+                        // エラーは固定スキーマのため JObject で構築
+                        payload = new JObject
+                        {
+                            ["source"]    = "steam",
+                            ["messageId"] = "invoke-result",
+                            ["error"]     = error,
+                            ["asyncId"]   = asyncId,
+                        }.ToString(Formatting.None);
                     }
                     else
                     {
                         var wrappedResult = WrapSteamObjects(result);
-                        payload = $"{{\"source\":\"steam\",\"messageId\":\"invoke-result\"," +
-                                  $"\"result\":{SerializeResultValue(wrappedResult)}," +
-                                  $"\"asyncId\":{FormatDouble(asyncId)}}}";
+
+                        // 結果を JToken に変換。byte[] は ByteArrayAsIntArrayConverter で数値配列化。
+                        JToken resultToken;
+                        using (var writer = new JTokenWriter())
+                        {
+                            s_serializer.Serialize(writer, wrappedResult);
+                            resultToken = writer.Token ?? JValue.CreateNull();
+                        }
+
+                        payload = new JObject
+                        {
+                            ["source"]    = "steam",
+                            ["messageId"] = "invoke-result",
+                            ["result"]    = resultToken,
+                            ["asyncId"]   = asyncId,
+                        }.ToString(Formatting.None);
                     }
                     _webView.CoreWebView2.PostWebMessageAsString(payload);
                 }
@@ -588,23 +588,23 @@ namespace WebView2AppHost
             }));
         }
 
+        /// <summary>
+        /// Steamworks 名前空間のオブジェクトをハンドル参照に変換する。
+        /// IEnumerable の要素は再帰的に処理する。
+        /// </summary>
         private object? WrapSteamObjects(object? result)
         {
             if (result == null) return null;
             var type = result.GetType();
 
-            // IEnumerable な要素を再帰的にラップ（string/byte[] 等を除く）
-            if (result is System.Collections.IEnumerable enumerable && !(result is string) && !(result is byte[]))
+            // IEnumerable（string / byte[] を除く）を再帰的にラップ
+            if (result is System.Collections.IEnumerable enumerable
+                && !(result is string) && !(result is byte[]))
             {
-                var list = new ArrayList();
-                foreach (var item in enumerable)
-                {
-                    list.Add(WrapSteamObjects(item));
-                }
-                return list;
+                return enumerable.Cast<object?>().Select(WrapSteamObjects).ToList();
             }
 
-            // Steamworks 名前空間のオブジェクト・構造体はハンドル化して JS 側で Proxy にさせる
+            // Steamworks 名前空間の非 enum オブジェクトはハンドル化
             if (type.Namespace != null && type.Namespace.StartsWith("Steamworks") && !type.IsEnum)
             {
                 long id = System.Threading.Interlocked.Increment(ref _nextHandleId);
@@ -625,8 +625,14 @@ namespace WebView2AppHost
                 if (_disposed || _webView.CoreWebView2 == null) return;
                 try
                 {
-                    var payload = $"{{\"source\":\"steam\",\"event\":\"{EscapeJsonString(eventName)}\"," +
-                                  $"\"params\":{_jss.Serialize(eventParams)}}}";
+                    // イベントパラメータは匿名型（固定スキーマ）なので JObject.FromObject で変換
+                    var payload = new JObject
+                    {
+                        ["source"] = "steam",
+                        ["event"]  = eventName,
+                        ["params"] = JObject.FromObject(eventParams),
+                    }.ToString(Formatting.None);
+
                     _webView.CoreWebView2.PostWebMessageAsString(payload);
                 }
                 catch (Exception ex)
@@ -635,39 +641,6 @@ namespace WebView2AppHost
                 }
             }));
         }
-
-        // ---------------------------------------------------------------------------
-        // JSON ヘルパー
-        // ---------------------------------------------------------------------------
-
-        private string SerializeResultValue(object? result)
-        {
-            if (result == null) return "null";
-            if (result is bool b) return b ? "true" : "false";
-
-            if (result is int    || result is uint  || result is long   ||
-                result is ulong  || result is short  || result is ushort ||
-                result is float  || result is double || result is decimal ||
-                result is byte   || result is sbyte)
-                return Convert.ToString(result,
-                    System.Globalization.CultureInfo.InvariantCulture)!;
-
-            if (result is string s) return $"\"{EscapeJsonString(s)}\"";
-
-            // byte[] は数値配列として返す（JS 側で new Uint8Array(result) として使用可能）
-            if (result is byte[] bytes)
-                return "[" + string.Join(",", bytes.Select(bv => bv.ToString())) + "]";
-
-            try   { return _jss.Serialize(result); }
-            catch { return $"\"{EscapeJsonString(result.ToString() ?? "")}\""; }
-        }
-
-        private static string EscapeJsonString(string s) =>
-            s.Replace("\\", "\\\\").Replace("\"", "\\\"")
-             .Replace("\n", "\\n").Replace("\r", "\\r").Replace("\t", "\\t");
-
-        private static string FormatDouble(double d) =>
-            d.ToString("G", System.Globalization.CultureInfo.InvariantCulture);
 
         // ---------------------------------------------------------------------------
         // IDisposable

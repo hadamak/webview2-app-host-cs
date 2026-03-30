@@ -248,6 +248,9 @@ const Host = (() => {
     const _classProxyHandler = (pluginName) => ({
         get(_, className) {
             if (typeof className !== 'string') return undefined;
+            // await Host.Steam が Thenable と誤認されないよう undefined を返す
+            if (className === 'then' || className === 'catch' || className === 'finally')
+                return undefined;
             return new Proxy(Object.create(null), _methodProxyHandler(pluginName, className));
         },
     });

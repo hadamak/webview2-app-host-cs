@@ -18,6 +18,9 @@
     Steam DLL のビルドと配置をスキップする。
     Steamworks SDK サブモジュールが未取得の場合に使う。
 
+.PARAMETER SkipNode
+    Node.js プラグインのビルドと配置をスキップする。
+
 .EXAMPLE
     # 通常のローカル開発セットアップ
     .\tools\setup-local-dev.ps1
@@ -35,7 +38,9 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$Configuration = "Debug",
 
-    [switch]$SkipSteam
+    [switch]$SkipSteam,
+
+    [switch]$SkipNode
 )
 
 $ErrorActionPreference = "Stop"
@@ -103,7 +108,46 @@ try {
     }
 
     # ---------------------------------------------------------------------------
-    # 4. test-www/ と steam.js を www/ にコピー
+    # 4. Node.js Plugin ビルド（オプション）
+    # ---------------------------------------------------------------------------
+    if (-not $SkipNode) {
+        Write-Host "==> Node.js Plugin をビルド中..." -ForegroundColor Cyan
+        dotnet build src-node\WebView2AppHost.Node.csproj `
+            -c $Configuration -r win-x64 --no-self-contained `
+            /p:Platform=x64 `
+            /v:minimal
+        if ($LASTEXITCODE -ne 0) { throw "Node.js Plugin のビルドに失敗しました" }
+
+        # ---------------------------------------------------------------------------
+        # 5. Node.js 関連ファイルを配置
+        # ---------------------------------------------------------------------------
+        Write-Host "==> Node.js 関連ファイルを配置中..." -ForegroundColor Cyan
+
+        $nodeBuildDir = "src-node\bin\x64\$Configuration\net472\win-x64"
+        $nodeFiles = @(
+            "WebView2AppHost.Node.dll",
+            "Newtonsoft.Json.dll"
+        )
+        foreach ($file in $nodeFiles) {
+            $src = Join-Path $nodeBuildDir $file
+            if (-not (Test-Path $src)) {
+                throw "Node.js Plugin ファイルが見つかりません: $src"
+            }
+            Copy-Item $src $outDir -Force
+            Write-Host "    $file -> $outDir" -ForegroundColor Gray
+        }
+
+        # node-runtime/server.js をコピー
+        $nodeRuntimeDest = Join-Path $outDir "node-runtime"
+        New-Item -ItemType Directory -Force -Path $nodeRuntimeDest | Out-Null
+        Copy-Item "node-runtime\server.js" $nodeRuntimeDest -Force
+        Write-Host "    node-runtime\server.js -> $nodeRuntimeDest\" -ForegroundColor Gray
+    } else {
+        Write-Host "==> Node.js Plugin のビルドをスキップ" -ForegroundColor Gray
+    }
+
+    # ---------------------------------------------------------------------------
+    # 6. test-www/ と steam.js を www/ にコピー
     #    Debug ビルドでは .csproj の CopyManualWwwContent ターゲットが既に実行済みだが、
     #    Release や手動での確認に備えて明示的にコピーする。
     # ---------------------------------------------------------------------------
@@ -134,6 +178,11 @@ try {
         Write-Host "Steam: 有効 (AppID は test-www\app.conf.json の steamAppId を参照)"
     } else {
         Write-Host "Steam: 無効"
+    }
+    if (-not $SkipNode) {
+        Write-Host "Node:  有効"
+    } else {
+        Write-Host "Node:  無効"
     }
     Write-Host ""
     Write-Host "起動するには:" -ForegroundColor Yellow

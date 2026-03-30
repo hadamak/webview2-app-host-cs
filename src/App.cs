@@ -271,11 +271,15 @@ namespace WebView2AppHost
             {
                 try
                 {
-                    _pluginManager?.HandleWebMessage(e.TryGetWebMessageAsString());
+                    string messageJson = WebMessageHelper.GetJsonPayload(
+                        () => e.TryGetWebMessageAsString(),
+                        () => e.WebMessageAsJson
+                    );
+                    _pluginManager?.HandleWebMessage(messageJson);
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Log("ERROR", "App.WebMessageReceived", ex.Message);
+                    AppLog.Log("ERROR", "App.WebMessageReceived", ex.Message, ex);
                 }
             };
 
