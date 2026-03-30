@@ -22,8 +22,20 @@ namespace WebView2AppHost
     /// </summary>
     internal sealed class ZipContentProvider : IDisposable
     {
-        // 有効なコンテンツソースのリスト（優先順位順）
+        private struct EntryMetadata
+        {
+            public IContentSource Source;
+            public string ActualName;
+            public bool IsEncrypted;
+            public bool IsPlainCore;
+        }
+
+        // 有効なコンテンツソースのリスト（優先順位順: 0:www, 1:arg, 2:sibling, 3:bundled, 4:embedded）
         private readonly List<IContentSource> _sources = new List<IContentSource>();
+
+        // パスインデックス: virtualPath -> 各ソースでのエントリ情報のリスト
+        private readonly Dictionary<string, List<EntryMetadata>> _index = 
+            new Dictionary<string, List<EntryMetadata>>(StringComparer.OrdinalIgnoreCase);
 
         private readonly string? _mockExePath;
 
@@ -37,21 +49,62 @@ namespace WebView2AppHost
         // ---------------------------------------------------------------------------
 
         /// <summary>
-        /// 優先順位に従ってすべての有効なコンテンツソースを登録する。
-        /// いずれかのソースが一つでも見つかれば true を返す。
+        /// 優先順位に従ってすべての有効なコンテンツソースを登録し、インデックスを構築する。
         /// </summary>
         public bool Load()
         {
+            _sources.Clear();
+            _index.Clear();
+
             // 1. 個別配置（最優先）
             LoadIndividualSource();
 
-            // 2〜5. 各種 ZIP ソース（見つかったものすべてをリストに追加）
+            // 2〜5. 各種 ZIP ソース
             TryAddArgSource();
             TryAddSiblingSource();
             TryAddBundledSource();
             TryAddEmbeddedSource();
 
-            return _sources.Count > 0;
+            if (_sources.Count == 0) return false;
+
+            // インデックスの構築
+            BuildIndex();
+
+            return true;
+        }
+
+        private void BuildIndex()
+        {
+            // 各ソースからエントリ名を収集し、インデックスに登録する
+            for (int i = 0; i < _sources.Count; i++)
+            {
+                var source = _sources[i];
+                foreach (var actualName in source.GetPaths())
+                {
+                    bool isEncrypted = actualName.EndsWith(".wve", StringComparison.OrdinalIgnoreCase);
+                    bool isPlainCore  = actualName.EndsWith(".wvc", StringComparison.OrdinalIgnoreCase);
+
+                    // 仮想パス（.wve/.wvc を除いたベース名）を算出
+                    string virtualPath;
+                    if (isEncrypted) virtualPath = "/" + actualName.Substring(0, actualName.Length - 4).Replace('\\', '/').TrimStart('/');
+                    else if (isPlainCore) virtualPath = "/" + actualName.Substring(0, actualName.Length - 4).Replace('\\', '/').TrimStart('/');
+                    else virtualPath = "/" + actualName.Replace('\\', '/').TrimStart('/');
+
+                    if (!_index.TryGetValue(virtualPath, out var list))
+                    {
+                        list = new List<EntryMetadata>();
+                        _index[virtualPath] = list;
+                    }
+
+                    list.Add(new EntryMetadata 
+                    { 
+                        Source = source, 
+                        ActualName = actualName, 
+                        IsEncrypted = isEncrypted, 
+                        IsPlainCore = isPlainCore 
+                    });
+                }
+            }
         }
 
         private void LoadIndividualSource()
@@ -115,12 +168,43 @@ namespace WebView2AppHost
 
         public Stream? OpenEntry(string virtualPath)
         {
-            // 優先順位が高い順に検索し、最初に見つかったものを返す
-            foreach (var source in _sources)
+            var path = "/" + virtualPath.Replace('\\', '/').TrimStart('/');
+            if (!_index.TryGetValue(path, out var list)) return null;
+
+            // 1. 保護ファイルの検索 (内側優先: リストの末尾から先頭へ)
+            // .wve または .wvc があれば、それを最優先する。
+            for (int i = list.Count - 1; i >= 0; i--)
             {
-                var stream = source.OpenEntry(virtualPath);
-                if (stream != null) return stream;
+                var meta = list[i];
+                if (meta.IsEncrypted || meta.IsPlainCore)
+                {
+                    var stream = meta.Source.OpenEntry(meta.ActualName);
+                    if (stream == null) continue;
+
+                    if (meta.IsEncrypted)
+                    {
+                        try { return CryptoUtils.CreateDecryptStream(stream); }
+                        catch (Exception ex)
+                        {
+                            stream.Dispose();
+                            AppLog.Log("ERROR", "ZipContentProvider", $"復号失敗: {meta.ActualName}", ex);
+                            continue;
+                        }
+                    }
+                    return stream;
+                }
             }
+
+            // 2. 通常ファイルの検索 (外側優先: リストの先頭から末尾へ)
+            for (int i = 0; i < list.Count; i++)
+            {
+                var meta = list[i];
+                if (!meta.IsEncrypted && !meta.IsPlainCore)
+                {
+                    return meta.Source.OpenEntry(meta.ActualName);
+                }
+            }
+
             return null;
         }
 
@@ -150,6 +234,7 @@ namespace WebView2AppHost
         private interface IContentSource : IDisposable
         {
             Stream? OpenEntry(string virtualPath);
+            IEnumerable<string> GetPaths();
         }
 
         /// <summary>
@@ -163,12 +248,20 @@ namespace WebView2AppHost
             public Stream? OpenEntry(string virtualPath)
             {
                 var relative = virtualPath.TrimStart('/');
-                if (string.IsNullOrEmpty(relative)) return null;
                 var fullPath = Path.GetFullPath(Path.Combine(_root, relative));
                 if (!fullPath.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return null;
                 if (!File.Exists(fullPath)) return null;
-
                 return new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.RandomAccess);
+            }
+
+            public IEnumerable<string> GetPaths()
+            {
+                if (!Directory.Exists(_root)) yield break;
+                var files = Directory.GetFiles(_root, "*", SearchOption.AllDirectories);
+                foreach (var f in files)
+                {
+                    yield return f.Substring(_root.Length).Replace('\\', '/').TrimStart('/');
+                }
             }
             public void Dispose() { }
         }
@@ -293,30 +386,25 @@ namespace WebView2AppHost
 
             public Stream? OpenEntry(string virtualPath)
             {
-                var entryName = virtualPath.TrimStart('/');
-                var entry     = _archive.GetEntry(entryName);
+                // インデックス化されているため actualName がそのまま渡される
+                var entry = _archive.GetEntry(virtualPath);
                 if (entry == null) return null;
+                if (entry.Length > int.MaxValue) return null;
 
-                // ④ 修正: entry.Length が int の範囲を超える場合に明示的なエラーを返す。
-                // 2GB を超えるファイルは (int)entry.Length がオーバーフローし、
-                // MemoryStream の初期容量が負値になって ArgumentOutOfRangeException が発生する。
-                // 動画・音声など大きなファイルは www/ フォルダへの個別配置を推奨する。
-                if (entry.Length > int.MaxValue)
-                {
-                    AppLog.Log("WARN", "ZipSource.OpenEntry",
-                        $"エントリが大きすぎるため ZIP からの展開をスキップします: {entry.FullName} ({entry.Length:N0} bytes)。" +
-                        "動画・音声など大きなファイルは www/ フォルダへの個別配置を推奨します。");
-                    return null;
-                }
-
-                // エントリ全体を MemoryStream に展開して返す。
-                // シーク可能になるため Range Request に対応できる。
-                // 大きなファイル（動画・音声等）はメモリを圧迫するため www/ への個別配置を推奨。
                 using var entryStream = entry.Open();
                 var ms = new MemoryStream((int)entry.Length);
                 entryStream.CopyTo(ms);
                 ms.Position = 0;
                 return ms;
+            }
+
+            public IEnumerable<string> GetPaths()
+            {
+                foreach (var entry in _archive.Entries)
+                {
+                    if (string.IsNullOrEmpty(entry.Name)) continue; // ディレクトリは除外
+                    yield return entry.FullName;
+                }
             }
 
             public void Dispose() { _archive.Dispose(); }

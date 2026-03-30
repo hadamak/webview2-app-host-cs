@@ -12,6 +12,7 @@
   <ItemGroup>
     <Compile Include="..\..\src\PopupWindowOptions.cs" />
     <Compile Include="..\..\src\ZipContentProvider.cs" />
+    <Compile Include="..\..\src\CryptoUtils.cs" />
     <Compile Include="..\..\src\SubStream.cs" />
     <Compile Include="..\..\src\WebResourceHandler.cs" />
     <Compile Include="..\..\src\NavigationPolicy.cs" />

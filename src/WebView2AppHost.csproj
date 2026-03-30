@@ -16,9 +16,14 @@
     <DebugSymbols Condition="'$(Configuration)'=='Release'">false</DebugSymbols>
   </PropertyGroup>
 
-  <!-- web-content/ を app.zip に固めて埋め込みリソースにする -->
+  <PropertyGroup>
+    <AppZipSourceDir Condition="'$(Configuration)' == 'Debug'">$(MSBuildProjectDirectory)\..\debug-web-content</AppZipSourceDir>
+    <AppZipSourceDir Condition="'$(Configuration)' == 'Release'">$(MSBuildProjectDirectory)\..\web-content</AppZipSourceDir>
+  </PropertyGroup>
+
+  <!-- web-content/ または debug-web-content/ を app.zip に固めて埋め込みリソースにする -->
   <Target Name="PackAppZip" BeforeTargets="BeforeBuild">
-    <ZipDirectory SourceDirectory="$(MSBuildProjectDirectory)\..\web-content"
+    <ZipDirectory SourceDirectory="$(AppZipSourceDir)"
                   DestinationFile="$(MSBuildProjectDirectory)\app.zip"
                   Overwrite="true" />
   </Target>

@@ -90,6 +90,9 @@ Supported features:
 - 👥 Rich Presence — show current game state in the friends list
 - 🎁 Ownership / DLC — check app and DLC ownership status
 
+### 5. 🛡️ Core Content Protection
+Protect your application's entry points and core logic from being overwritten by external files. By using `.wve` (encrypted) or `.wvc` (plain core) extensions, you can enforce **"Inner-First"** priority and ensure your code remains untampered.
+
 ---
 
 ## 📊 Comparison
@@ -192,13 +195,28 @@ web-content/
 The host supports multiple content delivery modes, which can be mixed and matched per file.
 
 ### Content Loading Priority
-When the same file exists in multiple locations, the higher-priority source wins.
+When the same file exists in multiple locations, the host determines which one to use based on the file type.
 
-1. `www/` folder (next to the EXE)
+#### 📄 Regular Content
+**Outer-First**: The external `www/` folder has the highest priority to provide a smooth development workflow (hot-reloading).
+
+1. `www/` folder (next to the EXE) (Highest Priority)
 2. ZIP path passed as a launch argument
 3. ZIP with the same name as the EXE (e.g. `MyApp.zip` for `MyApp.exe`)
 4. ZIP appended to the EXE
-5. Resource embedded inside the EXE
+5. Resource embedded inside the EXE (Lowest Priority)
+
+#### 🛡️ Protected Content (`.wve` / `.wvc`)
+**Inner-First**: Protection is enforced for files with these extensions. Inner sources are prioritized to prevent the core logic from being overwritten by external files.
+
+1. Resource embedded inside the EXE (Highest Priority)
+2. ZIP appended to the EXE
+3. ZIP with the same name as the EXE
+4. ZIP path passed as a launch argument
+5. `www/` folder (Lowest Priority)
+
+> [!TIP]
+> Use `.wvc` for your `index.html` to ensure your app always starts from the intended entry point even if a rogue `www/index.html` exists.
 
 ### 1. 📁 `www/` Folder
 Place a `www/` folder next to the EXE and put your content inside.

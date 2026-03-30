@@ -8,8 +8,13 @@ namespace HostTests
 {
     internal static class Program
     {
-        private static int Main()
+        private static int Main(string[] args)
         {
+            if (args.Length > 0 && args[0] == "setup-demo")
+            {
+                SetupDemo();
+                return 0;
+            }
             try
             {
                 var workDir = Path.Combine(Path.GetTempPath(), "webview2-app-host-append-zip-tests", Guid.NewGuid().ToString("N"));
@@ -31,6 +36,41 @@ namespace HostTests
                 Console.Error.WriteLine(ex);
                 return 1;
             }
+        }
+
+        private static void SetupDemo()
+        {
+            // プロジェクトルートを探す（tests/HostTests から 2段上がる）
+            var baseDir = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\.."));
+            var webContentDir = Path.Combine(baseDir, "web-content");
+            var testWwwDir = Path.Combine(baseDir, "test-www");
+
+            Directory.CreateDirectory(webContentDir);
+            Directory.CreateDirectory(testWwwDir);
+
+            // 1. .wvc (Plain Core) - 内側優先のデモ
+            File.WriteAllText(Path.Combine(webContentDir, "debug.txt.wvc"), "INNER-CONTENT (PROTECTED)");
+            File.WriteAllText(Path.Combine(testWwwDir, "debug.txt"), "OUTER-CONTENT (OVERRIDDEN!)");
+
+            // 2. .wve (Encrypted) - 暗号化・復号のデモ
+            var secretData = Encoding.UTF8.GetBytes("THIS IS A SECRET CODE FROM ENCRYPTED FILE.");
+            var encrypted = WebView2AppHost.CryptoUtils.Encrypt(secretData);
+            File.WriteAllBytes(Path.Combine(webContentDir, "secret.js.wve"), encrypted);
+
+            // 3. index.html.wvc - 前に作った protection.html をデモの顔にする
+            var srcHtmlPath = Path.Combine(testWwwDir, "protection.html");
+            if (File.Exists(srcHtmlPath))
+            {
+                var demoHtml = File.ReadAllText(srcHtmlPath);
+                File.WriteAllText(Path.Combine(webContentDir, "index.html.wvc"), demoHtml);
+            }
+
+            // 4. Overriding index.html - 上書きに成功してしまうとこちらが出る
+            File.WriteAllText(Path.Combine(testWwwDir, "index.html"), "<h1>FAILED!</h1><p>Internal protection was bypassed.</p>");
+
+            Console.WriteLine("Demo assets generated successfully in:");
+            Console.WriteLine("  WebContent: " + webContentDir);
+            Console.WriteLine("  TestWWW:    " + testWwwDir);
         }
 
         private static void RunTests(string workDir)
@@ -113,6 +153,9 @@ namespace HostTests
 
             // ④ entry.Length > int.MaxValue の防御テスト
             RunLargeEntryGuardTests(workDir);
+
+            // コアコンテンツ保護機能のテスト
+            ProtectionTests.Run(workDir);
         }
 
         // =====================================================================
