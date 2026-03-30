@@ -7,7 +7,7 @@ using Microsoft.Web.WebView2.WinForms;
 namespace WebView2AppHost
 {
     /// <summary>
-    /// Steam ブリッジのエントリーポイント。
+    /// Steam ブリッジのエントリーポイント。IHostPlugin を実装し PluginManager に登録される。
     ///
     /// WebView2AppHost.Steam.dll が EXE と同じフォルダに存在する場合のみ
     /// リフレクションで SteamBridgeImpl を生成し、存在しない場合は null を
@@ -19,8 +19,11 @@ namespace WebView2AppHost
     ///              "asyncId":1}
     ///   C# → JS: {"source":"steam","messageId":"invoke-result","result":<value>,"asyncId":1}
     ///   C# → JS (イベント): {"source":"steam","event":"OnAchievementProgress","params":{...}}
+    ///
+    /// source フィールドの照合は大文字小文字を区別しない（"steam" と "Steam" どちらも受け付ける）。
+    /// これにより steam.js（"steam"）と host.js（"Steam"）の両方が動作する。
     /// </summary>
-    internal sealed class SteamBridge : IDisposable
+    internal sealed class SteamBridge : IHostPlugin
     {
         // ISteamBridgeImpl は EXE と Steam DLL の両方にソースリンクでコンパイルされるため、
         // 型同一性が異なる別の型として扱われる。Assembly.LoadFrom 経由でロードした
@@ -31,6 +34,9 @@ namespace WebView2AppHost
         private bool _disposed;
 
         private SteamBridge(object impl) => _impl = impl;
+
+        /// <summary>IHostPlugin.PluginName — PluginManager のルーティングキー。</summary>
+        public string PluginName => "Steam";
 
         // ---------------------------------------------------------------------------
         // 静的ファクトリ
@@ -43,7 +49,8 @@ namespace WebView2AppHost
         /// <para>
         /// <see cref="InvalidOperationException"/> に <c>"STEAM_RESTART_REQUIRED"</c> メッセージが
         /// 付いた場合は Steam による再起動が必要なことを意味する。
-        /// 呼び出し元（App.TryInitSteam）はこの例外をキャッチして Application.Exit() を呼ぶこと。
+        /// 呼び出し元（PluginManager 経由で App.InitPlugins）はこの例外をキャッチして
+        /// Application.Exit() を呼ぶこと。
         /// </para>
         /// </summary>
         /// <exception cref="InvalidOperationException">
@@ -62,9 +69,6 @@ namespace WebView2AppHost
             }
 
             // ⑥ 簡易整合性チェック: Steam DLL の AssemblyVersion が EXE と一致するか確認する。
-            // ハッシュ検証は運用コストが高いため、ビルド時に揃うバージョン番号で代替する。
-            // 不一致の場合は WARN ログのみで処理を続行する（クラッシュより安全側に倒す）。
-            // 本格的なコード署名検証は将来の検討事項（docs/future-considerations.md 参照）。
             CheckSteamDllVersion(steamDll);
 
             try
@@ -127,18 +131,17 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                // バージョン情報の取得失敗は致命的でないためログのみ
                 AppLog.Log("WARN", "SteamBridge.CheckSteamDllVersion",
                     "Steam DLL のバージョン情報を取得できませんでした。", ex);
             }
         }
 
         // ---------------------------------------------------------------------------
-        // 公開 API
+        // IHostPlugin
         // ---------------------------------------------------------------------------
 
         /// <summary>
-        /// WebView2 の WebMessageReceived から渡す。source が "steam" 以外は無視する。
+        /// WebView2 の WebMessageReceived から渡す。source が "steam"（大文字小文字不問）以外は無視する。
         /// </summary>
         public void HandleWebMessage(string webMessageJson)
         {

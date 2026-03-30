@@ -14,8 +14,6 @@ namespace WebView2AppHost
         private readonly WebView2         _webView  = new WebView2();
 
         // ③ 修正: タイムアウトを設定する。
-        // 設定なしでは応答しないプロキシ先でスレッドが長時間保持される。
-        // タイムアウト超過時は HandleProxyRequestAsync 内で TaskCanceledException を捕捉し 504 を返す。
         private static readonly HttpClient _httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(15)
@@ -42,8 +40,8 @@ namespace WebView2AppHost
         // favicon 管理
         private Icon? _favicon = null;
 
-        // Steam ブリッジ
-        private SteamBridge? _steamBridge;
+        // プラグインマネージャー（Steam 等のプラグインを統合管理）
+        private PluginManager? _pluginManager;
 
         private CdpProxyHandler? _cdpProxy;
 
@@ -120,9 +118,6 @@ namespace WebView2AppHost
 
             RegisterCustomScheme();
 
-            // proxyOrigins が設定されている場合は CDP 透過プロキシを有効化する。
-            // WebResourceRequested ベースの GET 専用実装（旧）を CDP Fetch ドメインで置き換え、
-            // POST / PUT / DELETE 等のリクエストボディも透過転送できるようになる。
             if (_config.ProxyOrigins?.Length > 0)
             {
                 _cdpProxy = new CdpProxyHandler(wv, _config.ProxyOrigins, _httpClient);
@@ -240,9 +235,10 @@ namespace WebView2AppHost
                 }
             };
 
+            // ポップアップウィンドウではプラグインを初期化しない
             if (_popupWindowOptions == null)
             {
-                TryInitSteam();
+                InitPlugins();
             }
 
             wv.Navigate(_initialUri);
@@ -252,42 +248,39 @@ namespace WebView2AppHost
         }
 
         // ---------------------------------------------------------------------------
-        // Steam ブリッジ初期化
+        // プラグイン初期化
         // ---------------------------------------------------------------------------
 
-        private void TryInitSteam()
+        private void InitPlugins()
         {
             try
             {
-                _steamBridge = SteamBridge.TryCreate(
-                    _webView,
-                    _config.SteamAppId,
-                    _config.SteamDevMode);
+                _pluginManager = PluginManager.Create(_webView, _config);
             }
             catch (InvalidOperationException ex) when (ex.Message == "STEAM_RESTART_REQUIRED")
             {
-                AppLog.Log("INFO", "App.TryInitSteam",
+                AppLog.Log("INFO", "App.InitPlugins",
                     "Steam 再起動要求を受信しました。アプリケーションを終了します。");
                 Application.Exit();
                 return;
             }
 
-            if (_steamBridge == null) return;
+            if (!_pluginManager.HasPlugins) return;
 
             _webView.CoreWebView2.WebMessageReceived += (s, e) =>
             {
                 try
                 {
-                    _steamBridge?.HandleWebMessage(e.TryGetWebMessageAsString());
+                    _pluginManager?.HandleWebMessage(e.TryGetWebMessageAsString());
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Log("ERROR", "App.SteamWebMessageReceived", ex.Message);
+                    AppLog.Log("ERROR", "App.WebMessageReceived", ex.Message);
                 }
             };
 
 #if DEBUG
-            AppLog.Log("INFO", "App.TryInitSteam", "Steam ブリッジを有効化しました");
+            AppLog.Log("INFO", "App.InitPlugins", "プラグインマネージャーを有効化しました");
 #endif
         }
 
@@ -297,9 +290,6 @@ namespace WebView2AppHost
 
         private void RegisterCustomScheme()
         {
-            // app.local のコンテンツ配信のみ WebResourceRequested で処理する。
-            // 外部オリジン（proxyOrigins）へのリクエストは CdpProxyHandler が
-            // CDP Fetch ドメインでインターセプトするため、ここには登録しない。
             _webView.CoreWebView2.AddWebResourceRequestedFilter(
                 "https://app.local/*",
                 CoreWebView2WebResourceContext.All);
@@ -310,7 +300,6 @@ namespace WebView2AppHost
 
         private void HandleWebResourceRequest(CoreWebView2WebResourceRequestedEventArgs e)
         {
-            // このハンドラは https://app.local/* のみに呼ばれる（外部オリジンは CDP が処理）。
             var uri  = new Uri(e.Request.Uri);
             var path = Uri.UnescapeDataString(uri.AbsolutePath);
 
@@ -376,9 +365,6 @@ namespace WebView2AppHost
             }
         }
 
-        // ② 修正: async void → async Task。
-        // 呼び出し元が _ = HandleProxyRequestAsync(...).ContinueWith(...) で
-        // 失敗時ログを担保するため、このメソッド自体は例外を握りつぶさない。
         private async Task HandleProxyRequestAsync(CoreWebView2WebResourceRequestedEventArgs e, Uri targetUri)
         {
             var deferral = e.GetDeferral();
@@ -397,7 +383,6 @@ namespace WebView2AppHost
                     try { request.Headers.TryAddWithoutValidation(name, header.Value); } catch { }
                 }
 
-                // ③ タイムアウト超過は TaskCanceledException として到達する
                 var response = await _httpClient.SendAsync(
                     request, HttpCompletionOption.ResponseContentRead);
 
@@ -420,7 +405,6 @@ namespace WebView2AppHost
             }
             catch (TaskCanceledException)
             {
-                // ③ タイムアウト: 504 Gateway Timeout を返す
                 AppLog.Log("WARN", "App.HandleProxyRequestAsync",
                     $"プロキシ転送がタイムアウトしました (15s): {targetUri.AbsoluteUri}");
                 e.Response = _webView.CoreWebView2.Environment
@@ -434,7 +418,7 @@ namespace WebView2AppHost
                 e.Response = _webView.CoreWebView2.Environment
                     .CreateWebResourceResponse(null, 502, "Bad Gateway",
                         "Content-Type: text/plain");
-                throw;  // ContinueWith でログされる
+                throw;
             }
             finally
             {
@@ -678,7 +662,7 @@ namespace WebView2AppHost
             {
                 _favicon?.Dispose();
                 _cdpProxy?.Dispose();
-                _steamBridge?.Dispose();
+                _pluginManager?.Dispose();
                 if (_disposeZipOnClose)
                     _zip.Dispose();
             }

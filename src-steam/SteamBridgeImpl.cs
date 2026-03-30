@@ -141,7 +141,8 @@ namespace WebView2AppHost
                 // これにより DataContractJsonSerializer との二重パース・手動文字列解析が不要になる。
                 var msg = _jss.Deserialize<Dictionary<string, object>>(webMessageJson);
                 if (msg == null) return;
-                if (!(msg.TryGetValue("source", out var src) && src as string == "steam")) return;
+                if (!(msg.TryGetValue("source", out var src)
+                    && string.Equals(src as string, "steam", StringComparison.OrdinalIgnoreCase))) return;
 
                 var messageId = msg.TryGetValue("messageId", out var mid) ? mid as string : null;
                 var asyncId   = msg.TryGetValue("asyncId",   out var aid) && aid != null

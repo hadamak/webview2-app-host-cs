@@ -45,6 +45,14 @@ namespace WebView2AppHost
         public string[] ProxyOrigins { get; private set; } = Array.Empty<string>();
 
         /// <summary>
+        /// 読み込むプラグイン名のリスト。
+        /// 例: ["Steam", "Node"]
+        /// 省略した場合は EXE 隣接の WebView2AppHost.*.dll を自動検出する。
+        /// </summary>
+        [DataMember(Name = "plugins")]
+        public string[] Plugins { get; private set; } = Array.Empty<string>();
+
+        /// <summary>
         /// Steam AppID。Steamworks 機能を使う場合に設定する。
         /// 空または未設定の場合は steam_appid.txt または Steam 起動時の自動検出に委ねる。
         /// </summary>
@@ -147,6 +155,9 @@ namespace WebView2AppHost
 
             // ProxyOrigins: デシリアライズ時に null になる場合があるため正規化する
             if (ProxyOrigins == null) ProxyOrigins = Array.Empty<string>();
+
+            // Plugins: null を空配列に正規化する
+            if (Plugins == null) Plugins = Array.Empty<string>();
 
             // SteamAppId: null は空文字に正規化
             if (SteamAppId == null) SteamAppId = "";
