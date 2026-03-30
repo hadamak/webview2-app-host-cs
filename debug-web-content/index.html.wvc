@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Core Content Protection Test</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #333; }
+        .card { border: 1px solid #ddd; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1 { color: #0078d4; }
+        .status { font-weight: bold; padding: 0.2rem 0.5rem; border-radius: 4px; }
+        .protected { background-color: #d1e7dd; color: #0f5132; }
+        .overridable { background-color: #fff3cd; color: #664d03; }
+        pre { background: #f4f4f4; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+        .info { font-size: 0.9rem; color: #666; }
+    </style>
+</head>
+<body>
+    <h1>Core Content Protection Test</h1>
+    
+    <div class="card">
+        <h2>1. 保護ステータスの確認</h2>
+        <p>
+            このページが <code>index.html</code> として表示されている場合：<br>
+            <span id="index-status" class="status">判定中...</span>
+        </p>
+        <div class="info">
+            埋め込みリソースに <code>index.html.wvc</code> が配置されている場合、<code>www/index.html</code> を置いても無視されます。
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>2. 暗号化ファイルの復号検証</h2>
+        <p>
+            暗号化された <code>secret.js.wve</code> の内容：<br>
+            <span id="secret-status" class="status">判定中...</span>
+        </p>
+        <pre id="secret-content">読み込み中...</pre>
+        <div class="info">
+            バイナリ内の <code>.wve</code> ファイルは透過的に復号され、通常の <code>.js</code> としてアクセス可能です。
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>3. 優先順位の動的検証</h2>
+        <p>
+            <code>www/debug.txt</code> (外部) と <code>debug.txt.wvc</code> (内部) の競合：<br>
+            <span id="debug-status" class="status">判定中...</span>
+        </p>
+        <pre id="debug-content">読み込み中...</pre>
+    </div>
+
+    <script>
+        async function checkProtection() {
+            // Index status (this page itself)
+            const title = document.title;
+            const el = document.getElementById('index-status');
+            if (title.includes('Protection Test')) {
+                el.innerText = 'PROTECTED (.wvc)';
+                el.className = 'status protected';
+            } else {
+                el.innerText = 'OVERRIDDEN (www/)';
+                el.className = 'status overridable';
+            }
+
+            // Secret decryption check
+            try {
+                const resp = await fetch('/secret.js');
+                const text = await resp.text();
+                document.getElementById('secret-content').innerText = text;
+                const sel = document.getElementById('secret-status');
+                if (resp.ok && text.includes('SECRET')) {
+                    sel.innerText = 'DECRYPTED SUCCESS';
+                    sel.className = 'status protected';
+                } else {
+                    sel.innerText = 'FAILED / NOT FOUND';
+                    sel.className = 'status overridable';
+                }
+            } catch (e) {
+                document.getElementById('secret-status').innerText = 'ERROR';
+            }
+
+            // Debug priority check
+            try {
+                const resp = await fetch('/debug.txt');
+                const text = await resp.text();
+                document.getElementById('debug-content').innerText = text;
+                const del = document.getElementById('debug-status');
+                if (text.includes('INNER')) {
+                    del.innerText = 'INNER WIN (PROTECTED)';
+                    del.className = 'status protected';
+                } else {
+                    del.innerText = 'OUTER WIN (OVERRIDDEN)';
+                    del.className = 'status overridable';
+                }
+            } catch (e) {
+                document.getElementById('debug-content').innerText = 'ERROR';
+            }
+        }
+
+        checkProtection();
+    </script>
+</body>
+</html>
