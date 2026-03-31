@@ -86,14 +86,11 @@ Need to access the local file system or run complex server-side tasks? Add the N
 
 ---
 
-## 📦 Modular Distribution
-
-To keep the application as lightweight as possible, WebView2 App Host is distributed in four separate parts. You only need to download and bundle the parts your specific application requires.
+To keep the application as lightweight as possible, WebView2 App Host is distributed in three separate parts. You only need to download and bundle the parts your specific application requires.
 
 1.  **Core (Host)** - The minimal WebView2 host (~900KB).
-2.  **Extension Base** - Shared base libraries (e.g., `Newtonsoft.Json.dll`) required by all plugins.
-3.  **Steam Support** - Optional plugin for Steamworks API integration.
-4.  **Node.js Support** - Optional plugin for running a local Node.js sidecar.
+2.  **Steam Support** - Optional plugin for Steamworks API integration.
+3.  **Node.js Support** - Optional plugin for running a local Node.js sidecar.
 
 > ℹ️ **Node.js Note:** The Node.js runtime (`node.exe`) is not included in the release package for size reasons. Application authors should provide their own Node.exe in the `node-runtime/` directory.
 

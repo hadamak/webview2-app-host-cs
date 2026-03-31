@@ -8,7 +8,6 @@ JavaScript からローカルの Node.js サイドカープロセスを呼び出
 ■ 導入方法
 1.  WebView2AppHost.exe と同じフォルダに、以下のファイルを配置します。
     - WebView2AppHost.Node.dll
-    - Newtonsoft.Json.dll (※ExtensionBase パッケージに含まれます)
     - node-runtime/ フォルダ (server.js, package.json を含む)
 
 2.  重要: Node.js ランタイム (node.exe) の配置

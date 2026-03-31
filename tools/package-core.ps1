@@ -6,7 +6,7 @@ $ErrorActionPreference = "Stop"
 
 .DESCRIPTION
     ビルド済みの WebView2AppHost.exe と必須ライブラリを ZIP に固めるスクリプト。
-    サードパーティ製のプラグイン用ライブラリ (Newtonsoft.Json 等) は含めず、
+    サードパーティライブラリへの依存は完全に排除されているため、
     最小限の構成で配布するために使用する。
 
     使い方:

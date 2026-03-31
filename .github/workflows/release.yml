@@ -45,10 +45,6 @@ jobs:
         shell: pwsh
         run: .\tools\package-core.ps1
 
-      - name: Package ExtensionBase
-        shell: pwsh
-        run: .\tools\package-extension-base.ps1
-
       - name: Package Steam support
         shell: pwsh
         run: .\tools\package-steam-support.ps1
@@ -64,8 +60,6 @@ jobs:
           path: |
             dist/*.zip
             dist/*.sha256
-            extension-base/*.zip
-            extension-base/*.sha256
             steam-support/*.zip
             steam-support/*.sha256
             node-support/*.zip
@@ -80,8 +74,6 @@ jobs:
           files: |
             dist/*.zip
             dist/*.sha256
-            extension-base/*.zip
-            extension-base/*.sha256
             steam-support/*.zip
             steam-support/*.sha256
             node-support/*.zip

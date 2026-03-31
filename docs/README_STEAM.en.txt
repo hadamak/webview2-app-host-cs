@@ -8,7 +8,6 @@ on top of the standard package.
 - WebView2AppHost.Steam.dll: Steam bridge DLL for WebView2AppHost
 - Facepunch.Steamworks.Win64.dll: Managed bridge connecting WebView2AppHost to Steamworks SDK
 - steam_api64.dll: Steamworks SDK runtime DLL
-- Newtonsoft.Json.dll (※Included in the ExtensionBase package)
 - steam.js: Proprietary Steam API used from HTML content
 - steam-sample/: Complete working sample
 - STEAM.md: Start-here overview guide
@@ -19,9 +18,7 @@ on top of the standard package.
 ■ Installation
 1.  Extract the standard package (Core).
 2.  Extract this Steam support package into the same folder.
-3.  Important: Extract the ExtensionBase package into the same folder 
-    and ensure `Newtonsoft.Json.dll` is present in the EXE folder.
-4.  Add `steam.js` and Steam-related `app.conf.json` settings to your own content.
+3.  Add `steam.js` and Steam-related `app.conf.json` settings to your own content.
 
 ■ Usage
 Use `steam-sample/` as a ready-to-run validation sample if needed.

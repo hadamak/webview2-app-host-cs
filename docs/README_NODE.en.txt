@@ -19,7 +19,6 @@ from your JavaScript code via a local Node.js sidecar process.
     Directory structure after installation:
     WebView2AppHost.exe
     WebView2AppHost.Node.dll
-    Newtonsoft.Json.dll
     node-runtime/
     ├── node.exe  <-- Manually download and place here
     ├── server.js

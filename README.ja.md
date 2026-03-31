@@ -87,14 +87,11 @@ Steamworks SDK を意識せずに、Web ゲームを Steam で配布できます
 
 ---
 
-## 📦 モジュール化された配布
-
-アプリケーションを可能な限り軽量に保つため、WebView2 App Host は 4 つの独立したパーツで配布されます。作成するアプリケーションの要件に応じて、必要なパーツのみをダウンロードして同梱してください。
+アプリケーションを可能な限り軽量に保つため、WebView2 App Host は 3 つの独立したパーツで配布されます。作成するアプリケーションの要件に応じて、必要なパーツのみをダウンロードして同梱してください。
 
 1.  **Core (Host)** - 最小限の WebView2 ホスト (約 900KB)。
-2.  **Extension Base** - すべてのプラグインが必要とする共有ベースライブラリ (`Newtonsoft.Json.dll` など)。
-3.  **Steam Support** - Steamworks API 統合用のオプションプラグイン。
-4.  **Node.js Support** - ローカル Node.js サイドカー実行用のオプションプラグイン。
+2.  **Steam Support** - Steamworks API 統合用のオプションプラグイン。
+3.  **Node.js Support** - ローカル Node.js サイドカー実行用のオプションプラグイン。
 
 > ℹ️ **Node.js に関する注意:** サイズの関係上、リリースパッケージに Node.js ランタイム (`node.exe`) は含まれていません。アプリの配布者は、`node-runtime/` ディレクトリに独自の `node.exe` を用意する必要があります。
 

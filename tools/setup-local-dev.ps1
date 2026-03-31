@@ -125,8 +125,7 @@ try {
 
         $nodeBuildDir = "src-node\bin\x64\$Configuration\net472\win-x64"
         $nodeFiles = @(
-            "WebView2AppHost.Node.dll",
-            "Newtonsoft.Json.dll"
+            "WebView2AppHost.Node.dll"
         )
         foreach ($file in $nodeFiles) {
             $src = Join-Path $nodeBuildDir $file

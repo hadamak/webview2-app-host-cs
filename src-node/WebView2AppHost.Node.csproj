@@ -19,23 +19,17 @@
       ホスト側の共通ファイルをソースリンクで参照する。
       IHostPlugin / AppLog は EXE 内の型とソースを共有することで
       アセンブリ境界を越えた型同一性の問題を回避する。
-
-      ただし NodePlugin は PluginManager の汎用ローダー
-      (ReflectionPluginWrapper) 経由でロードされるため、
-      IHostPlugin への直接キャストは行わない。
-      HandleWebMessage(string) をリフレクションで呼ぶだけで十分。
     -->
     <Compile Include="..\src\AppLog.cs" Link="AppLog.cs" />
     <Compile Include="..\src\IHostPlugin.cs" Link="IHostPlugin.cs" />
   </ItemGroup>
 
   <ItemGroup>
-    <!--
-      System.Web.Extensions（JavaScriptSerializer）は不使用。
-      プラグイン DLL は Newtonsoft.Json で任意ペイロードを扱う。
-    -->
+    <Reference Include="System.Web.Extensions" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" />
-    <PackageReference Include="Newtonsoft.Json" />
   </ItemGroup>
 
 </Project>

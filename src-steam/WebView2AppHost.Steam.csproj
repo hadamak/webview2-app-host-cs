@@ -24,16 +24,11 @@
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Runtime.Serialization" />
-    <!--
-      System.Web.Extensions（JavaScriptSerializer）は Newtonsoft.Json に移行したため削除。
-      ホスト本体は DataContractJsonSerializer を使い続けるが、
-      プラグイン DLL は任意ペイロードへの柔軟な対応のため Newtonsoft.Json を使う。
-    -->
+    <Reference Include="System.Web.Extensions" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" />
-    <PackageReference Include="Newtonsoft.Json" />
     <ProjectReference Include="../Facepunch.Steamworks/Facepunch.Steamworks/Facepunch.Steamworks.Win64.csproj" />
   </ItemGroup>
 

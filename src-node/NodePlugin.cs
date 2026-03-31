@@ -5,7 +5,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Newtonsoft.Json.Linq;
+using System.Web.Script.Serialization;
 using Microsoft.Web.WebView2.WinForms;
 
 namespace WebView2AppHost
@@ -92,16 +92,18 @@ namespace WebView2AppHost
         {
             if (_disposed || string.IsNullOrWhiteSpace(webMessageJson) || _nodeProcess == null || _stdin == null) return;
 
-            // source フィールドだけ確認して早期リターン
             try
             {
-                // Newtonsoft.Json で JObject としてパースし source フィールドを確認する。
+                // JavaScriptSerializer でデシリアライズして source フィールドを確認する。
                 // プラグイン DLL はペイロードが不定のため DataContractJsonSerializer ではなく
-                // Newtonsoft.Json を採用している（ホスト EXE の固定スキーマとは分離）。
-                var msg = JObject.Parse(webMessageJson);
-                var src = msg["source"]?.ToString();
-                if (!string.Equals(src, "Node", StringComparison.OrdinalIgnoreCase))
+                // JavaScriptSerializer を採用している（ホスト EXE の固定スキーマとは分離）。
+                var serializer = new JavaScriptSerializer();
+                var msg = serializer.Deserialize<System.Collections.Generic.Dictionary<string, object>>(webMessageJson);
+                if (msg == null || !msg.TryGetValue("source", out var srcObj) || 
+                    !string.Equals(srcObj?.ToString(), "Node", StringComparison.OrdinalIgnoreCase))
+                {
                     return;
+                }
             }
             catch
             {
