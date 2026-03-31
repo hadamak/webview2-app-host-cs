@@ -3,21 +3,20 @@ src/obj/
 src/app.zip
 *.user
 .vs/
+
 tests/HostTests/bin/
 tests/HostTests/obj/
+
 dist/
-steam-support/_build/
-src/steam-bridge/steamworks-sdk/
-tests/SteamBridgeTests/bin/
-tests/SteamBridgeTests/x64/
+
+steam-support/
+node-support/
+extension-base/
+
+src-node/bin/
+src-node/obj/
+
 src-steam/obj/
 src-steam/bin/
 
-# steam-support の ZIP・ハッシュは CI（release.yml）が生成する成果物。
-# ローカルでビルドしてコミットする必要はない。
-steam-support/*.zip
-steam-support/*.sha256
-
-# steam 自動テスト用の ZIP（package-steam-auto-test.ps1 が生成）
 tests/steam-auto/steam-auto.zip
-tests/steam-auto/_build/
