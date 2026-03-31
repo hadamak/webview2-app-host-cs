@@ -15,9 +15,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- ホスト側の ISteamBridgeImpl / AppLog をソースリンクで参照 -->
-    <Compile Include="..\src\ISteamBridgeImpl.cs" Link="ISteamBridgeImpl.cs" />
-    <Compile Include="..\src\AppLog.cs" Link="AppLog.cs" />
+    <!-- ホスト側の共通ファイルをソースリンクで参照 -->
+    <Compile Include="..\src\ISteamBridgeImpl.cs"            Link="ISteamBridgeImpl.cs" />
+    <Compile Include="..\src\AppLog.cs"                      Link="AppLog.cs" />
+    <!-- リフレクション・ディスパッチャ共通基底 -->
+    <Compile Include="..\src\ReflectionDispatcherBase.cs"    Link="ReflectionDispatcherBase.cs" />
   </ItemGroup>
 
   <ItemGroup>

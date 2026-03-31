@@ -69,6 +69,21 @@ namespace WebView2AppHost
         public bool SteamDevMode { get; private set; } = true;
 
         /// <summary>
+        /// GenericDllPlugin がロードする DLL の一覧。
+        /// plugins に "GenericDllPlugin" を含める場合に有効。
+        ///
+        /// 形式 A: ファイル名文字列（エイリアス = 拡張子なしファイル名）
+        ///   "loadDlls": ["SQLite.dll", "MyLogic.dll"]
+        ///
+        /// 形式 B: エイリアスを明示したオブジェクト
+        ///   "loadDlls": [{ "alias": "DB", "dll": "SQLite.dll" }]
+        ///
+        /// DLL のパスは絶対パス、または app.conf.json と同じディレクトリからの相対パス。
+        /// </summary>
+        [DataMember(Name = "loadDlls")]
+        public object[] LoadDlls { get; private set; } = Array.Empty<object>();
+
+        /// <summary>
         /// 指定した URI がプロキシ許可オリジンに含まれるかを返す。
         /// </summary>
         public bool IsProxyAllowed(Uri uri)
@@ -161,6 +176,9 @@ namespace WebView2AppHost
 
             // SteamAppId: null は空文字に正規化
             if (SteamAppId == null) SteamAppId = "";
+
+            // LoadDlls: null を空配列に正規化
+            if (LoadDlls == null) LoadDlls = Array.Empty<object>();
         }
     }
 

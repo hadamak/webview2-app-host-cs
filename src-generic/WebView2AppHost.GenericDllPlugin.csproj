@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>WebView2AppHost.GenericDllPlugin</AssemblyName>
+    <RootNamespace>WebView2AppHost</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <Optimize>true</Optimize>
+    <PlatformTarget>x64</PlatformTarget>
+    <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
+    <DebugSymbols Condition="'$(Configuration)'=='Release'">false</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      ホスト側の共通ファイルをソースリンクで参照する。
+      IHostPlugin / AppLog は EXE 内の型とソースを共有することで
+      アセンブリ境界を越えた型同一性の問題を回避する。
+      ReflectionDispatcherBase はディスパッチャ共通基底。
+    -->
+    <Compile Include="..\src\AppLog.cs"                   Link="AppLog.cs" />
+    <Compile Include="..\src\IHostPlugin.cs"              Link="IHostPlugin.cs" />
+    <Compile Include="..\src\ReflectionDispatcherBase.cs" Link="ReflectionDispatcherBase.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Web.Extensions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" />
+  </ItemGroup>
+
+</Project>

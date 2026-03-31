@@ -167,11 +167,32 @@ namespace WebView2AppHost
                     // IHostPlugin への直接キャストではなくリフレクション経由ラッパーを使う。
                     var instance = Activator.CreateInstance(type, webView)!;
 
-                    // Initialize() メソッドがあれば呼び出す（サイドカープロセスの起動など）
-                    type.GetMethod("Initialize", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null)
-                        ?.Invoke(instance, null);
+                    // Initialize(string configDir) シグネチャを優先して試みる。
+                    // これにより GenericDllPlugin が app.conf.json の loadDlls を読み込める。
+                    // 見つからない場合は引数なし Initialize() にフォールバックする。
+                    var initWithDir = type.GetMethod(
+                        "Initialize",
+                        BindingFlags.Public | BindingFlags.Instance,
+                        null,
+                        new[] { typeof(string) },
+                        null);
 
-                    var wrapper  = new ReflectionPluginWrapper(instance, pluginName);
+                    if (initWithDir != null)
+                    {
+                        initWithDir.Invoke(instance, new object[] { baseDir });
+                    }
+                    else
+                    {
+                        type.GetMethod(
+                            "Initialize",
+                            BindingFlags.Public | BindingFlags.Instance,
+                            null,
+                            Type.EmptyTypes,
+                            null)
+                            ?.Invoke(instance, null);
+                    }
+
+                    var wrapper = new ReflectionPluginWrapper(instance, pluginName);
                     _plugins.Add(wrapper);
 
                     AppLog.Log("INFO", "PluginManager",
