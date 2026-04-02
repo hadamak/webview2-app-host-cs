@@ -1,4 +1,5 @@
 using System;
+using System.Linq.Expressions;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -38,6 +39,10 @@ namespace WebView2AppHost
         /// <summary>エイリアス（大文字小文字不問）→ ロード済みアセンブリ。</summary>
         private readonly Dictionary<string, Assembly> _assemblies =
             new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>イベント購読解除用デリゲートの保持リスト。Dispose 時に解除する。</summary>
+        private readonly List<(object target, System.Reflection.EventInfo evt, Delegate handler)> _eventSubscriptions =
+            new List<(object, System.Reflection.EventInfo, Delegate)>();
 
         // ---------------------------------------------------------------------------
         // ReflectionDispatcherBase 実装
@@ -102,32 +107,32 @@ namespace WebView2AppHost
         public string PluginName => "GenericDllPlugin";
 
         /// <summary>
-        /// PluginManager から渡される設定ディレクトリを受け取り、
-        /// app.conf.json の "loadDlls" に基づいて DLL をロードする。
-        ///
-        /// PluginManager.TryLoadGenericPlugin が Initialize(string) シグネチャを検出した場合に呼ばれる。
+        /// ホストから app.conf.json の内容を JSON 文字列として受け取り、初期化する。
+        /// プラグインは内部で JSON をパースし、"loadDlls" 配列だけを抽出する。
+        /// ホストの型（AppConfig など）には一切依存しない。
         /// </summary>
-        public void Initialize(string configDir)
+        public void Initialize(string configJson)
         {
-            var configPath = Path.Combine(configDir, "app.conf.json");
-            if (!File.Exists(configPath))
-            {
-                AppLog.Log("WARN", "GenericDllPlugin.Initialize",
-                    $"app.conf.json が見つかりません: {configPath}");
-                return;
-            }
-
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            
             try
             {
-                var raw  = File.ReadAllText(configPath, System.Text.Encoding.UTF8);
-                var conf = s_json.Deserialize<Dictionary<string, object>>(raw);
-                if (conf == null || !conf.TryGetValue("loadDlls", out var loadDllsVal)) return;
+                var serializer = new JavaScriptSerializer();
+                var conf = serializer.Deserialize<Dictionary<string, object>>(configJson);
+                if (conf == null || !conf.TryGetValue("loadDlls", out var loadDllsVal))
+                {
+                    AppLog.Log("INFO", "GenericDllPlugin.Initialize", "loadDlls が空です");
+                    return;
+                }
 
                 if (!(loadDllsVal is System.Collections.ArrayList itemList) || itemList.Count == 0)
+                {
+                    AppLog.Log("INFO", "GenericDllPlugin.Initialize", "loadDlls が空です");
                     return;
+                }
 
                 foreach (var item in itemList)
-                    TryLoadDllEntry(configDir, item);
+                    TryLoadDllEntry(baseDir, item);
             }
             catch (Exception ex)
             {
@@ -137,7 +142,33 @@ namespace WebView2AppHost
         }
 
         public void HandleWebMessage(string webMessageJson)
-            => HandleWebMessageCore(webMessageJson);
+        {
+            if (_disposed || string.IsNullOrWhiteSpace(webMessageJson)) return;
+
+            try
+            {
+                var dict = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(webMessageJson);
+                if (dict != null && dict.TryGetValue("source", out var srcObj))
+                {
+                    var source = srcObj?.ToString();
+                    if (source != null && _assemblies.ContainsKey(source))
+                    {
+                        // dllName が無い場合は source をエイリアスとして使う
+                        if (dict.TryGetValue("params", out var pObj) && pObj is Dictionary<string, object> pDict)
+                        {
+                            pDict["dllName"] = source;
+                        }
+                        
+                        // 基底クラス(ReflectionDispatcherBase)が処理できるように source を "Host" に偽装する
+                        dict["source"] = "Host";
+                        webMessageJson = new JavaScriptSerializer().Serialize(dict);
+                    }
+                }
+            }
+            catch { /* json parse error ignore */ }
+
+            HandleWebMessageCore(webMessageJson);
+        }
 
         // ---------------------------------------------------------------------------
         // DLL ロードヘルパー
@@ -145,12 +176,13 @@ namespace WebView2AppHost
 
         /// <summary>
         /// loadDlls 配列の 1 エントリを解析してアセンブリをロードする。
-        /// 文字列（ファイル名のみ）または { "alias": "...", "dll": "..." } オブジェクトを受け付ける。
+        /// 文字列（ファイル名のみ）または { "alias": "...", "dll": "...", "exposeEvents": [...] } オブジェクトを受け付ける。
         /// </summary>
         private void TryLoadDllEntry(string baseDir, object? item)
         {
             string? dllFileName = null;
             string? alias       = null;
+            string[]? exposeEvents = null;
 
             if (item is string s)
             {
@@ -159,8 +191,15 @@ namespace WebView2AppHost
             }
             else if (item is Dictionary<string, object> d)
             {
-                dllFileName = d.TryGetValue("dll",   out var dv) ? dv?.ToString() : null;
-                alias       = d.TryGetValue("alias", out var av) ? av?.ToString() : null;
+                foreach (var kvp in d)
+                {
+                    var key = kvp.Key.ToLowerInvariant();
+                    if (key == "dll") dllFileName = kvp.Value?.ToString();
+                    else if (key == "alias") alias = kvp.Value?.ToString();
+                    else if (key == "exposeevents" && kvp.Value is System.Collections.ArrayList arr)
+                        exposeEvents = arr.Cast<object>().Select(x => x?.ToString() ?? "").ToArray();
+                }
+                
                 if (dllFileName != null && alias == null)
                     alias = Path.GetFileNameWithoutExtension(dllFileName);
             }
@@ -168,7 +207,7 @@ namespace WebView2AppHost
             if (string.IsNullOrEmpty(dllFileName) || string.IsNullOrEmpty(alias))
             {
                 AppLog.Log("WARN", "GenericDllPlugin.TryLoadDllEntry",
-                    $"loadDlls エントリを解析できませんでした: {s_json.Serialize(item)}");
+                    $"loadDlls エントリを解析できませんでした: {item}");
                 return;
             }
 
@@ -185,15 +224,210 @@ namespace WebView2AppHost
 
             try
             {
-                _assemblies[alias!] = Assembly.LoadFrom(dllPath);
+                var asm = Assembly.LoadFrom(dllPath);
+                _assemblies[alias!] = asm;
                 AppLog.Log("INFO", "GenericDllPlugin",
                     $"DLL をロードしました: alias={alias}, path={dllPath}");
+
+                // exposeEvents が指定されている場合、イベントを動的購読する
+                if (exposeEvents != null && exposeEvents.Length > 0)
+                    SubscribeEvents(asm, alias!, exposeEvents);
             }
             catch (Exception ex)
             {
                 AppLog.Log("ERROR", "GenericDllPlugin.TryLoadDllEntry",
                     $"DLL のロードに失敗: {dllPath}", ex);
             }
+        }
+
+        /// <summary>
+        /// アセンブリ内の公開型から指定されたイベントを探索し、動的に購読する。
+        /// イベント発火時に PostEventToJs で JS へ通知する。
+        /// </summary>
+        private void SubscribeEvents(Assembly asm, string alias, string[] eventNames)
+        {
+            foreach (var eventName in eventNames)
+            {
+                bool found = false;
+                foreach (var type in asm.GetExportedTypes())
+                {
+                    // 静的イベントを探索
+                    var evtInfo = type.GetEvent(eventName,
+                        BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                    if (evtInfo == null) continue;
+
+                    try
+                    {
+                        var handlerType = evtInfo.EventHandlerType;
+                        if (handlerType == null) continue;
+
+                        // イベントハンドラのパラメータを取得
+                        var invokeMethod = handlerType.GetMethod("Invoke");
+                        if (invokeMethod == null) continue;
+
+                        var evtName = eventName; // クロージャ用にキャプチャ
+                        var currentAlias = alias; // クロージャ用にキャプチャ
+
+                        // Action / Action<T> / EventHandler / EventHandler<T> に対応する汎用ハンドラを生成
+                        var parameters = invokeMethod.GetParameters();
+                        Delegate handler;
+
+                        if (parameters.Length == 0)
+                        {
+                            // Action 型: パラメータなしイベント
+                            var evtMsg = new JavaScriptSerializer().Serialize(new Dictionary<string, object?> { ["source"] = currentAlias, ["event"] = evtName, ["params"] = new { } });
+                            Action fireAction = () => PostWebMessageAsJson(evtMsg);
+                            handler = Delegate.CreateDelegate(handlerType, fireAction.Target, fireAction.Method);
+                        }
+                        else
+                        {
+                            // EventHandler<T> またはその他 — ラムダでラップ
+                            // sender, args 型のイベントは汎用的に処理
+                            var capturedEvtName = evtName;
+                            var capturedAlias = currentAlias;
+                            handler = CreateGenericEventHandler(handlerType, capturedAlias, capturedEvtName, parameters);
+                        }
+
+                        if (handler != null)
+                        {
+                            // 静的イベントの場合は target = null
+                            object? target = evtInfo.GetAddMethod()?.IsStatic == true ? null : null;
+                            evtInfo.AddEventHandler(target, handler);
+                            _eventSubscriptions.Add((target!, evtInfo, handler));
+
+                            AppLog.Log("INFO", "GenericDllPlugin",
+                                $"イベントを購読しました: {type.Name}.{eventName} (alias={alias})");
+                            found = true;
+                            break; // 最初に見つかった型のイベントを使用
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLog.Log("WARN", "GenericDllPlugin.SubscribeEvents",
+                            $"イベント {eventName} の購読に失敗: {ex.Message}");
+                    }
+                }
+
+                if (!found)
+                {
+                    AppLog.Log("WARN", "GenericDllPlugin.SubscribeEvents",
+                        $"イベント '{eventName}' が {asm.GetName().Name} の公開型に見つかりませんでした");
+                }
+            }
+        }
+
+        /// <summary>
+        /// 任意の引数を持つイベントデリゲートを System.Linq.Expressions で動的生成する。
+        /// イベント発火時に DispatchDynamicEvent にパラメータを転送して JS へ通知する。
+        /// </summary>
+        private Delegate CreateGenericEventHandler(
+            Type handlerType, string alias, string eventName, ParameterInfo[] parameters)
+        {
+            try
+            {
+                // 各パラメータの Expression を定義 e.g., (int arg1, string arg2)
+                var paramExprs = parameters
+                    .Select(p => Expression.Parameter(p.ParameterType, p.Name ?? "arg"))
+                    .ToArray();
+
+                // DispatchDynamicEvent(alias, eventName, paramNames, argsArray) の呼び出しを構築
+                var dispatchMethod = GetType().GetMethod(nameof(DispatchDynamicEvent), 
+                    BindingFlags.NonPublic | BindingFlags.Instance);
+                
+                if (dispatchMethod == null) return null!;
+
+                // alias と eventName の定数
+                var aliasConst = Expression.Constant(alias, typeof(string));
+                var eventNameConst = Expression.Constant(eventName, typeof(string));
+
+                // paramNames の配列
+                var namesArray = Expression.Constant(
+                    parameters.Select(p => p.Name ?? "arg").ToArray(), typeof(string[]));
+                
+                // 引数値を object[] にパック
+                // 値型は typeof(object) への Convert（ボックス化）が必要
+                var argsArray = Expression.NewArrayInit(typeof(object),
+                    paramExprs.Select(p => Expression.Convert(p, typeof(object))));
+
+                // メソッド呼び出しの Expression: this.DispatchDynamicEvent(...)
+                var callExpr = Expression.Call(Expression.Constant(this), dispatchMethod,
+                    aliasConst, eventNameConst, namesArray, argsArray);
+
+                // ラムダ式の構築し、指定された Delegate 型にコンパイル
+                var lambda = Expression.Lambda(handlerType, callExpr, paramExprs);
+                return lambda.Compile();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Log("WARN", "GenericDllPlugin.CreateGenericEventHandler",
+                    $"動的デリゲートの生成に失敗 (イベント={eventName}, 型={handlerType.Name}): {ex.Message}");
+                return null!;
+            }
+        }
+
+        /// <summary>
+        /// 動的生成されたデリゲートから呼び出され、パラメータの解析と JS へのイベント通知を行うハブ。
+        /// </summary>
+        private void DispatchDynamicEvent(string alias, string eventName, string[] paramNames, object[] args)
+        {
+            var props = new Dictionary<string, object?>();
+
+            // 引数が1つだけの場合は、プロパティの展開を試みる（従来の EventHandler<T> 等の振る舞い互換のため）
+            // ただし args[0] がプリミティブや string の場合は配列や単純な値として送る
+            if (args.Length == 1 && args[0] != null)
+            {
+                var val = args[0];
+                var type = val.GetType();
+                if (type.IsPrimitive || type == typeof(string))
+                {
+                    props["value"] = val;
+                }
+                else
+                {
+                    // オブジェクトのプロパティを辞書に展開
+                    foreach (var p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                    {
+                        try { props[p.Name] = p.GetValue(val); }
+                        catch { /* 無視 */ }
+                    }
+                }
+            }
+            // 引数が2つあり、第1引数が sender っぽい名前または object 型で、第2引数が EventArgs 由来の場合
+            // 標準的な EventHandler(object sender, EventArgs e) パターンの可能性が高い
+            else if (args.Length == 2 && paramNames[0].ToLower().Contains("sender") && args[1] != null)
+            {
+                var val = args[1];
+                var type = val.GetType();
+                if (type.IsPrimitive || type == typeof(string))
+                {
+                    props["value"] = val;
+                }
+                else
+                {
+                    foreach (var p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                    {
+                        try { props[p.Name] = p.GetValue(val); }
+                        catch { /* 無視 */ }
+                    }
+                }
+            }
+            else if (args.Length > 0)
+            {
+                // その他の複数引数の場合は、引数名をキーにして全て Dictionary に格納
+                for (int i = 0; i < args.Length; i++)
+                {
+                    props[paramNames[i]] = args[i];
+                }
+            }
+
+            var msg = new Dictionary<string, object?>
+            {
+                ["source"] = alias,
+                ["event"] = eventName,
+                ["params"] = props
+            };
+            var json = new JavaScriptSerializer().Serialize(msg);
+            PostWebMessageAsJson(json);
         }
 
         /// <summary>
@@ -218,8 +452,36 @@ namespace WebView2AppHost
         {
             if (_disposed) return;
             _disposed = true;
+
+            // イベント購読解除
+            foreach (var (target, evt, handler) in _eventSubscriptions)
+            {
+                try { evt.RemoveEventHandler(target, handler); }
+                catch { /* 無視 */ }
+            }
+            _eventSubscriptions.Clear();
+
             DisposeHandles();
             _assemblies.Clear();
+        }
+
+        private void PostWebMessageAsJson(string json)
+        {
+            if (_disposed) return;
+            if (_webView.IsDisposed || !_webView.IsHandleCreated) return;
+
+            _webView.BeginInvoke(new Action(() =>
+            {
+                if (_disposed || _webView.CoreWebView2 == null) return;
+                try
+                {
+                    _webView.CoreWebView2.PostWebMessageAsString(json);
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Log("ERROR", "GenericDllPlugin.PostWebMessageAsJson", ex.Message, ex);
+                }
+            }));
         }
     }
 }

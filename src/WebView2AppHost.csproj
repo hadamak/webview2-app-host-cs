@@ -35,6 +35,13 @@
     <Reference Include="System.Web.Extensions" />
   </ItemGroup>
 
+  <!-- Generic プラグインへの参照（ビルド時に自動コピー） -->
+  <ItemGroup>
+    <None Include="..\src-generic\bin\Debug\net472\WebView2AppHost.GenericDllPlugin.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" />
   </ItemGroup>

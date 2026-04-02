@@ -22,7 +22,6 @@
     <Compile Include="..\..\src\CloseRequestState.cs" />
     <Compile Include="..\..\src\IHostPlugin.cs" />
     <Compile Include="..\..\src\PluginManager.cs" />
-    <Compile Include="..\..\src\SteamBridge.cs" />
     <Compile Include="..\..\src\WebMessageHelper.cs" />
   </ItemGroup>
 

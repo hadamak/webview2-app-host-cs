@@ -3,10 +3,38 @@
   "width": 900,
   "height": 640,
   "fullscreen": false,
-  "steamAppId": "480",
-  "steamDevMode": true,
   "proxyOrigins": [
     "https://httpbin.org",
     "https://jsonplaceholder.typicode.com"
+  ],
+  "loadDlls": [
+    {
+      "alias": "Steam",
+      "dll": "Facepunch.Steamworks.Win64.dll",
+      "exposeEvents": ["OnAchievementProgress", "OnGameOverlayActivated", "OnMicroTxnAuthorizationResponse"]
+    },
+    {
+      "alias": "TestLib",
+      "dll": "TestLib.dll",
+      "exposeEvents": ["OnResult"]
+    }
+  ],
+  "sidecars": [
+    {
+      "alias": "Node",
+      "mode": "streaming",
+      "executable": "node-runtime/node.exe",
+      "workingDirectory": "node-runtime",
+      "args": ["server.js"],
+      "waitForReady": true
+    },
+    {
+      "alias": "TestSidecar",
+      "mode": "streaming",
+      "executable": "node-runtime/node.exe",
+      "workingDirectory": "test-sidecar",
+      "args": ["test_sidecar.js"],
+      "waitForReady": true
+    }
   ]
 }

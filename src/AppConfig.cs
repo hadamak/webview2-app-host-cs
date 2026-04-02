@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace WebView2AppHost
@@ -12,7 +13,7 @@ namespace WebView2AppHost
     /// DataContract を使用して JSON とマッピングする。
     /// </summary>
     [DataContract]
-    internal sealed class AppConfig
+    public sealed class AppConfig
     {
         // ウィンドウサイズの許容範囲
         private const int MinSize   =  160;
@@ -53,6 +54,13 @@ namespace WebView2AppHost
         public string[] Plugins { get; private set; } = Array.Empty<string>();
 
         /// <summary>
+        /// app.conf.json の生の JSON 文字列。
+        /// プラグインの Initialize(string) にそのまま渡すために保持する。
+        /// DataContract のシリアライズ対象外。
+        /// </summary>
+        public string RawJson { get; private set; } = "{}";
+
+        /// <summary>
         /// Steam AppID。Steamworks 機能を使う場合に設定する。
         /// 空または未設定の場合は steam_appid.txt または Steam 起動時の自動検出に委ねる。
         /// </summary>
@@ -76,12 +84,18 @@ namespace WebView2AppHost
         ///   "loadDlls": ["SQLite.dll", "MyLogic.dll"]
         ///
         /// 形式 B: エイリアスを明示したオブジェクト
-        ///   "loadDlls": [{ "alias": "DB", "dll": "SQLite.dll" }]
+        ///   "loadDlls": [{ "alias": "DB", "dll": "SQLite.dll", "exposeEvents": ["OnResult"] }]
         ///
         /// DLL のパスは絶対パス、または app.conf.json と同じディレクトリからの相対パス。
         /// </summary>
         [DataMember(Name = "loadDlls")]
-        public object[] LoadDlls { get; private set; } = Array.Empty<object>();
+        public LoadDllEntry[] LoadDlls { get; private set; } = Array.Empty<LoadDllEntry>();
+
+        /// <summary>
+        /// サイドカープロセスの定義。
+        /// </summary>
+        [DataMember(Name = "sidecars")]
+        public SidecarEntry[] Sidecars { get; private set; } = Array.Empty<SidecarEntry>();
 
         /// <summary>
         /// 指定した URI がプロキシ許可オリジンに含まれるかを返す。
@@ -98,14 +112,29 @@ namespace WebView2AppHost
         /// <summary>
         /// ストリームから JSON を読み込み、AppConfig インスタンスを生成する。
         /// フォーマットエラーなどで失敗した場合は null を返す（フォールバック用）。
+        /// 生の JSON 文字列は <see cref="RawJson"/> に保持され、
+        /// プラグインの Initialize(string) にそのまま渡される。
         /// </summary>
         public static AppConfig? Load(Stream stream)
         {
             try
             {
+                // ストリームを文字列として読み取り、raw JSON を保持する
+                string rawJson;
+                using (var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true))
+                {
+                    rawJson = reader.ReadToEnd();
+                }
+
+                // 読み取った文字列を再度ストリーム化してデシリアライズする
+                using var ms = new MemoryStream(Encoding.UTF8.GetBytes(rawJson));
                 var serializer = new DataContractJsonSerializer(typeof(AppConfig));
-                var config = (AppConfig?)serializer.ReadObject(stream);
-                if (config != null) config.Sanitize();
+                var config = (AppConfig?)serializer.ReadObject(ms);
+                if (config != null)
+                {
+                    config.RawJson = rawJson;
+                    config.Sanitize();
+                }
                 return config;
             }
             catch (Exception ex)
@@ -178,7 +207,10 @@ namespace WebView2AppHost
             if (SteamAppId == null) SteamAppId = "";
 
             // LoadDlls: null を空配列に正規化
-            if (LoadDlls == null) LoadDlls = Array.Empty<object>();
+            if (LoadDlls == null) LoadDlls = Array.Empty<LoadDllEntry>();
+
+            // Sidecars: null を空配列に正規化
+            if (Sidecars == null) Sidecars = Array.Empty<SidecarEntry>();
         }
     }
 
@@ -198,5 +230,46 @@ namespace WebView2AppHost
 
         [DataMember(Name = "fullscreen")]
         public bool? Fullscreen { get; private set; }
+    }
+
+    /// <summary>
+    /// loadDlls 配列のエントリ。
+    /// </summary>
+    [DataContract]
+    public sealed class LoadDllEntry
+    {
+        [DataMember(Name = "alias")]
+        public string Alias { get; set; } = "";
+
+        [DataMember(Name = "dll")]
+        public string Dll { get; set; } = "";
+
+        [DataMember(Name = "exposeEvents")]
+        public string[] ExposeEvents { get; set; } = Array.Empty<string>();
+    }
+
+    /// <summary>
+    /// sidecars 配列のエントリ。
+    /// </summary>
+    [DataContract]
+    public sealed class SidecarEntry
+    {
+        [DataMember(Name = "alias")]
+        public string Alias { get; set; } = "";
+
+        [DataMember(Name = "mode")]
+        public string Mode { get; set; } = "streaming";
+
+        [DataMember(Name = "executable")]
+        public string Executable { get; set; } = "";
+
+        [DataMember(Name = "workingDirectory")]
+        public string WorkingDirectory { get; set; } = "";
+
+        [DataMember(Name = "args")]
+        public string[] Args { get; set; } = Array.Empty<string>();
+
+        [DataMember(Name = "waitForReady")]
+        public bool WaitForReady { get; set; } = false;
     }
 }

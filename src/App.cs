@@ -255,13 +255,11 @@ namespace WebView2AppHost
         {
             try
             {
-                _pluginManager = PluginManager.Create(_webView, _config);
+                _pluginManager = PluginManager.Create(_webView, _config, _config.RawJson);
             }
-            catch (InvalidOperationException ex) when (ex.Message == "STEAM_RESTART_REQUIRED")
+            catch (Exception ex)
             {
-                AppLog.Log("INFO", "App.InitPlugins",
-                    "Steam 再起動要求を受信しました。アプリケーションを終了します。");
-                Application.Exit();
+                AppLog.Log("ERROR", "App.InitPlugins", "プラグインの初期化に失敗しました", ex);
                 return;
             }
 

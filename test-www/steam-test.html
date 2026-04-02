@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Steam ブリッジ テスト（新仕様）</title>
-  <script src="steam.js"></script>
+  <script src="host.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
     body { font-family: sans-serif; background: #1b2838; color: #c7d5e0;
@@ -141,6 +141,16 @@
     logEl.appendChild(line);
     logEl.scrollTop = logEl.scrollHeight;
   }
+
+  async function initSteam() {
+    try {
+      await Steam.SteamClient.Init(480, true);
+      appendLog('ok', '✓ SteamClient.Init(480, true): 成功');
+    } catch (e) {
+      appendLog('err', '✗ SteamClient.Init: ' + (e?.message ?? e));
+    }
+  }
+  initSteam();
 
   // 汎用ヘルパー: Steam.ClassName.MethodName(...args) を呼んでログに出す
   async function run(className, methodName, ...args) {

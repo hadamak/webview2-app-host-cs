@@ -15,7 +15,7 @@ namespace WebView2AppHost
     /// JS ↔ C# リフレクション・ディスパッチャの共通基底クラス。
     ///
     /// <para>
-    /// SteamBridgeImpl と GenericDllPlugin が重複していた以下のロジックを一元管理する。
+    /// 以下のロジックを一元管理する。
     /// <list type="bullet">
     ///   <item>HandleWebMessage のパース・source フィルタ・messageId ルーティング</item>
     ///   <item>DispatchInvokeAsync（インスタンス / 静的 / コンストラクタ呼び出しの共通フロー）</item>
@@ -30,7 +30,7 @@ namespace WebView2AppHost
     ///
     /// <para><b>サブクラスが実装すること（純粋抽象）</b></para>
     /// <list type="number">
-    ///   <item><see cref="SourceName"/>: JS の source フィールドと照合する文字列（"steam" / "Host" など）</item>
+    ///   <item><see cref="SourceName"/>: JS の source フィールドと照合する文字列（"Host" など）</item>
     ///   <item><see cref="ShouldWrapAsHandle"/>: 戻り値をハンドル化すべき条件</item>
     ///   <item>
     ///     <see cref="ResolveTypeAsync"/>: params から呼び出し対象の Type を解決する。
@@ -42,7 +42,6 @@ namespace WebView2AppHost
     /// <list type="bullet">
     ///   <item>
     ///     <see cref="TryConvertArgExtra"/>: 追加の型変換（null を返すと汎用変換へフォールバック）。
-    ///     Steam → AppId / SteamId などの Steamworks 構造体変換をここに実装する。
     ///   </item>
     /// </list>
     /// </summary>
@@ -79,14 +78,13 @@ namespace WebView2AppHost
         // 純粋抽象メンバー
         // ---------------------------------------------------------------------------
 
-        /// <summary>JS の source フィールドと照合する値。例: "steam", "Host"</summary>
+        /// <summary>JS の source フィールドと照合する値。例: "Host"</summary>
         protected abstract string SourceName { get; }
 
         /// <summary>
         /// この戻り値をハンドル参照としてラップすべきかを判定する。
         ///
         /// <para>
-        /// Steam: <c>Steamworks.*</c> 名前空間の非 enum オブジェクトのみ true を返す。<br/>
         /// Generic: primitive / string / enum 以外すべて true を返す。
         /// </para>
         /// </summary>
@@ -116,8 +114,7 @@ namespace WebView2AppHost
         /// 変換できた場合は変換後の値を返し、できない場合は <c>null</c> を返して汎用変換へ委ねる。
         ///
         /// <para>
-        /// Steam: AppId / SteamId / DepotId などの Steamworks 構造体変換をここで実装する。<br/>
-        /// Generic: オーバーライド不要。
+        /// GenericDllPlugin: オーバーライド不要。
         /// </para>
         /// </summary>
         protected virtual object? TryConvertArgExtra(object? raw, Type targetType) => null;
@@ -128,7 +125,7 @@ namespace WebView2AppHost
 
         /// <summary>
         /// JS から届いた JSON メッセージを解析してディスパッチする。
-        /// IHostPlugin.HandleWebMessage / ISteamBridgeImpl.HandleWebMessage の実装本体として呼ぶ。
+        /// IHostPlugin.HandleWebMessage の実装本体として呼ぶ。
         /// source フィールドが <see cref="SourceName"/> と一致しない場合はただちに return する。
         /// </summary>
         protected void HandleWebMessageCore(string webMessageJson)
@@ -553,7 +550,7 @@ namespace WebView2AppHost
 
         /// <summary>
         /// イベント通知メッセージ（invoke-result ではなく任意の event 名）を JS へ送信する。
-        /// Steam コールバック（OnAchievementProgress など）の通知に使用する。
+        /// プラグインからのコールバック（OnAchievementProgress など）の通知に使用する。
         /// </summary>
         protected void PostEventToJs(string eventName, object eventParams)
         {

@@ -16,12 +16,11 @@ namespace WebView2AppHost
     /// メッセージルーティング:
     ///   受信したメッセージはすべてのプラグインへブロードキャストする。
     ///   各プラグインは自身の source フィールドと一致しないメッセージを内部で無視する。
-    ///   （SteamBridgeImpl が source: "steam"(大文字小文字不問) のみ処理するのと同じ方式）
     ///
-    /// 将来の拡張:
-    ///   Node.js 連携など新しいプラグインは WebView2AppHost.{Name}.dll を追加するだけで
-    ///   PluginManager に自動検出される。IHostPlugin を実装する型が含まれていれば
-    ///   リフレクション経由でロードされる。
+    /// プラグインの初期化:
+    ///   ホストは app.conf.json の生の JSON 文字列をプラグインの Initialize(string) に
+    ///   そのまま渡す。プラグインは内部で JSON をパースし、必要な情報だけを抽出する。
+    ///   ホスト固有の型（AppConfig 等）はプラグインの引数に含めない。
     /// </summary>
     internal sealed class PluginManager : IDisposable
     {
@@ -39,23 +38,17 @@ namespace WebView2AppHost
 
         /// <summary>
         /// 設定に基づきプラグインをロードして PluginManager を構築する。
-        ///
-        /// <para>
-        /// SteamBridge が <c>STEAM_RESTART_REQUIRED</c> を要求する場合は
-        /// <see cref="InvalidOperationException"/> をそのまま呼び出し元へ伝播する。
-        /// 呼び出し元（<c>App.InitPlugins</c>）でキャッチして <c>Application.Exit()</c> を呼ぶこと。
-        /// </para>
         /// </summary>
-        /// <exception cref="InvalidOperationException">
-        /// SteamAPI_RestartAppIfNecessary が true を返した場合（メッセージ = "STEAM_RESTART_REQUIRED"）。
-        /// </exception>
-        public static PluginManager Create(WebView2 webView, AppConfig config)
+        /// <param name="webView">WebView2 コントロール。プラグインのコンストラクタに渡される。</param>
+        /// <param name="config">パース済みの AppConfig（プラグイン名の解決に使用）。</param>
+        /// <param name="rawConfigJson">app.conf.json の生の JSON 文字列。プラグインの Initialize(string) にそのまま渡される。</param>
+        public static PluginManager Create(WebView2 webView, AppConfig config, string rawConfigJson)
         {
             var manager = new PluginManager();
 
             var names = ResolvePluginNames(config);
             foreach (var name in names)
-                manager.TryLoadPlugin(name, webView, config);
+                manager.TryLoadPlugin(name, webView, rawConfigJson);
 
             return manager;
         }
@@ -112,38 +105,18 @@ namespace WebView2AppHost
         // プラグイン読み込み
         // ---------------------------------------------------------------------------
 
-        private void TryLoadPlugin(string pluginName, WebView2 webView, AppConfig config)
+        private void TryLoadPlugin(string pluginName, WebView2 webView, string rawConfigJson)
         {
-            if (pluginName.Equals("Steam", StringComparison.OrdinalIgnoreCase))
-            {
-                TryLoadSteamPlugin(webView, config);
-                return;
-            }
-
-            // 汎用プラグイン（将来の拡張用: Node.js など）
-            TryLoadGenericPlugin(pluginName, webView);
-        }
-
-        /// <summary>
-        /// Steam プラグインをロードする。既存の SteamBridge シェルに委譲する。
-        /// STEAM_RESTART_REQUIRED は呼び出し元へ伝播する。
-        /// </summary>
-        private void TryLoadSteamPlugin(WebView2 webView, AppConfig config)
-        {
-            // SteamBridge.TryCreate は STEAM_RESTART_REQUIRED の場合 InvalidOperationException を投げる。
-            // PluginManager.Create の呼び出し元（App.InitPlugins）がキャッチして Application.Exit() を呼ぶ。
-            var bridge = SteamBridge.TryCreate(webView, config.SteamAppId, config.SteamDevMode);
-            if (bridge == null) return;
-
-            _plugins.Add(bridge);
-            AppLog.Log("INFO", "PluginManager", "Steam プラグインをロードしました");
+            // 汎用プラグイン（GenericDllPlugin / GenericSidecarPlugin）
+            TryLoadGenericPlugin(pluginName, webView, rawConfigJson);
         }
 
         /// <summary>
         /// 汎用プラグイン DLL をロードする。
-        /// DLL 内で IHostPlugin を実装する型（またはリフレクション互換の型）を探す。
+        /// DLL 内で HandleWebMessage(string) を持つ公開クラスを探し、
+        /// リフレクション経由でラップする。
         /// </summary>
-        private void TryLoadGenericPlugin(string pluginName, WebView2 webView)
+        private void TryLoadGenericPlugin(string pluginName, WebView2 webView, string rawConfigJson)
         {
             var baseDir = AppDomain.CurrentDomain.BaseDirectory;
             var dllPath = Path.Combine(baseDir, $"WebView2AppHost.{pluginName}.dll");
@@ -167,19 +140,19 @@ namespace WebView2AppHost
                     // IHostPlugin への直接キャストではなくリフレクション経由ラッパーを使う。
                     var instance = Activator.CreateInstance(type, webView)!;
 
-                    // Initialize(string configDir) シグネチャを優先して試みる。
-                    // これにより GenericDllPlugin が app.conf.json の loadDlls を読み込める。
-                    // 見つからない場合は引数なし Initialize() にフォールバックする。
-                    var initWithDir = type.GetMethod(
+                    // Initialize(string) シグネチャを呼び出す。
+                    // app.conf.json の生の JSON 文字列をそのまま渡す。
+                    // プラグインは内部で必要なフィールドだけを抽出する。
+                    var initWithJson = type.GetMethod(
                         "Initialize",
                         BindingFlags.Public | BindingFlags.Instance,
                         null,
                         new[] { typeof(string) },
                         null);
 
-                    if (initWithDir != null)
+                    if (initWithJson != null)
                     {
-                        initWithDir.Invoke(instance, new object[] { baseDir });
+                        initWithJson.Invoke(instance, new object[] { rawConfigJson });
                     }
                     else
                     {
@@ -269,7 +242,7 @@ namespace WebView2AppHost
 
         /// <summary>
         /// 異なるアセンブリからロードされた型をリフレクション経由で IHostPlugin として公開する。
-        /// SteamBridge が ISteamBridgeImpl を object + リフレクションで扱うのと同じ手法。
+        /// アセンブリ境界を越えた型同一性の問題を回避するため、ダックタイピングで扱う。
         /// </summary>
         private sealed class ReflectionPluginWrapper : IHostPlugin
         {
@@ -284,6 +257,17 @@ namespace WebView2AppHost
             }
 
             public string PluginName => _pluginName;
+
+            public void Initialize(string configJson)
+            {
+                if (_disposed) return;
+                var method = _impl.GetType()
+                    .GetMethod("Initialize", new[] { typeof(string) });
+                if (method != null)
+                {
+                    method.Invoke(_impl, new object[] { configJson });
+                }
+            }
 
             public void HandleWebMessage(string webMessageJson)
             {

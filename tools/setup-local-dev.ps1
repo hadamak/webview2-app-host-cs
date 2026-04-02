@@ -5,29 +5,22 @@
 .DESCRIPTION
     以下をまとめて実行する:
       1. ホスト本体 (WebView2AppHost.csproj) をビルド
-      2. Steam DLL (WebView2AppHost.Steam.csproj) をビルド
-      3. Steam 関連 DLL を EXE と同じフォルダにコピー
-      4. test-www/ と steam.js を出力先の www/ にコピー
+      2. 汎用プラグイン (WebView2AppHost.GenericDllPlugin.dll) をビルド
+      3. テスト用 DLL (TestLib.dll) をビルド
+      4. Facepunch.Steamworks DLL を EXE と同じフォルダにコピー
+      5. テスト用 DLL を EXE と同じフォルダにコピー
+      6. 汎用プラグイン DLL を EXE と同じフォルダにコピー
+      7. test-www/ と host.js を出力先の www/ にコピー
+      8. テスト用サイドカーを出力先にコピー
 
     実行後は生成された EXE をそのまま起動して動作確認できる。
 
 .PARAMETER Configuration
     ビルド構成。Debug (既定) または Release。
 
-.PARAMETER SkipSteam
-    Steam DLL のビルドと配置をスキップする。
-    Steamworks SDK サブモジュールが未取得の場合に使う。
-
-.PARAMETER SkipNode
-    Node.js プラグインのビルドと配置をスキップする。
-
 .EXAMPLE
     # 通常のローカル開発セットアップ
     .\tools\setup-local-dev.ps1
-
-.EXAMPLE
-    # Steam なしでホスト本体だけセットアップ
-    .\tools\setup-local-dev.ps1 -SkipSteam
 
 .EXAMPLE
     # Release ビルドでセットアップ（配布物に近い構成で確認したい場合）
@@ -36,11 +29,7 @@
 
 param(
     [ValidateSet("Debug", "Release")]
-    [string]$Configuration = "Debug",
-
-    [switch]$SkipSteam,
-
-    [switch]$SkipNode
+    [string]$Configuration = "Debug"
 )
 
 $ErrorActionPreference = "Stop"
@@ -63,92 +52,90 @@ try {
     Write-Host "    出力先: $outDir" -ForegroundColor Gray
 
     # ---------------------------------------------------------------------------
-    # 2. Steam DLL ビルド（オプション）
+    # 2. 汎用プラグイン DLL ビルド
     # ---------------------------------------------------------------------------
-    if (-not $SkipSteam) {
-        $sdkCheck = "Facepunch.Steamworks\Facepunch.Steamworks\Facepunch.Steamworks.Win64.csproj"
-        if (-not (Test-Path $sdkCheck)) {
-            Write-Warning "Steamworks サブモジュールが見つかりません: $sdkCheck"
-            Write-Warning "  git submodule update --init --recursive を実行してください"
-            Write-Warning "  Steam DLL のビルドをスキップします（-SkipSteam で明示的に省略可能）"
-            $SkipSteam = $true
-        }
+    Write-Host "==> 汎用プラグイン DLL をビルド中..." -ForegroundColor Cyan
+    dotnet build src-generic\WebView2AppHost.GenericDllPlugin.csproj `
+        -c $Configuration -r win-x64 --no-self-contained `
+        /p:Platform=x64 `
+        /v:minimal
+    if ($LASTEXITCODE -ne 0) { throw "汎用プラグイン DLL のビルドに失敗しました" }
+
+    Write-Host "==> 汎用サイドカープラグイン DLL をビルド中..." -ForegroundColor Cyan
+    dotnet build src-generic\WebView2AppHost.GenericSidecarPlugin.csproj `
+        -c $Configuration -r win-x64 --no-self-contained `
+        /p:Platform=x64 `
+        /v:minimal
+    if ($LASTEXITCODE -ne 0) { throw "汎用サイドカープラグイン DLL のビルドに失敗しました" }
+
+    # ---------------------------------------------------------------------------
+    # 3. テスト用 DLL ビルド
+    # ---------------------------------------------------------------------------
+    Write-Host "==> テスト用 DLL をビルド中..." -ForegroundColor Cyan
+    dotnet build tests\TestDll\TestDll.csproj `
+        -c $Configuration -r win-x64 --no-self-contained `
+        /p:Platform=x64 `
+        /v:minimal
+    if ($LASTEXITCODE -ne 0) { throw "テスト用 DLL のビルドに失敗しました" }
+
+    # ---------------------------------------------------------------------------
+    # 4. Facepunch.Steamworks DLL をコピー
+    # ---------------------------------------------------------------------------
+    Write-Host "==> Facepunch.Steamworks DLL を配置中..." -ForegroundColor Cyan
+
+    $steamDllPath = "Facepunch.Steamworks\Facepunch.Steamworks\bin\x64\$Configuration\net46\Facepunch.Steamworks.Win64.dll"
+    if (Test-Path $steamDllPath) {
+        Copy-Item $steamDllPath $outDir -Force
+        Write-Host "    Facepunch.Steamworks.Win64.dll -> $outDir" -ForegroundColor Gray
+    }
+    else {
+        Write-Warning "Facepunch.Steamworks.Win64.dll が見つかりません: $steamDllPath"
+        Write-Warning "  Steam 機能を使用するには Facepunch.Steamworks をビルドしてください"
     }
 
-    if (-not $SkipSteam) {
-        Write-Host "==> Steam DLL をビルド中..." -ForegroundColor Cyan
-        dotnet build src-steam\WebView2AppHost.Steam.csproj `
-            -c $Configuration -r win-x64 --no-self-contained `
-            /p:Platform=x64 `
-            /v:minimal
-        if ($LASTEXITCODE -ne 0) { throw "Steam DLL のビルドに失敗しました" }
+    # steam_api64.dll もコピー（存在する場合）
+    $steamApiPath = "Facepunch.Steamworks\Facepunch.Steamworks\bin\x64\$Configuration\net46\steam_api64.dll"
+    if (Test-Path $steamApiPath) {
+        Copy-Item $steamApiPath $outDir -Force
+        Write-Host "    steam_api64.dll -> $outDir" -ForegroundColor Gray
+    }
 
-        # ---------------------------------------------------------------------------
-        # 3. Steam 関連 DLL を EXE 隣接フォルダにコピー
-        # ---------------------------------------------------------------------------
-        Write-Host "==> Steam DLL を配置中..." -ForegroundColor Cyan
+    # ---------------------------------------------------------------------------
+    # 5. テスト用 DLL をコピー
+    # ---------------------------------------------------------------------------
+    Write-Host "==> テスト用 DLL を配置中..." -ForegroundColor Cyan
 
-        $steamBuildDir = "src-steam\bin\x64\$Configuration\net472\win-x64"
+    $testDllBuildDir = "tests\TestDll\bin\x64\$Configuration\net472\win-x64"
+    $testDllFiles = @("TestLib.dll")
+    foreach ($file in $testDllFiles) {
+        $src = Join-Path $testDllBuildDir $file
+        if (-not (Test-Path $src)) {
+            throw "テスト用 DLL ファイルが見つかりません: $src"
+        }
+        Copy-Item $src $outDir -Force
+        Write-Host "    $file -> $outDir" -ForegroundColor Gray
+    }
 
-        $steamFiles = @(
-            "WebView2AppHost.Steam.dll",
-            "Facepunch.Steamworks.Win64.dll",
-            "steam_api64.dll"
-        )
-        foreach ($file in $steamFiles) {
-            $src = Join-Path $steamBuildDir $file
-            if (-not (Test-Path $src)) {
-                throw "Steam ファイルが見つかりません: $src"
-            }
+    # ---------------------------------------------------------------------------
+    # 6. 汎用プラグイン DLL をコピー
+    # ---------------------------------------------------------------------------
+    Write-Host "==> 汎用プラグイン DLL を配置中..." -ForegroundColor Cyan
+
+    $genericDllBuildDir = "src-generic\bin\x64\$Configuration\net472\win-x64"
+    $genericDllFiles = @("WebView2AppHost.GenericDllPlugin.dll", "WebView2AppHost.GenericSidecarPlugin.dll")
+    foreach ($file in $genericDllFiles) {
+        $src = Join-Path $genericDllBuildDir $file
+        if (-not (Test-Path $src)) {
+            Write-Warning "汎用プラグイン DLL ファイルが見つかりません: $src"
+        }
+        else {
             Copy-Item $src $outDir -Force
             Write-Host "    $file -> $outDir" -ForegroundColor Gray
         }
-    } else {
-        Write-Host "==> Steam DLL のビルドをスキップ" -ForegroundColor Gray
     }
 
     # ---------------------------------------------------------------------------
-    # 4. Node.js Plugin ビルド（オプション）
-    # ---------------------------------------------------------------------------
-    if (-not $SkipNode) {
-        Write-Host "==> Node.js Plugin をビルド中..." -ForegroundColor Cyan
-        dotnet build src-node\WebView2AppHost.Node.csproj `
-            -c $Configuration -r win-x64 --no-self-contained `
-            /p:Platform=x64 `
-            /v:minimal
-        if ($LASTEXITCODE -ne 0) { throw "Node.js Plugin のビルドに失敗しました" }
-
-        # ---------------------------------------------------------------------------
-        # 5. Node.js 関連ファイルを配置
-        # ---------------------------------------------------------------------------
-        Write-Host "==> Node.js 関連ファイルを配置中..." -ForegroundColor Cyan
-
-        $nodeBuildDir = "src-node\bin\x64\$Configuration\net472\win-x64"
-        $nodeFiles = @(
-            "WebView2AppHost.Node.dll"
-        )
-        foreach ($file in $nodeFiles) {
-            $src = Join-Path $nodeBuildDir $file
-            if (-not (Test-Path $src)) {
-                throw "Node.js Plugin ファイルが見つかりません: $src"
-            }
-            Copy-Item $src $outDir -Force
-            Write-Host "    $file -> $outDir" -ForegroundColor Gray
-        }
-
-        # node-runtime/server.js をコピー
-        $nodeRuntimeDest = Join-Path $outDir "node-runtime"
-        New-Item -ItemType Directory -Force -Path $nodeRuntimeDest | Out-Null
-        Copy-Item "node-runtime\server.js" $nodeRuntimeDest -Force
-        Write-Host "    node-runtime\server.js -> $nodeRuntimeDest\" -ForegroundColor Gray
-    } else {
-        Write-Host "==> Node.js Plugin のビルドをスキップ" -ForegroundColor Gray
-    }
-
-    # ---------------------------------------------------------------------------
-    # 6. test-www/ と steam.js を www/ にコピー
-    #    Debug ビルドでは .csproj の CopyManualWwwContent ターゲットが既に実行済みだが、
-    #    Release や手動での確認に備えて明示的にコピーする。
+    # 7. test-www/ と host.js を www/ にコピー
     # ---------------------------------------------------------------------------
     Write-Host "==> テスト用 Web コンテンツを配置中..." -ForegroundColor Cyan
 
@@ -157,13 +144,39 @@ try {
 
     # test-www/ 以下を www/ にコピー（既存ファイルは上書き）
     Copy-Item "test-www\*" $wwwDest -Recurse -Force
-    Write-Host "    test-www\ -> $wwwDest\" -ForegroundColor Gray
+    Write-Host "    test-www -> $wwwDest" -ForegroundColor Gray
 
-    # steam.js を www/ に配置（test-www 内に存在しない場合は src/ からコピー）
-    $steamJs = "src\steam.js"
-    if (Test-Path $steamJs) {
-        Copy-Item $steamJs $wwwDest -Force
-        Write-Host "    steam.js -> $wwwDest\" -ForegroundColor Gray
+    # host.js を www/ に配置（test-www 内に存在しない場合は web-content/ からコピー）
+    $hostJs = "web-content\host.js"
+    if (Test-Path $hostJs) {
+        Copy-Item $hostJs $wwwDest -Force
+        Write-Host "    host.js -> $wwwDest" -ForegroundColor Gray
+    }
+
+    # ---------------------------------------------------------------------------
+    # 8. テスト用サイドカーをコピー
+    # ---------------------------------------------------------------------------
+    Write-Host "==> テスト用サイドカーを配置中..." -ForegroundColor Cyan
+
+    $testSidecarDest = Join-Path $outDir "test-sidecar"
+    New-Item -ItemType Directory -Force -Path $testSidecarDest | Out-Null
+
+    # test_sidecar.js が存在する場合はコピー
+    $testSidecarJs = "tests\TestSidecar\test_sidecar.js"
+    if (Test-Path $testSidecarJs) {
+        Copy-Item $testSidecarJs $testSidecarDest -Force
+        Write-Host "    test_sidecar.js -> $testSidecarDest" -ForegroundColor Gray
+    }
+    else {
+        Write-Warning "テスト用サイドカーが見つかりません: $testSidecarJs"
+    }
+
+    # node-runtime/ をコピー
+    $nodeRuntimeDest = Join-Path $outDir "node-runtime"
+    New-Item -ItemType Directory -Force -Path $nodeRuntimeDest | Out-Null
+    if (Test-Path "node-runtime\server.js") {
+        Copy-Item "node-runtime\server.js" $nodeRuntimeDest -Force
+        Write-Host "    node-runtime\server.js -> $nodeRuntimeDest" -ForegroundColor Gray
     }
 
     # ---------------------------------------------------------------------------
@@ -173,22 +186,6 @@ try {
     Write-Host ""
     Write-Host "セットアップ完了" -ForegroundColor Green
     Write-Host "EXE: $exePath"
-    if (-not $SkipSteam) {
-        Write-Host "Steam: 有効 (AppID は test-www\app.conf.json の steamAppId を参照)"
-    } else {
-        Write-Host "Steam: 無効"
-    }
-    if (-not $SkipNode) {
-        Write-Host "Node:  有効"
-    } else {
-        Write-Host "Node:  無効"
-    }
-    Write-Host ""
-    Write-Host "起動するには:" -ForegroundColor Yellow
-    Write-Host "  & '$exePath'"
-    Write-Host ""
-    Write-Host "Steam 自動テストページで起動するには:" -ForegroundColor Yellow
-    Write-Host "  & '$exePath' tests\steam-auto\steam-auto.zip"
 }
 finally {
     Pop-Location

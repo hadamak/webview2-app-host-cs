@@ -73,6 +73,28 @@ const Host = (() => {
         })
         : null;
 
+    // WebView2 メッセージ受信イベントリスナー
+    if (_isHost) {
+        window.chrome.webview.addEventListener('message', (e) => {
+            try {
+                const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+                if (msg && msg.source && msg.messageId === 'invoke-result') {
+                    const pending = _pending.get(msg.asyncId);
+                    if (pending) {
+                        _pending.delete(msg.asyncId);
+                        if (msg.error) {
+                            pending.reject(new Error(msg.error));
+                        } else {
+                            pending.resolve(msg.result);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('[Host] message parse error:', err);
+            }
+        });
+    }
+
     // ---------------------------------------------------------------------------
     // ハンドルの再帰的ラップ
     // ---------------------------------------------------------------------------

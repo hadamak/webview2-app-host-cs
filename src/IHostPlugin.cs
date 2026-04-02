@@ -6,9 +6,10 @@ namespace WebView2AppHost
     /// PluginManager に登録されるプラグインのインターフェース。
     ///
     /// <para>
-    /// EXE 内で定義されるため、アセンブリ境界を越えた型同一性の問題は発生しない。
-    /// サードパーティ製プラグイン DLL が本インターフェースを直接実装する場合は
-    /// リフレクション経由でのラッピングが必要（<see cref="ISteamBridgeImpl"/> と同様の理由）。
+    /// ホストとプラグインの境界は C# の基本型（string）のみで繋ぐ。
+    /// ホスト固有の型（AppConfig、WebView2 等）はプラグインの引数に含めない。
+    /// アセンブリ境界を越えた型同一性の問題を回避するため、
+    /// サードパーティ製プラグイン DLL はリフレクション経由でのラッピングが必要。
     /// </para>
     ///
     /// プラグインのメッセージフォーマット（JS → C#）:
@@ -22,6 +23,13 @@ namespace WebView2AppHost
         /// 例: "Steam", "Node"
         /// </summary>
         string PluginName { get; }
+
+        /// <summary>
+        /// ホストから app.conf.json の内容を JSON 文字列として受け取り、初期化する。
+        /// プラグインは内部で JSON をパースし、必要な情報だけを抽出する。
+        /// ホストの型（AppConfig など）には一切依存しない。
+        /// </summary>
+        void Initialize(string configJson);
 
         /// <summary>
         /// WebView2 の WebMessageReceived から転送されるメッセージを処理する。

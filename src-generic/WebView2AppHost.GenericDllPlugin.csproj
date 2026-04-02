@@ -24,6 +24,7 @@
     <Compile Include="..\src\AppLog.cs"                   Link="AppLog.cs" />
     <Compile Include="..\src\IHostPlugin.cs"              Link="IHostPlugin.cs" />
     <Compile Include="..\src\ReflectionDispatcherBase.cs" Link="ReflectionDispatcherBase.cs" />
+    <Compile Include="..\src\AppConfig.cs"                Link="AppConfig.cs" />
   </ItemGroup>
 
   <ItemGroup>

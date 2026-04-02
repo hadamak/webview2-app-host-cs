@@ -23,3 +23,15 @@ src-generic/bin/
 src-generic/obj/
 
 tests/steam-auto/steam-auto.zip
+
+tests/TestSidecar/bin/
+tests/TestSidecar/obj/
+
+tests/PluginCoreTester/obj/
+tests/PluginCoreTester/bin/
+
+tests/TestDll/bin/
+tests/TestDll/obj/
+
+src-sidecar/bin/
+src-sidecar/obj/

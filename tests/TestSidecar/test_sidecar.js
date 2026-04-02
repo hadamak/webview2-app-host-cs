@@ -1,27 +1,19 @@
 /**
- * server.js — WebView2AppHost Node.js サイドカー
+ * test_sidecar.js — テスト用サイドカー
  *
- * C# (NodePlugin.cs) の子プロセスとして起動される。
+ * GenericSidecarPlugin のテスト用に、JSON エコーと基本的なメソッドを提供する。
  * stdin から改行区切りの JSON (NDJSON) を受け取り、
  * 登録されたハンドラを呼び出して結果を stdout に書き出す。
  *
  * プロトコル（JS ↔ C# ↔ このプロセス）:
- *   C# → stdin: { "source":"Node", "messageId":"invoke",
+ *   C# → stdin: { "source":"TestSidecar", "messageId":"invoke",
  *                  "params":{ "className":"ClassName", "methodName":"method", "args":[...] },
  *                  "asyncId": N }
  *
- *   stdout → C#: { "source":"Node", "messageId":"invoke-result",
+ *   stdout → C#: { "source":"TestSidecar", "messageId":"invoke-result",
  *                   "result": <value>, "asyncId": N }
- *          または: { "source":"Node", "messageId":"invoke-result",
+ *          または: { "source":"TestSidecar", "messageId":"invoke-result",
  *                   "error": "<message>", "asyncId": N }
- *
- * ハンドラの登録:
- *   require('./server').register('MyClass', {
- *     async myMethod(arg1, arg2) { return arg1 + arg2; }
- *   });
- *
- * 利用例（host.js 経由で JS 側から呼ぶ場合）:
- *   const result = await Host.Node.MyClass.myMethod('hello', 'world');
  */
 
 'use strict';
@@ -60,7 +52,7 @@ function send(obj) {
  * @param {any}    result
  */
 function resolve(asyncId, result) {
-    send({ source: 'Node', messageId: 'invoke-result', result, asyncId });
+    send({ source: 'TestSidecar', messageId: 'invoke-result', result, asyncId });
 }
 
 /**
@@ -69,7 +61,7 @@ function resolve(asyncId, result) {
  * @param {string} message
  */
 function reject(asyncId, message) {
-    send({ source: 'Node', messageId: 'invoke-result', error: String(message), asyncId });
+    send({ source: 'TestSidecar', messageId: 'invoke-result', error: String(message), asyncId });
 }
 
 // ---------------------------------------------------------------------------
@@ -93,13 +85,13 @@ async function dispatch(msg) {
     try {
         const classHandlers = _handlers.get(className);
         if (!classHandlers) {
-            reject(asyncId, `NodePlugin: クラス '${className}' が登録されていません`);
+            reject(asyncId, `TestSidecar: クラス '${className}' が登録されていません`);
             return;
         }
 
         const fn = classHandlers[methodName];
         if (typeof fn !== 'function') {
-            reject(asyncId, `NodePlugin: ${className}.${methodName} が見つかりません`);
+            reject(asyncId, `TestSidecar: ${className}.${methodName} が見つかりません`);
             return;
         }
 
@@ -131,10 +123,10 @@ async function dispatch(msg) {
             try {
                 const msg = JSON.parse(trimmed);
                 dispatch(msg).catch((err) => {
-                    process.stderr.write(`[server.js] dispatch error: ${err}\n`);
+                    process.stderr.write(`[test_sidecar.js] dispatch error: ${err}\n`);
                 });
             } catch (parseErr) {
-                process.stderr.write(`[server.js] JSON parse error: ${parseErr}\n`);
+                process.stderr.write(`[test_sidecar.js] JSON parse error: ${parseErr}\n`);
             }
         }
     });
@@ -149,43 +141,89 @@ async function dispatch(msg) {
 // デフォルトハンドラ（組み込み）
 // ---------------------------------------------------------------------------
 
-register('Node', {
+register('Echo', {
+    /** エコーテスト: 引数をそのまま返す */
+    echo(...args) {
+        return args;
+    },
+
+    /** 足し算 */
+    add(a, b) {
+        return a + b;
+    },
+
+    /** 引き算 */
+    subtract(a, b) {
+        return a - b;
+    },
+
+    /** 乗算 */
+    multiply(a, b) {
+        return a * b;
+    },
+
+    /** 文字列結合 */
+    concat(...args) {
+        return args.join('');
+    },
+
+    /** 遅延エコー（非同期テスト用） */
+    async delayedEcho(message, delayMs = 1000) {
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        return message;
+    },
+});
+
+register('Test', {
     /** バージョン情報を返す。動作確認用。 */
     version() {
         return {
             node: process.version,
             platform: process.platform,
             arch: process.arch,
+            pid: process.pid,
         };
     },
 
-    /** npm パッケージが require できるかを確認する。 */
-    hasModule(name) {
-        try {
-            require.resolve(name);
-            return true;
-        } catch {
-            return false;
-        }
+    /** 現在時刻を返す */
+    currentTime() {
+        return {
+            iso: new Date().toISOString(),
+            timestamp: Date.now(),
+        };
     },
 
-    /** require してモジュールのバージョンを返す（package.json が必要）。 */
-    moduleVersion(name) {
-        try {
-            const pkg = require(`${name}/package.json`);
-            return pkg.version ?? null;
-        } catch {
-            return null;
+    /** ランダムな数値を返す */
+    random() {
+        return Math.random();
+    },
+
+    /** 引数の配列をソートして返す */
+    sort(arr) {
+        if (!Array.isArray(arr)) {
+            throw new Error('引数は配列である必要があります');
         }
+        return [...arr].sort((a, b) => a - b);
+    },
+
+    /** エラーを発生させる（エラーハンドリングテスト用） */
+    throwError(message) {
+        throw new Error(message || 'テストエラー');
     },
 });
+
+// ---------------------------------------------------------------------------
+// Ready シグナル（stdout）— waitForReady: true の場合に C# 側が待機する
+// ---------------------------------------------------------------------------
+
+process.stdout.write(JSON.stringify({ ready: true }) + '\n');
 
 // ---------------------------------------------------------------------------
 // 起動ログ（stderr に出す）
 // ---------------------------------------------------------------------------
 
 process.stderr.write(
-    `[server.js] Node.js サイドカー起動 (PID: ${process.pid}, Node: ${process.version})\n`
+    `[test_sidecar.js] テスト用サイドカー起動 (PID: ${process.pid}, Node: ${process.version})\n`
 );
 
 // ---------------------------------------------------------------------------
@@ -193,6 +231,3 @@ process.stderr.write(
 // ---------------------------------------------------------------------------
 
 module.exports = { register, send, resolve, reject };
-
-// 起動完了をホストに伝えるシグナル
-process.stdout.write(JSON.stringify({ ready: true }) + '\n');
