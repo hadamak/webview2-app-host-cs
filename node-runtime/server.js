@@ -1,7 +1,7 @@
 /**
  * server.js — WebView2AppHost Node.js サイドカー
  *
- * C# (NodePlugin.cs) の子プロセスとして起動される。
+ * C# (GenericSidecarPlugin.cs) の子プロセスとして起動される。
  * stdin から改行区切りの JSON (NDJSON) を受け取り、
  * 登録されたハンドラを呼び出して結果を stdout に書き出す。
  *

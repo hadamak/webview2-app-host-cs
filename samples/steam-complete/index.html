@@ -430,17 +430,17 @@ document.getElementById('leaderboard-download-btn').addEventListener('click', as
 
 // Screenshot
 // SteamScreenshots.TriggerScreenshot は DirectX フック前提のため WebView2 では動作しない。
-// Host.Internal.WebView.CapturePreview() で RGB データを取得し、WriteScreenshot() で渡す。
+// Host.Internal.WebView.CapturePreview() で 画像ファイルを出力し、AddScreenshot () で渡す。
 document.getElementById('screenshot-btn').addEventListener('click', async () => {
     try {
         log('Internal.WebView.CapturePreview() ...');
-        const preview = await Host.Internal.WebView.CapturePreview();
+        const preview = await Host.Internal.WebView.CapturePreview("screenshot.png");
         log('CapturePreview() done', { width: preview.width, height: preview.height });
 
-        const result = await Host.Steam.SteamScreenshots.WriteScreenshot(
-            preview.rgb, preview.width, preview.height
+        const result = await Host.Steam.SteamScreenshots.AddScreenshot(
+            preview.path, '', preview.width, preview.height
         );
-        log('SteamScreenshots.WriteScreenshot()', result);
+        log('SteamScreenshots.AddScreenshot()', result);
     } catch (err) {
         log('Screenshot failed', String(err));
     }

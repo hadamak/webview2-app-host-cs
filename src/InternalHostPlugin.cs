@@ -1,9 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Imaging;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using Microsoft.Web.WebView2.Core;
@@ -23,7 +21,7 @@ namespace WebView2AppHost
     ///
     /// 現在のカテゴリ:
     ///   WebView  … WebView2 コントロールの操作
-    ///              - CapturePreview() → { rgb: number[], width: number, height: number }
+    ///              - CapturePreview([path]) → { path: string, width: number, height: number }
     ///
     /// 追加の作法:
     ///   1. 新カテゴリなら DispatchClassName に case を追加し、専用メソッドへ委譲する。
@@ -36,7 +34,7 @@ namespace WebView2AppHost
         // ---------------------------------------------------------------------------
 
         private readonly WebView2             _webView;
-        private readonly JavaScriptSerializer _jss = new JavaScriptSerializer();
+        private readonly JavaScriptSerializer _jss = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         private bool _disposed;
 
         // ---------------------------------------------------------------------------
@@ -92,7 +90,11 @@ namespace WebView2AppHost
                     return;
                 }
 
-                DispatchClassName(className!, methodName!, asyncId);
+                var args = p != null && p.TryGetValue("args", out var argsVal) && argsVal is ArrayList al
+                    ? al
+                    : new ArrayList();
+
+                DispatchClassName(className!, methodName!, args, asyncId);
             }
             catch (Exception ex)
             {
@@ -104,17 +106,17 @@ namespace WebView2AppHost
         // 第1段ディスパッチ: className → カテゴリ
         // ---------------------------------------------------------------------------
 
-        private void DispatchClassName(string className, string methodName, double asyncId)
+        private void DispatchClassName(string className, string methodName, ArrayList args, double asyncId)
         {
             switch (className)
             {
                 case "WebView":
-                    DispatchWebView(methodName, asyncId);
+                    DispatchWebView(methodName, args, asyncId);
                     break;
 
                 // 新カテゴリはここに case を追加する
                 // case "Window":
-                //     DispatchWindow(methodName, asyncId);
+                //     DispatchWindow(methodName, args, asyncId);
                 //     break;
 
                 default:
@@ -127,12 +129,13 @@ namespace WebView2AppHost
         // 第2段ディスパッチ: WebView カテゴリ
         // ---------------------------------------------------------------------------
 
-        private void DispatchWebView(string methodName, double asyncId)
+        private void DispatchWebView(string methodName, ArrayList args, double asyncId)
         {
             switch (methodName)
             {
                 case "CapturePreview":
-                    Task.Run(async () => await CapturePreviewAsync(asyncId));
+                    var outputPath = args.Count > 0 ? args[0] as string : null;
+                    Task.Run(async () => await CapturePreviewAsync(outputPath, asyncId));
                     break;
 
                 default:
@@ -146,17 +149,41 @@ namespace WebView2AppHost
         // ---------------------------------------------------------------------------
 
         /// <summary>
-        /// WebView2 の現在の表示内容を PNG でキャプチャし、RGB バイト配列に変換して JS に返す。
+        /// WebView2 の現在の表示内容を PNG ファイルとして書き出し、
+        /// ファイルパスと画像サイズを JS に返す。
         ///
-        /// JS 側の戻り値: { rgb: number[], width: number, height: number }
-        /// （JS 側では new Uint8Array(result.rgb) として利用可能）
+        /// 引数:
+        ///   path (string, 省略可) — 書き出し先ファイルパス。
+        ///     相対パスは EXE 隣接ディレクトリ基準。
+        ///     省略時は %TEMP%\webview2_capture_{guid}.png を自動生成する。
+        ///
+        /// JS 側の戻り値: { path: string, width: number, height: number }
         ///
         /// CoreWebView2 API は UI スレッドで呼ぶ必要があるため BeginInvoke で移譲し、
         /// TaskCompletionSource で非同期完了を待つ。
         /// </summary>
-        private async Task CapturePreviewAsync(double asyncId)
+        private async Task CapturePreviewAsync(string? outputPath, double asyncId)
         {
-            var tcs = new TaskCompletionSource<(byte[] rgb, int width, int height)>();
+            // パスの解決
+            if (string.IsNullOrEmpty(outputPath))
+            {
+                outputPath = Path.Combine(
+                    Path.GetTempPath(),
+                    $"webview2_capture_{Guid.NewGuid():N}.png");
+            }
+            else if (!Path.IsPathRooted(outputPath))
+            {
+                outputPath = Path.Combine(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    outputPath);
+            }
+
+            // 書き出し先ディレクトリが存在しない場合は作成する
+            var dir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            var tcs = new TaskCompletionSource<(string path, int width, int height)>();
 
             _webView.BeginInvoke(new Action(async () =>
             {
@@ -168,13 +195,18 @@ namespace WebView2AppHost
                         return;
                     }
 
-                    using var pngStream = new MemoryStream();
+                    using var fileStream = File.Open(outputPath, FileMode.Create, FileAccess.ReadWrite);
                     await _webView.CoreWebView2.CapturePreviewAsync(
-                        CoreWebView2CapturePreviewImageFormat.Png, pngStream);
-                    pngStream.Position = 0;
+                        CoreWebView2CapturePreviewImageFormat.Png, fileStream);
 
-                    using var bmp = new Bitmap(pngStream);
-                    tcs.SetResult(BitmapToRgb(bmp));
+                    // PNG ヘッダから幅・高さを読む（IHDR チャンク: オフセット 16〜23 バイト）
+                    fileStream.Position = 16;
+                    var buf = new byte[8];
+                    fileStream.Read(buf, 0, 8);
+                    int width  = (buf[0] << 24) | (buf[1] << 16) | (buf[2] << 8) | buf[3];
+                    int height = (buf[4] << 24) | (buf[5] << 16) | (buf[6] << 8) | buf[7];
+
+                    tcs.SetResult((outputPath, width, height));
                 }
                 catch (Exception ex)
                 {
@@ -184,20 +216,16 @@ namespace WebView2AppHost
 
             try
             {
-                var (rgb, width, height) = await tcs.Task.ConfigureAwait(false);
+                var (path, width, height) = await tcs.Task.ConfigureAwait(false);
 
 #if DEBUG
                 AppLog.Log("INFO", "InternalHostPlugin.WebView.CapturePreview",
-                    $"キャプチャ完了 ({width}x{height}, {rgb.Length} bytes)");
+                    $"キャプチャ完了 ({width}x{height}) → {path}");
 #endif
-                // JavaScriptSerializer は byte[] を Base64 に変換するため手動で構築する。
-                // JS 側では new Uint8Array(result.rgb) として使用できる。
-                var resultJson =
-                    $"{{\"rgb\":[{string.Join(",", rgb)}]," +
+                SendResult(asyncId,
+                    $"{{\"path\":\"{EscapeJsonString(path)}\"," +
                     $"\"width\":{width}," +
-                    $"\"height\":{height}}}";
-
-                SendResult(asyncId, resultJson);
+                    $"\"height\":{height}}}");
             }
             catch (Exception ex)
             {
@@ -205,48 +233,6 @@ namespace WebView2AppHost
                     ? tie.InnerException ?? ex : ex;
                 AppLog.Log("ERROR", "InternalHostPlugin.WebView.CapturePreview", inner.Message, inner);
                 SendError(asyncId, inner.Message);
-            }
-        }
-
-        // ---------------------------------------------------------------------------
-        // Bitmap → RGB 変換
-        // ---------------------------------------------------------------------------
-
-        private static (byte[] rgb, int width, int height) BitmapToRgb(Bitmap bmp)
-        {
-            int width  = bmp.Width;
-            int height = bmp.Height;
-
-            var bmpData = bmp.LockBits(
-                new Rectangle(0, 0, width, height),
-                ImageLockMode.ReadOnly,
-                PixelFormat.Format32bppArgb);
-            try
-            {
-                int stride   = bmpData.Stride;
-                int rowBytes = Math.Abs(stride);
-                var bgra     = new byte[rowBytes * height];
-                Marshal.Copy(bmpData.Scan0, bgra, 0, bgra.Length);
-
-                var rgb = new byte[width * height * 3];
-                for (int y = 0; y < height; y++)
-                {
-                    int srcRow  = stride > 0 ? y * stride : (height - 1 - y) * rowBytes;
-                    int destRow = y * width * 3;
-                    for (int x = 0; x < width; x++)
-                    {
-                        int src  = srcRow  + x * 4;
-                        int dest = destRow + x * 3;
-                        rgb[dest + 0] = bgra[src + 2]; // R
-                        rgb[dest + 1] = bgra[src + 1]; // G
-                        rgb[dest + 2] = bgra[src + 0]; // B
-                    }
-                }
-                return (rgb, width, height);
-            }
-            finally
-            {
-                bmp.UnlockBits(bmpData);
             }
         }
 

@@ -167,15 +167,15 @@
     }
   }
 
-  // スクリーンショット: CapturePreview → WriteScreenshot
+  // スクリーンショット: CapturePreview → AddScreenshot
   async function takeScreenshot() {
     try {
       appendLog('info', '→ Internal.WebView.CapturePreview() ...');
-      const preview = await Host.Internal.WebView.CapturePreview();
+      const preview = await Host.Internal.WebView.CapturePreview("screenshot.png");
       appendLog('ok', `✓ CapturePreview: ${preview.width}x${preview.height}`);
 
-      const result = await Host.Steam.SteamScreenshots.WriteScreenshot(
-        preview.rgb, preview.width, preview.height
+      const result = await Host.Steam.SteamScreenshots.AddScreenshot(
+        preview.path, '', preview.width, preview.height
       );
       appendLog('ok', `✓ WriteScreenshot: ${JSON.stringify(result)}`);
     } catch (e) {
