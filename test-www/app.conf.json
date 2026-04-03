@@ -23,7 +23,7 @@
     {
       "alias": "Node",
       "mode": "streaming",
-      "executable": "node-runtime/node.exe",
+      "executable": "node",
       "workingDirectory": "node-runtime",
       "args": ["server.js"],
       "waitForReady": true
@@ -31,7 +31,7 @@
     {
       "alias": "TestSidecar",
       "mode": "streaming",
-      "executable": "node-runtime/node.exe",
+      "executable": "node",
       "workingDirectory": "test-sidecar",
       "args": ["test_sidecar.js"],
       "waitForReady": true

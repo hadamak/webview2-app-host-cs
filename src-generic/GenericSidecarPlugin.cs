@@ -144,49 +144,112 @@ namespace WebView2AppHost
         {
             if (string.IsNullOrEmpty(entry.Alias) || string.IsNullOrEmpty(entry.Executable))
             {
-                AppLog.Log("WARN", "GenericSidecarPlugin.TryStartSidecar",
-                    "SidecarEntry の Alias または Executable が空です");
+                AppLog.Log("WARN", "GenericSidecarPlugin.TryStartSidecar", "Alias または Executable が空です");
                 return;
             }
 
-            var execPath = Path.IsPathRooted(entry.Executable)
-                ? entry.Executable
-                : Path.Combine(baseDir, entry.Executable);
+            // 1. 実行ファイルのフルパスを解決（前回の PATH 検索ロジックを含む）
+            string? execPath = ResolveExecutablePath(baseDir, entry.Executable);
 
-            if (!File.Exists(execPath))
+            if (execPath == null)
             {
-                AppLog.Log("WARN", "GenericSidecarPlugin.TryStartSidecar",
-                    $"実行ファイルが見つかりません: {execPath}");
+                AppLog.Log("WARN", "GenericSidecarPlugin.TryStartSidecar", $"実行ファイルが見つかりません: {entry.Executable}");
                 return;
             }
 
-            var workDir = string.IsNullOrEmpty(entry.WorkingDirectory)
-                ? Path.GetDirectoryName(execPath)!
-                : (Path.IsPathRooted(entry.WorkingDirectory)
+            // 2. 作業ディレクトリ (CWD) の決定
+            string workDir;
+            if (string.IsNullOrEmpty(entry.WorkingDirectory))
+            {
+                workDir = baseDir; 
+            }
+            else
+            {
+                // 指定がある場合は アプリ からの相対パスとして解決
+                workDir = Path.IsPathRooted(entry.WorkingDirectory)
                     ? entry.WorkingDirectory
-                    : Path.Combine(baseDir, entry.WorkingDirectory));
+                    : Path.Combine(baseDir, entry.WorkingDirectory);
+            }
 
+            // 3. ディレクトリの存在確認
             if (!Directory.Exists(workDir))
             {
-                AppLog.Log("WARN", "GenericSidecarPlugin.TryStartSidecar",
-                    $"作業ディレクトリが見つかりません: {workDir}");
-                return;
+                AppLog.Log("WARN", "GenericSidecarPlugin", $"作業ディレクトリが見つかりません: {workDir}。baseDir を使用します。");
+                workDir = baseDir;
             }
 
             try
             {
+                // 起動（execPath はグローバルな場所、workDir はアプリの場所になる）
                 var sidecar = new SidecarProcess(entry.Alias, execPath, workDir, entry.Args, entry.WaitForReady, _webView);
                 sidecar.Start();
                 _sidecars[entry.Alias] = sidecar;
 
-                AppLog.Log("INFO", "GenericSidecarPlugin",
-                    $"サイドカーを起動しました: alias={entry.Alias}, path={execPath}");
+                AppLog.Log("INFO", "GenericSidecarPlugin", $"サイドカー起動成功: {entry.Alias} (CWD: {workDir})");
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", "GenericSidecarPlugin.TryStartSidecar",
-                    $"サイドカーの起動に失敗: {entry.Alias}", ex);
+                AppLog.Log("ERROR", "GenericSidecarPlugin.TryStartSidecar", $"起動失敗: {entry.Alias}", ex);
             }
+        }
+
+        /// <summary>
+        /// 実行ファイルのパスを、絶対パス、相対パス、環境変数 PATH の順で解決する。
+        /// </summary>
+        private string? ResolveExecutablePath(string baseDir, string executable)
+        {
+            // 1. 絶対パスの場合
+            if (Path.IsPathRooted(executable))
+            {
+                return File.Exists(executable) ? executable : null;
+            }
+
+            // 2. 相対パスの場合
+            var relativePath = Path.Combine(baseDir, executable);
+            if (File.Exists(relativePath))
+            {
+                return Path.GetFullPath(relativePath);
+            }
+
+            // 3. 環境変数 PATH から検索
+            // node や python のような名前のみ（ディレクトリ区切りを含まない）の場合に検索
+            if (!executable.Contains(Path.DirectorySeparatorChar.ToString()) && 
+                !executable.Contains(Path.AltDirectorySeparatorChar.ToString()))
+            {
+                var pathEnv = Environment.GetEnvironmentVariable("PATH");
+                if (!string.IsNullOrEmpty(pathEnv))
+                {
+                    var paths = pathEnv.Split(Path.PathSeparator);
+                    // Windows の実行可能拡張子 (.EXE, .CMD, .BAT 等) を取得
+                    var extensions = (Environment.GetEnvironmentVariable("PATHEXT") ?? ".EXE;.COM;.BAT;.CMD")
+                        .Split(';')
+                        .Select(e => e.Trim().ToUpperInvariant())
+                        .ToList();
+                    
+                    // 拡張子が既に含まれているか確認
+                    bool hasExtension = extensions.Any(ext => executable.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
+
+                    foreach (var p in paths)
+                    {
+                        var combined = Path.Combine(p, executable);
+                        
+                        // そのままのファイル名で存在するか
+                        if (File.Exists(combined)) return Path.GetFullPath(combined);
+
+                        // 拡張子を補完して存在するか (node -> node.exe)
+                        if (!hasExtension)
+                        {
+                            foreach (var ext in extensions)
+                            {
+                                var withExt = combined + ext;
+                                if (File.Exists(withExt)) return Path.GetFullPath(withExt);
+                            }
+                        }
+                    }
+                }
+            }
+
+            return null;
         }
 
         /// <summary>
