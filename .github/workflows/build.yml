@@ -28,7 +28,7 @@ jobs:
       run: msbuild tests\HostTests\HostTests.csproj "/t:Restore;Build" /p:Configuration=Debug /p:Platform=x64
 
     - name: Run HostTests
-      run: tests\HostTests\bin\x64\Debug\net472\HostTests.exe
+      run: tests\HostTests\bin\x64\Debug\net48\HostTests.exe
 
     - name: Run steam.js unit tests
       run: node tests/steam-js/steam.test.js

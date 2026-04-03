@@ -8,7 +8,7 @@
 
 - OS: Windows 10 以降
 - ランタイム: 
-  - .NET Framework 4.7.2～4.8.1（Windows に標準搭載されています）
+  - .NET Framework 4.8～4.8.1（Windows11:標準搭載、Windows10:推定の場合あり）
   - Microsoft Edge WebView2 ランタイム（Windows11:標準搭載、Windows10:推定の場合あり）
 
 注意:

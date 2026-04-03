@@ -118,7 +118,7 @@ namespace PluginCoreTester
                 // TestLib.dll をロード
                 var dllPath = Path.Combine(
                     AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", "TestDll", "bin", "Debug", "net472", "TestLib.dll");
+                    "..", "..", "..", "..", "TestDll", "bin", "Debug", "net48", "TestLib.dll");
                 
                 if (!File.Exists(dllPath))
                 {
@@ -203,7 +203,7 @@ namespace PluginCoreTester
                 // GenericDllPlugin DLL をロード
                 var dllPath = Path.Combine(
                     AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", "..", "src-generic", "bin", "Debug", "net472", "WebView2AppHost.GenericDllPlugin.dll");
+                    "..", "..", "..", "..", "..", "src-generic", "bin", "Debug", "net48", "WebView2AppHost.GenericDllPlugin.dll");
                 
                 if (!File.Exists(dllPath))
                 {
@@ -238,7 +238,7 @@ namespace PluginCoreTester
                 var configJson = @"{
                     ""title"": ""無視されるべきデータ"",
                     ""loadDlls"": [
-                        { ""alias"": ""Calc"", ""dll"": ""../../../../TestDll/bin/Debug/net472/TestLib.dll"", ""exposeEvents"": [""OnResult"", ""OnPing"", ""OnCalculationFinished""] }
+                        { ""alias"": ""Calc"", ""dll"": ""../../../../TestDll/bin/Debug/net48/TestLib.dll"", ""exposeEvents"": [""OnResult"", ""OnPing"", ""OnCalculationFinished""] }
                     ]
                 }";
                 
@@ -276,7 +276,7 @@ namespace PluginCoreTester
                 // GenericDllPlugin DLL をロード（GenericSidecarPlugin も同じ DLL に含まれる）
                 var dllPath = Path.Combine(
                     AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", "..", "src-generic", "bin", "Debug", "net472", "WebView2AppHost.GenericDllPlugin.dll");
+                    "..", "..", "..", "..", "..", "src-generic", "bin", "Debug", "net48", "WebView2AppHost.GenericDllPlugin.dll");
                 
                 if (!File.Exists(dllPath))
                 {
@@ -349,7 +349,7 @@ namespace PluginCoreTester
                 // GenericDllPlugin DLL をロード
                 var dllPath = Path.Combine(
                     AppDomain.CurrentDomain.BaseDirectory,
-                    "..", "..", "..", "..", "..", "src-generic", "bin", "Debug", "net472", "WebView2AppHost.GenericDllPlugin.dll");
+                    "..", "..", "..", "..", "..", "src-generic", "bin", "Debug", "net48", "WebView2AppHost.GenericDllPlugin.dll");
                 
                 if (!File.Exists(dllPath))
                 {
@@ -385,7 +385,7 @@ namespace PluginCoreTester
                 var configJson = @"{
                     ""title"": ""無視されるべきデータ"",
                     ""loadDlls"": [
-                        { ""alias"": ""Calc"", ""dll"": ""../../../../TestDll/bin/Debug/net472/TestLib.dll"", ""exposeEvents"": [""OnResult"", ""OnPing"", ""OnCalculationFinished""] }
+                        { ""alias"": ""Calc"", ""dll"": ""../../../../TestDll/bin/Debug/net48/TestLib.dll"", ""exposeEvents"": [""OnResult"", ""OnPing"", ""OnCalculationFinished""] }
                     ]
                 }";
                 initMethod.Invoke(plugin, new object[] { configJson });

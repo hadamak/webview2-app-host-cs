@@ -48,7 +48,7 @@ try {
         /v:minimal
     if ($LASTEXITCODE -ne 0) { throw "ホスト本体のビルドに失敗しました" }
 
-    $outDir = "src\bin\x64\$Configuration\net472"
+    $outDir = "src\bin\x64\$Configuration\net48"
     Write-Host "    出力先: $outDir" -ForegroundColor Gray
 
     # ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ try {
     # ---------------------------------------------------------------------------
     Write-Host "==> テスト用 DLL を配置中..." -ForegroundColor Cyan
 
-    $testDllBuildDir = "tests\TestDll\bin\x64\$Configuration\net472\win-x64"
+    $testDllBuildDir = "tests\TestDll\bin\x64\$Configuration\net48\win-x64"
     $testDllFiles = @("TestLib.dll")
     foreach ($file in $testDllFiles) {
         $src = Join-Path $testDllBuildDir $file
@@ -121,7 +121,7 @@ try {
     # ---------------------------------------------------------------------------
     Write-Host "==> 汎用プラグイン DLL を配置中..." -ForegroundColor Cyan
 
-    $genericDllBuildDir = "src-generic\bin\x64\$Configuration\net472\win-x64"
+    $genericDllBuildDir = "src-generic\bin\x64\$Configuration\net48\win-x64"
     $genericDllFiles = @("WebView2AppHost.GenericDllPlugin.dll", "WebView2AppHost.GenericSidecarPlugin.dll")
     foreach ($file in $genericDllFiles) {
         $src = Join-Path $genericDllBuildDir $file

@@ -23,7 +23,7 @@ try {
         -c Release -r win-x64 --no-self-contained `
         /p:Platform=x64
 
-    $base   = "src\bin\x64\Release\net472\win-x64"
+    $base   = "src\bin\x64\Release\net48\win-x64"
     $outDir = "dist\_build\WebView2AppHost-Core-win-x64"
     $zipPath = "dist\WebView2AppHost-Core-win-x64.zip"
     $hashPath = "$zipPath.sha256"

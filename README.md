@@ -136,7 +136,7 @@ Instead of an installer or explainer video, hand off an interactive HTML experie
 
 ### Runtime
 - Windows 10 or later
-- .NET Framework 4.7.2
+- .NET Framework 4.8
 - WebView2 Runtime
 
 ---
@@ -227,7 +227,7 @@ Best for:
 - Simplifying the distribution package
 
 ```powershell
-cmd /c copy /b src\bin\x64\Release\net472\WebView2AppHost.exe + src\app.zip src\bin\x64\Release\net472\MyApp.exe
+cmd /c copy /b src\bin\x64\Release\net48\WebView2AppHost.exe + src\app.zip src\bin\x64\Release\net48\MyApp.exe
 ```
 
 ### 4. 🧱 Embedded Resource

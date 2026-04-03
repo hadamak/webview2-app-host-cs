@@ -26,7 +26,7 @@ try {
         -c Release -r win-x64 --no-self-contained `
         /p:Platform=x64
 
-    $base   = "src-steam\bin\x64\Release\net472\win-x64"
+    $base   = "src-steam\bin\x64\Release\net48\win-x64"
     $outDir = "steam-support\_build\WebView2AppHost-SteamSupport-win-x64"
     $zipPath = "steam-support\WebView2AppHost-SteamSupport-win-x64.zip"
     $hashPath = "$zipPath.sha256"

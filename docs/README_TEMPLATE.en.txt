@@ -8,7 +8,7 @@ The following are required to run this application:
 
 - OS: Windows 10 or later
 - Runtime:
-  - .NET Framework 4.7.2–4.8.1 (included with Windows)
+  - .NET Framework 4.8–4.8.1 (built into Windows 11; may already be present on Windows 10)
   - Microsoft Edge WebView2 Runtime (built into Windows 11; may already be present on Windows 10)
 
 Note:

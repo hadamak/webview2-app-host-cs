@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Library</OutputType>
-    <TargetFramework>net472</TargetFramework>
+    <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>WebView2AppHost.GenericSidecarPlugin</AssemblyName>
     <RootNamespace>WebView2AppHost</RootNamespace>
