@@ -101,8 +101,9 @@
 <main>
     <h1>Steam Complete Sample (Facepunch.Steamworks)</h1>
     <p class="lead">
-        最新の汎用インスタンス・ディスパッチャを使った Steamworks 連携の完全サンプルです。
-        Facepunch.Steamworks の C# メソッド名をそのまま JS から呼び出しています。
+        汎用 DLL プラグインを通じた Steamworks 連携の完全サンプルです。
+        <code>Host.Steam.ClassName.MethodName()</code> の形式で Facepunch.Steamworks の
+        C# メソッドをそのまま呼び出しています。
     </p>
 
     <div class="statusbar">
@@ -114,7 +115,7 @@
     <div class="grid">
         <section class="card">
             <h2>SteamClient</h2>
-            <p class="note">SteamClient が初期化されているか、ユーザーの情報を取得します（プロパティ呼び出しの実証を含みます）。</p>
+            <p class="note">初期化と基本情報の取得です。</p>
             <div class="row">
                 <button id="init-btn">Load Info</button>
             </div>
@@ -126,7 +127,7 @@
 
         <section class="card">
             <h2>Steam UI</h2>
-            <p class="note">フレンド一覧などの Steam 側 UI を開きます。WebView2 の画面上に重なる表示ではありません。</p>
+            <p class="note">フレンド一覧などの Steam クライアント側 UI を開きます。WebView2 の画面に重なる表示ではなく、Steam 本体が別ウィンドウを開きます。</p>
             <div class="row">
                 <button data-overlay="friends">Friends</button>
                 <button data-overlay="achievements">Achievements</button>
@@ -140,7 +141,7 @@
 
         <section class="card">
             <h2>Achievements</h2>
-            <p class="note">Achievement は構造体のため `Achievement.Create("ACH")` を呼び出し、得られた C# インスタンスをそのまま操作します。</p>
+            <p class="note">Achievement は構造体のため <code>Achievement.Create("ACH")</code> でインスタンスを生成し、得られたプロキシを通じて操作します。</p>
             <div class="row">
                 <input id="achievement-id" value="ACH_WIN_ONE_GAME" />
                 <button id="achievement-set-btn">Trigger</button>
@@ -180,7 +181,7 @@
 
         <section class="card">
             <h2>Steam Cloud</h2>
-            <p class="note">FileWrite にはバイト配列（JS側の配列）を渡し、FileRead からはバイト配列が返却されます。</p>
+            <p class="note">FileWrite にはバイト配列（JS 側の配列）を渡し、FileRead からはバイト配列が返却されます。</p>
             <div class="row">
                 <input id="cloud-file-name" value="sample-save.json" />
             </div>
@@ -196,7 +197,7 @@
 
         <section class="card">
             <h2>Leaderboards</h2>
-            <p class="note">Leaderboard インスタンス（プロキシ）を受け取り、そのメソッド（SubmitScoreAsyncなど）を直接実行します。</p>
+            <p class="note">FindOrCreateLeaderboardAsync でリーダーボードのプロキシを受け取り、そのメソッドを直接実行します。</p>
             <div class="row">
                 <input id="leaderboard-name" value="Feet Traveled" />
                 <input id="leaderboard-score" value="5000" />
@@ -210,8 +211,13 @@
 
         <section class="card">
             <h2>Screenshot</h2>
+            <p class="note">
+                WebView2 の画面をキャプチャし、Steam のスクリーンショットライブラリに保存します。<br>
+                Host.Internal.WebView.CapturePreview() で RGB データを取得し、
+                Host.Steam.SteamScreenshots.WriteScreenshot() で書き込みます。
+            </p>
             <div class="row">
-                <button id="screenshot-btn" class="subtle">Trigger Screenshot</button>
+                <button id="screenshot-btn">Take Screenshot</button>
             </div>
         </section>
 
@@ -222,7 +228,7 @@
     </div>
 </main>
 
-<script src="steam.js"></script>
+<script src="host.js"></script>
 <script>
 const logEl = document.getElementById('log');
 let leaderboardProxy = null;
@@ -241,9 +247,16 @@ function setStatus(id, text, className) {
     el.innerHTML = el.innerHTML.replace(/<strong>.*<\/strong>/, `<strong>${text}</strong>`);
 }
 
+// WebView2 ホスト環境かどうかを判定
+const isHost = typeof window.chrome !== 'undefined' && typeof window.chrome.webview !== 'undefined';
+setStatus('host-pill', isHost ? 'webview' : 'browser', isHost ? 'ok' : '');
+
 async function loadSteamInfo() {
     try {
-        const isValid = await Steam.SteamClient.IsValid();
+        await Host.Steam.SteamClient.Init(480, true);
+        log('SteamClient.Init(480, true)');
+
+        const isValid = await Host.Steam.SteamClient.IsValid();
         log('SteamClient.IsValid()', isValid);
 
         if (!isValid) {
@@ -252,56 +265,53 @@ async function loadSteamInfo() {
         }
 
         setStatus('steam-pill', 'available', 'ok');
-        
-        const name = await Steam.SteamClient.Name();
-        const steamId = await Steam.SteamClient.SteamId();
-        
-        document.getElementById('persona-name').textContent = name || '---';
-        document.getElementById('steam-id').textContent = steamId || '---';
+
+        const name    = await Host.Steam.SteamClient.Name();
+        const steamId = await Host.Steam.SteamClient.SteamId();
+
+        document.getElementById('persona-name').textContent = name    || '---';
+        document.getElementById('steam-id').textContent     = steamId || '---';
         setStatus('user-pill', name || '---', 'ok');
     } catch (err) {
         log('Failed to load Steam info', String(err));
+        setStatus('steam-pill', 'error', 'bad');
     }
 }
-
-document.getElementById('host-pill').className = Steam ? 'pill ok' : 'pill bad';
-document.getElementById('host-pill').innerHTML = `Host: <strong>${Steam ? 'webview' : 'browser'}</strong>`;
 
 document.getElementById('init-btn').addEventListener('click', loadSteamInfo);
 
 for (const button of document.querySelectorAll('[data-overlay]')) {
     button.addEventListener('click', () => {
         const option = button.getAttribute('data-overlay');
-        log(`Steam.SteamFriends.OpenOverlay(${option})`);
-        Steam.SteamFriends.OpenOverlay(option);
+        log(`Host.Steam.SteamFriends.OpenOverlay(${option})`);
+        Host.Steam.SteamFriends.OpenOverlay(option);
     });
 }
 
 document.getElementById('overlay-url-btn').addEventListener('click', () => {
     const url = document.getElementById('overlay-url').value;
-    log('Steam.SteamFriends.OpenWebOverlay()', { url });
-    Steam.SteamFriends.OpenWebOverlay(url);
+    log('Host.Steam.SteamFriends.OpenWebOverlay()', { url });
+    Host.Steam.SteamFriends.OpenWebOverlay(url);
 });
 
 // Achievement
 document.getElementById('achievement-set-btn').addEventListener('click', async () => {
     const id = document.getElementById('achievement-id').value;
-    const a = await Steam.Achievement.Create(id);
+    const a = await Host.Steam.Achievement.Create(id);
     const result = await a.Trigger();
     log(`Achievement("${id}").Trigger()`, result);
 });
 
 document.getElementById('achievement-clear-btn').addEventListener('click', async () => {
     const id = document.getElementById('achievement-id').value;
-    const a = await Steam.Achievement.Create(id);
+    const a = await Host.Steam.Achievement.Create(id);
     const result = await a.Clear();
     log(`Achievement("${id}").Clear()`, result);
 });
 
 document.getElementById('achievement-get-btn').addEventListener('click', async () => {
     const id = document.getElementById('achievement-id').value;
-    const a = await Steam.Achievement.Create(id);
-    // Facepunch の Achievement.State プロパティの getter 呼び出しフォールバック
+    const a = await Host.Steam.Achievement.Create(id);
     const result = await a.State();
     log(`Achievement("${id}").State()`, result);
 });
@@ -309,67 +319,66 @@ document.getElementById('achievement-get-btn').addEventListener('click', async (
 // User Stats
 document.getElementById('stat-get-int-btn').addEventListener('click', async () => {
     const name = document.getElementById('stat-name').value;
-    const result = await Steam.SteamUserStats.GetStatInt(name);
+    const result = await Host.Steam.SteamUserStats.GetStatInt(name);
     log('SteamUserStats.GetStatInt()', result);
 });
 
 document.getElementById('stat-set-int-btn').addEventListener('click', async () => {
-    const name = document.getElementById('stat-name').value;
+    const name  = document.getElementById('stat-name').value;
     const value = Math.floor(Number(document.getElementById('stat-value').value));
-    const result = await Steam.SteamUserStats.SetStat(name, value);
+    const result = await Host.Steam.SteamUserStats.SetStat(name, value);
     log('SteamUserStats.SetStat(int)', result);
 });
 
 document.getElementById('stat-get-float-btn').addEventListener('click', async () => {
     const name = document.getElementById('stat-name').value;
-    const result = await Steam.SteamUserStats.GetStatFloat(name);
+    const result = await Host.Steam.SteamUserStats.GetStatFloat(name);
     log('SteamUserStats.GetStatFloat()', result);
 });
 
 document.getElementById('stat-set-float-btn').addEventListener('click', async () => {
-    const name = document.getElementById('stat-name').value;
+    const name  = document.getElementById('stat-name').value;
     const value = Number(document.getElementById('stat-value').value);
-    const result = await Steam.SteamUserStats.SetStat(name, value);
+    const result = await Host.Steam.SteamUserStats.SetStat(name, value);
     log('SteamUserStats.SetStat(float)', result);
 });
 
 document.getElementById('stats-store-btn').addEventListener('click', async () => {
-    const result = await Steam.SteamUserStats.StoreStats();
+    const result = await Host.Steam.SteamUserStats.StoreStats();
     log('SteamUserStats.StoreStats()', result);
 });
 
 // DLC & Presence
 document.getElementById('dlc-check-btn').addEventListener('click', async () => {
     const appId = Number(document.getElementById('dlc-id').value);
-    const result = await Steam.SteamApps.IsDlcInstalled(appId);
+    const result = await Host.Steam.SteamApps.IsDlcInstalled(appId);
     log('SteamApps.IsDlcInstalled()', result);
 });
 
 document.getElementById('presence-set-btn').addEventListener('click', () => {
     const value = document.getElementById('presence-value').value;
-    Steam.SteamFriends.SetRichPresence('status', value);
+    Host.Steam.SteamFriends.SetRichPresence('status', value);
     log('SteamFriends.SetRichPresence()', { key: 'status', value });
 });
 
 document.getElementById('presence-clear-btn').addEventListener('click', () => {
-    Steam.SteamFriends.ClearRichPresence();
+    Host.Steam.SteamFriends.ClearRichPresence();
     log('SteamFriends.ClearRichPresence()');
 });
 
 // Steam Cloud
 document.getElementById('cloud-write-btn').addEventListener('click', async () => {
     const fileName = document.getElementById('cloud-file-name').value;
-    const text = document.getElementById('cloud-file-text').value;
-    const bytes = new TextEncoder().encode(text);
-    // uint8 配列を JS の配列にして渡す
-    const result = await Steam.SteamRemoteStorage.FileWrite(fileName, Array.from(bytes));
+    const text     = document.getElementById('cloud-file-text').value;
+    const bytes    = Array.from(new TextEncoder().encode(text));
+    const result   = await Host.Steam.SteamRemoteStorage.FileWrite(fileName, bytes);
     log('SteamRemoteStorage.FileWrite()', result);
 });
 
 document.getElementById('cloud-read-btn').addEventListener('click', async () => {
     const fileName = document.getElementById('cloud-file-name').value;
     try {
-        const bytes = await Steam.SteamRemoteStorage.FileRead(fileName);
+        const bytes = await Host.Steam.SteamRemoteStorage.FileRead(fileName);
         if (bytes) {
             const text = new TextDecoder().decode(new Uint8Array(bytes));
             log('SteamRemoteStorage.FileRead() => text', text);
@@ -377,13 +386,13 @@ document.getElementById('cloud-read-btn').addEventListener('click', async () => 
             log('SteamRemoteStorage.FileRead()', null);
         }
     } catch (e) {
-        log('SteamRemoteStorage.FileRead() FAIL', e);
+        log('SteamRemoteStorage.FileRead() FAIL', String(e));
     }
 });
 
 document.getElementById('cloud-delete-btn').addEventListener('click', async () => {
     const fileName = document.getElementById('cloud-file-name').value;
-    const result = await Steam.SteamRemoteStorage.FileDelete(fileName);
+    const result   = await Host.Steam.SteamRemoteStorage.FileDelete(fileName);
     log('SteamRemoteStorage.FileDelete()', result);
 });
 
@@ -391,45 +400,66 @@ document.getElementById('cloud-delete-btn').addEventListener('click', async () =
 document.getElementById('leaderboard-create-btn').addEventListener('click', async () => {
     const name = document.getElementById('leaderboard-name').value;
     // SortMethod.Descending = 2, DisplayType.Numeric = 1
-    const result = await Steam.SteamUserStats.FindOrCreateLeaderboardAsync(name, 2, 1);
+    const result = await Host.Steam.SteamUserStats.FindOrCreateLeaderboardAsync(name, 2, 1);
     if (result && result.__isHandle) {
         leaderboardProxy = result;
         log('FindOrCreateLeaderboardAsync() got handle!', { className: result.className });
     } else {
-        log('FindOrCreateLeaderboardAsync() failed or no handle', result);
+        log('FindOrCreateLeaderboardAsync() failed', result);
     }
 });
 
 document.getElementById('leaderboard-upload-btn').addEventListener('click', async () => {
     if (!leaderboardProxy) {
-        log('SubmitScoreAsync() skipped', 'No leaderboard proxy (Run FindOrCreate first)');
+        log('SubmitScoreAsync() skipped', 'FindOrCreate を先に実行してください');
         return;
     }
-    const score = Number(document.getElementById('leaderboard-score').value);
+    const score  = Number(document.getElementById('leaderboard-score').value);
     const result = await leaderboardProxy.SubmitScoreAsync(score);
     log('board.SubmitScoreAsync()', result);
 });
 
 document.getElementById('leaderboard-download-btn').addEventListener('click', async () => {
     if (!leaderboardProxy) {
-        log('GetScoresAsync() skipped', 'No leaderboard proxy');
+        log('GetScoresAsync() skipped', 'FindOrCreate を先に実行してください');
         return;
     }
     const result = await leaderboardProxy.GetScoresAsync(10, 1);
-    log('board.GetScoresAsync() returned array of Entries handle!', result);
+    log('board.GetScoresAsync()', result);
 });
 
-document.getElementById('screenshot-btn').addEventListener('click', () => {
-    log('SteamScreenshots.TriggerScreenshot()');
-    Steam.SteamScreenshots.TriggerScreenshot();
+// Screenshot
+// SteamScreenshots.TriggerScreenshot は DirectX フック前提のため WebView2 では動作しない。
+// Host.Internal.WebView.CapturePreview() で RGB データを取得し、WriteScreenshot() で渡す。
+document.getElementById('screenshot-btn').addEventListener('click', async () => {
+    try {
+        log('Internal.WebView.CapturePreview() ...');
+        const preview = await Host.Internal.WebView.CapturePreview();
+        log('CapturePreview() done', { width: preview.width, height: preview.height });
+
+        const result = await Host.Steam.SteamScreenshots.WriteScreenshot(
+            preview.rgb, preview.width, preview.height
+        );
+        log('SteamScreenshots.WriteScreenshot()', result);
+    } catch (err) {
+        log('Screenshot failed', String(err));
+    }
 });
 
 // Events
-Steam.on('OnGameOverlayActivated', ({ active }) => {
+Host.on('OnAchievementProgress', ({ achievementName, currentProgress, maxProgress }) => {
+    log('event:OnAchievementProgress', { achievementName, currentProgress, maxProgress });
+});
+
+Host.on('OnGameOverlayActivated', ({ active }) => {
     log('event:OnGameOverlayActivated', { active });
 });
 
-if (Steam) {
+Host.on('OnScreenshotReady', (data) => {
+    log('event:OnScreenshotReady', data);
+});
+
+if (isHost) {
     loadSteamInfo();
 }
 </script>

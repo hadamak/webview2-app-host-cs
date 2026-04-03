@@ -46,6 +46,13 @@ namespace WebView2AppHost
         {
             var manager = new PluginManager();
 
+            // 1. ホスト組み込みプラグインを常に最初に登録する。
+            //    app.conf.json の設定に依存せず、WebView2 コントロールへのアクセスが必要な
+            //    ホストネイティブ機能（CapturePreview 等）を JS に公開する。
+            manager._plugins.Add(new InternalHostPlugin(webView));
+            AppLog.Log("INFO", "PluginManager", "InternalHostPlugin を登録しました。");
+ 
+            // 2. 外部プラグイン（GenericDllPlugin / GenericSidecarPlugin 等）をロードする。
             var names = ResolvePluginNames(config);
             foreach (var name in names)
                 manager.TryLoadPlugin(name, webView, rawConfigJson);

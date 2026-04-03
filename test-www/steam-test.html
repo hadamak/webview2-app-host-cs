@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>Steam ブリッジ テスト（新仕様）</title>
+  <title>Steam プラグイン テスト</title>
   <script src="host.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; }
@@ -26,16 +26,26 @@
   </style>
 </head>
 <body>
-<h1>Steam ブリッジ テスト（Facepunch.Steamworks / Proxy パススルー）</h1>
+<h1>Steam プラグイン テスト（GenericDllPlugin / Facepunch.Steamworks）</h1>
+
+<!-- 初期化 -->
+<section>
+  <h2>初期化</h2>
+  <p class="note">
+    SteamClient.Init(appId, asyncCallbacks) を呼び出します。
+    asyncCallbacks=false のとき SteamClient.RunCallbacks() を定期的に呼ぶ必要があります。
+  </p>
+  <button onclick="initSteam()">SteamClient.Init(480, true)</button>
+  <button onclick="run('SteamClient', 'IsValid')">SteamClient.IsValid</button>
+</section>
 
 <!-- ユーザー情報 -->
 <section>
   <h2>ユーザー情報</h2>
-  <p class="note">SteamClient の静的プロパティをプロパティ getter フォールバックで取得</p>
-  <!--
+  <p class="note">
     SteamClient.Name / SteamClient.SteamId はプロパティ。
-    ディスパッチャがメソッド未発見 → プロパティ getter にフォールバックする。
-  -->
+    メソッドとして呼び出すと、ディスパッチャがメソッド未発見時にプロパティ getter へフォールバックする。
+  </p>
   <button onclick="run('SteamClient', 'Name')">SteamClient.Name</button>
   <button onclick="run('SteamClient', 'SteamId')">SteamClient.SteamId</button>
 </section>
@@ -44,30 +54,20 @@
 <section>
   <h2>実績 (Achievement 構造体)</h2>
   <p class="note">
-    Achievement は静的クラスでなく構造体。<br>
-    Steam.Achievement.Trigger("ACH_NAME") → new Achievement("ACH_NAME").Trigger() として実行される。
+    Achievement は Steamworks.Data.Achievement 構造体。
+    Achievement.Create("ACH_NAME") でインスタンスを生成し、返ってきたプロキシ経由でメソッドを呼ぶ。
   </p>
-  <!--
-    Facepunch.Steamworks の Achievement は Steamworks.Data.Achievement 構造体。
-    JS から Steam.Achievement.Trigger("ACH_WIN_ONE_GAME") と呼ぶと
-    ディスパッチャが new Achievement("ACH_WIN_ONE_GAME").Trigger() を実行する。
-  -->
   <button onclick="runAch('Trigger')">Achievement.Trigger（ACH_WIN_ONE_GAME）</button>
   <button onclick="runAch('Clear')">Achievement.Clear（ACH_WIN_ONE_GAME）</button>
+  <button onclick="runAch('State')">Achievement.State（ACH_WIN_ONE_GAME）</button>
 </section>
 
 <!-- Stats -->
 <section>
   <h2>Stats (SteamUserStats)</h2>
   <p class="note">
-    Facepunch では SetStatInt ではなく SetStat(string, int) のオーバーロード。<br>
-    JS の number は double で届くが、ディスパッチャが int オーバーロードに型変換する。
+    SetStat は int/float オーバーロードを持つ。JS の number 型から C# のオーバーロードを自動解決する。
   </p>
-  <!--
-    GetStatInt / GetStatFloat は Facepunch の静的メソッドとして存在する。
-    SetStat は int/float オーバーロードがあり、引数型でリフレクション解決する。
-    RequestCurrentStats と StoreStats は bool を返す。
-  -->
   <button onclick="run('SteamUserStats', 'RequestCurrentStats')">RequestCurrentStats</button>
   <button onclick="run('SteamUserStats', 'GetStatInt', 'NumGames')">GetStatInt(NumGames)</button>
   <button onclick="run('SteamUserStats', 'SetStat', 'NumGames', _statVal++)">SetStat(NumGames, n)</button>
@@ -76,18 +76,12 @@
   <button onclick="run('SteamUserStats', 'StoreStats')">StoreStats</button>
 </section>
 
-<!-- オーバーレイ -->
+<!-- Steam クライアント UI -->
 <section>
-  <h2>オーバーレイ (SteamFriends)</h2>
+  <h2>Steam クライアント UI (SteamFriends)</h2>
   <p class="note">
-    WebView2 上への重畳は不可。Steam の該当 UI ウィンドウが開く（旧仕様と同じ動作）。<br>
-    OpenOverlay(string type) と OpenWebOverlay(string url) の2種類。
+    Steam 本体が別ウィンドウを開く動作。WebView2 の画面に重畳するオーバーレイではない。
   </p>
-  <!--
-    SteamFriends.OpenOverlay(string) = ISteamFriends::ActivateGameOverlay
-    SteamFriends.OpenWebOverlay(string) = ISteamFriends::ActivateGameOverlayToWebPage
-    旧仕様の showOverlayURL に相当するのは OpenWebOverlay。
-  -->
   <button onclick="run('SteamFriends', 'OpenOverlay', 'achievements')">OpenOverlay(achievements)</button>
   <button onclick="run('SteamFriends', 'OpenOverlay', 'friends')">OpenOverlay(friends)</button>
   <button onclick="run('SteamFriends', 'OpenOverlay', 'community')">OpenOverlay(community)</button>
@@ -98,24 +92,20 @@
 <!-- スクリーンショット -->
 <section>
   <h2>スクリーンショット</h2>
-  <p class="note">C# 側で WebView2 をキャプチャし RGB byte[] を WriteScreenshot に直接渡す。</p>
-  <button onclick="run('SteamScreenshots', 'TriggerScreenshot')">TriggerScreenshot</button>
+  <p class="note">
+    SteamScreenshots.TriggerScreenshot は DirectX フック前提のため WebView2 では動作しない。<br>
+    Host.Internal.WebView.CapturePreview() で RGB データを取得し、WriteScreenshot() に渡す。
+  </p>
+  <button onclick="takeScreenshot()">CapturePreview + WriteScreenshot</button>
 </section>
 
 <!-- Steam Cloud -->
 <section>
   <h2>Steam Cloud (SteamRemoteStorage)</h2>
   <p class="note">
-    FileWrite(string name, byte[] data) — JS の Uint8Array は C# 側で byte[] に変換される。<br>
-    FileRead(string name) → byte[] を数値配列で返す。TextDecoder でデコード可能。<br>
-    ファイルサイズ確認は FileSize(string name)（GetFileSize ではない）。
+    FileWrite(name, byte[]) — JS 側は Array.from(Uint8Array) で渡す。<br>
+    FileRead(name) → byte[] を数値配列で返す。TextDecoder でデコード可能。
   </p>
-  <!--
-    SteamRemoteStorage.FileWrite(name, byte[]) — README の API に合わせて引数2つ。
-    SteamRemoteStorage.FileRead(name) — サイズ引数不要。byte[] を返す。
-    SteamRemoteStorage.FileSize(name) — GetFileSize ではなく FileSize。
-    SteamRemoteStorage.FileExists(name) — bool を返す。
-  -->
   <button onclick="test_cloudWrite()">FileWrite(test-save.json)</button>
   <button onclick="test_cloudRead()">FileRead(test-save.json)</button>
   <button onclick="run('SteamRemoteStorage', 'FileSize', 'test-save.json')">FileSize(test-save.json)</button>
@@ -134,41 +124,42 @@
   let _statVal = 1;
 
   function appendLog(cls, text) {
-    const ts = new Date().toLocaleTimeString('ja-JP', { hour12: false });
+    const ts   = new Date().toLocaleTimeString('ja-JP', { hour12: false });
     const line = document.createElement('div');
-    line.className = cls;
+    line.className   = cls;
     line.textContent = `[${ts}] ${text}`;
     logEl.appendChild(line);
     logEl.scrollTop = logEl.scrollHeight;
   }
 
+  // SteamClient.Init は GenericDllPlugin 経由で JS から呼ぶ。
+  // asyncCallbacks=true にすると Facepunch 内部でコールバックスレッドが立つ。
   async function initSteam() {
     try {
-      await Steam.SteamClient.Init(480, true);
+      await Host.Steam.SteamClient.Init(480, true);
       appendLog('ok', '✓ SteamClient.Init(480, true): 成功');
     } catch (e) {
       appendLog('err', '✗ SteamClient.Init: ' + (e?.message ?? e));
     }
   }
-  initSteam();
 
-  // 汎用ヘルパー: Steam.ClassName.MethodName(...args) を呼んでログに出す
+  // 汎用ヘルパー: Host.Steam.ClassName.MethodName(...args) を呼んでログに出す
   async function run(className, methodName, ...args) {
-    const label = `${className}.${methodName}(${JSON.stringify(args).slice(1,-1)})`;
+    const label = `${className}.${methodName}(${JSON.stringify(args).slice(1, -1)})`;
     try {
-      const result = await Steam[className][methodName](...args);
+      const result = await Host.Steam[className][methodName](...args);
       appendLog('ok', `✓ ${label}: ${JSON.stringify(result)}`);
     } catch (e) {
       appendLog('err', `✗ ${label}: ${e?.message ?? e}`);
     }
   }
 
-  // Achievement 構造体・静的呼び出し: Steam.Achievement.Create("ACH_NAME") -> .Trigger()
+  // Achievement 構造体: Host.Steam.Achievement.Create("ACH_NAME") → proxy.Method()
   async function runAch(methodName) {
     const achName = 'ACH_WIN_ONE_GAME';
     const label   = `Achievement("${achName}").${methodName}()`;
     try {
-      const ach = await Steam.Achievement.Create(achName);
+      const ach    = await Host.Steam.Achievement.Create(achName);
       const result = await ach[methodName]();
       appendLog('ok', `✓ ${label}: ${JSON.stringify(result)}`);
     } catch (e) {
@@ -176,47 +167,61 @@
     }
   }
 
-  // Steam Cloud: FileWrite — Uint8Array → C# byte[] 変換のテスト
+  // スクリーンショット: CapturePreview → WriteScreenshot
+  async function takeScreenshot() {
+    try {
+      appendLog('info', '→ Internal.WebView.CapturePreview() ...');
+      const preview = await Host.Internal.WebView.CapturePreview();
+      appendLog('ok', `✓ CapturePreview: ${preview.width}x${preview.height}`);
+
+      const result = await Host.Steam.SteamScreenshots.WriteScreenshot(
+        preview.rgb, preview.width, preview.height
+      );
+      appendLog('ok', `✓ WriteScreenshot: ${JSON.stringify(result)}`);
+    } catch (e) {
+      appendLog('err', `✗ Screenshot: ${e?.message ?? e}`);
+    }
+  }
+
+  // Steam Cloud: FileWrite — Uint8Array → 数値配列に変換して送る
   async function test_cloudWrite() {
     const data  = JSON.stringify({ timestamp: Date.now(), note: 'test save' });
-    const bytes = new TextEncoder().encode(data);
-    // Array.from() で通常の数値配列に変換して送る
-    // （JS の Uint8Array は JSON.stringify すると {} になるため）
+    const bytes = Array.from(new TextEncoder().encode(data));
     try {
-      const result = await Steam.SteamRemoteStorage.FileWrite(
-        'test-save.json',
-        Array.from(bytes)
-      );
+      const result = await Host.Steam.SteamRemoteStorage.FileWrite('test-save.json', bytes);
       appendLog('ok', `✓ FileWrite: ${JSON.stringify(result)}`);
     } catch (e) {
       appendLog('err', `✗ FileWrite: ${e?.message ?? e}`);
     }
   }
 
-  // Steam Cloud: FileRead — byte[] を数値配列で受け取り TextDecoder でデコード
+  // Steam Cloud: FileRead — 数値配列で受け取り TextDecoder でデコード
   async function test_cloudRead() {
     try {
-      const result = await Steam.SteamRemoteStorage.FileRead('test-save.json');
-      // C# から数値配列 [104, 101, ...] で返ってくる
-      const text = new TextDecoder().decode(new Uint8Array(result));
+      const result = await Host.Steam.SteamRemoteStorage.FileRead('test-save.json');
+      const text   = new TextDecoder().decode(new Uint8Array(result));
       appendLog('ok', `✓ FileRead: ${text}`);
     } catch (e) {
       appendLog('err', `✗ FileRead: ${e?.message ?? e}`);
     }
   }
 
-  // ---------- イベント受信 ----------
-  Steam.on('OnAchievementProgress', p => {
+  // イベント受信
+  Host.on('OnAchievementProgress', p => {
     appendLog('evt',
       `🏆 OnAchievementProgress: ${p.achievementName} ${p.currentProgress}/${p.maxProgress}`);
   });
 
-  Steam.on('OnGameOverlayActivated', p => {
+  Host.on('OnGameOverlayActivated', p => {
     appendLog('evt', `🎮 OnGameOverlayActivated: active=${p.active}`);
   });
 
-  appendLog('info', '準備完了 — AppID 480 (Spacewar) で動作確認できます');
-  appendLog('info', '実績: ACH_WIN_ONE_GAME / stat: NumGames, FeetTraveled');
+  Host.on('OnScreenshotReady', p => {
+    appendLog('evt', `📷 OnScreenshotReady: ${JSON.stringify(p)}`);
+  });
+
+  appendLog('info', '準備完了 — Init ボタンで SteamClient を初期化してください');
+  appendLog('info', 'AppID 480 (Spacewar) 使用 / 実績: ACH_WIN_ONE_GAME / stat: NumGames, FeetTraveled');
 </script>
 </body>
 </html>

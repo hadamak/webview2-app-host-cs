@@ -6,7 +6,7 @@ Quick start:
 
 1. Start the Steam client and sign in
 2. Place this folder as `www/` next to `WebView2AppHost.exe`
-3. Make sure `WebView2AppHost.Steam.dll`, `Facepunch.Steamworks.Win64.dll`, and `steam_api64.dll` are also next to the EXE
+3. Make sure `WebView2AppHost.GenericDllPlugin.dll`, `Facepunch.Steamworks.Win64.dll`, and `steam_api64.dll` are also next to the EXE
 4. Launch `WebView2AppHost.exe`
 
 This sample uses AppID 480 in development mode and demonstrates:

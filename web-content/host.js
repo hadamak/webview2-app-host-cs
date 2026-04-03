@@ -1,41 +1,34 @@
 /**
- * host.js — WebView2AppHost ユニバーサル・プラグイン・アーキテクチャ (UPA) ブリッジ
+ * host.js — WebView2AppHost プラグインブリッジ
  *
- * steam.js を拡張し、プラグイン名を第一階層に持つ 3 階層プロキシ。
+ * WebView2 上の JS から、ホスト側に登録された任意のプラグインを呼び出すための
+ * 3 階層プロキシブリッジ。プラグインの追加・変更に対して JS 側のコードは変更不要。
  *
- * 使い方:
- *   // Steam プラグイン（Host.Steam.ClassName.MethodName）
- *   await Host.Steam.SteamUserStats.SetStat('NumGames', 10);
- *   await Host.Steam.SteamUserStats.StoreStats();
+ * 呼び出し構造:
+ *   Host.<PluginName>.<ClassName>.<MethodName>(...args)  → Promise
  *
- *   // 将来の Node.js プラグイン（同じ構造で透過的に追加可能）
- *   // const result = await Host.Node.ImageProcessor.resize('photo.jpg', 300);
+ *   PluginName  ホストに登録されたプラグインの識別名（C# 側の IHostPlugin.PluginName と対応）
+ *   ClassName   プラグイン内のクラス名（プラグインの実装に依存）
+ *   MethodName  呼び出すメソッド名
  *
- *   // イベント受信（ Host.on/off でどのプラグインのイベントも受け取れる）
- *   Host.on('OnAchievementProgress', ({ achievementName, currentProgress, maxProgress }) => {
- *     console.log(achievementName, currentProgress, '/', maxProgress);
- *   });
+ * 例（常駐の組み込みプラグイン Internal）:
+ *   const preview = await Host.Internal.WebView.CapturePreview();
  *
- * 後方互換:
- *   このファイルは Steam グローバル変数も提供する。
- *   steam.js の代わりに host.js を読み込めばそのまま既存コードが動作する。
- *
- *   // steam.js で書いた既存コードはそのまま動く
- *   await Steam.SteamUserStats.SetStat('NumGames', 10);
- *   Steam.on('OnGameOverlayActivated', handler);
+ * イベント受信:
+ *   Host.on('EventName', (params) => { ... });
+ *   Host.off('EventName', handler);
  *
  * メッセージフォーマット (JS → C#):
  *   { "source": "<PluginName>", "messageId": "invoke",
  *     "params": { "className": "...", "methodName": "...", "args": [...] },
  *     "asyncId": N }
  *
- *   PluginName は Proxy アクセス時のプロパティ名をそのまま使う（例: "Steam"）。
- *   C# 側の SteamBridgeImpl は大文字小文字を区別せず受け付ける。
+ *   各プラグインは source が自身の名前と一致しないメッセージを無視する。
  *
  * 注意:
- *   - host.js と steam.js を同一ページに両方読み込まないこと（メッセージ二重処理が起きる）。
- *   - WebView2 の画面上に Steam オーバーレイが重なるわけではない。
- *   - Steam Deck / SteamOS は非対応（Windows 版 WebView2 専用）。
+ *   - await Host.<PluginName> が Thenable と誤認されないよう、then/catch/finally は
+ *     プロキシの各階層で undefined を返す。
+ *   - Windows 版 WebView2 専用。
  */
 const Host = (() => {
     'use strict';
@@ -60,7 +53,7 @@ const Host = (() => {
 
     /**
      * JS プロキシが GC された際に C# へ release メッセージを送る。
-     * pluginName を含めることで将来の複数プラグイン環境に備える。
+     * pluginName を含めることで複数プラグイン環境に対応する。
      */
     const _handleFinalizer = typeof FinalizationRegistry !== 'undefined'
         ? new FinalizationRegistry(({ handleId, pluginName }) => {
@@ -72,28 +65,6 @@ const Host = (() => {
             }));
         })
         : null;
-
-    // WebView2 メッセージ受信イベントリスナー
-    if (_isHost) {
-        window.chrome.webview.addEventListener('message', (e) => {
-            try {
-                const msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-                if (msg && msg.source && msg.messageId === 'invoke-result') {
-                    const pending = _pending.get(msg.asyncId);
-                    if (pending) {
-                        _pending.delete(msg.asyncId);
-                        if (msg.error) {
-                            pending.reject(new Error(msg.error));
-                        } else {
-                            pending.resolve(msg.result);
-                        }
-                    }
-                }
-            } catch (err) {
-                console.error('[Host] message parse error:', err);
-            }
-        });
-    }
 
     // ---------------------------------------------------------------------------
     // ハンドルの再帰的ラップ
@@ -280,34 +251,11 @@ const Host = (() => {
     const _rootProxy = new Proxy(Object.create(null), {
         get(_, prop) {
             if (typeof prop !== 'string') return undefined;
-            // Host.on / Host.off はイベント登録用
             if (prop === 'on')  return on;
             if (prop === 'off') return off;
-            // Host.PluginName → クラス階層プロキシを返す
             return new Proxy(Object.create(null), _classProxyHandler(prop));
         },
     });
 
     return _rootProxy;
 })();
-
-// ---------------------------------------------------------------------------
-// 後方互換: Steam グローバル変数
-//
-// steam.js の代わりに host.js を読み込んだ場合でも
-// 既存の Steam.ClassName.MethodName(...) と Steam.on/off(...) が動作する。
-//
-// 新規コードでは Host.Steam.ClassName.MethodName(...) を推奨する。
-// ---------------------------------------------------------------------------
-
-/* global Steam */
-const Steam = new Proxy(Object.create(null), {
-    get(_, prop) {
-        if (typeof prop !== 'string') return undefined;
-        // Steam.on / Steam.off → Host のイベントシステムへ委譲
-        if (prop === 'on')  return Host.on;
-        if (prop === 'off') return Host.off;
-        // Steam.ClassName.method → Host.Steam.ClassName.method
-        return Host.Steam[prop];
-    },
-});

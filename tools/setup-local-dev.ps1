@@ -10,7 +10,7 @@
       4. Facepunch.Steamworks DLL を EXE と同じフォルダにコピー
       5. テスト用 DLL を EXE と同じフォルダにコピー
       6. 汎用プラグイン DLL を EXE と同じフォルダにコピー
-      7. test-www/ と host.js を出力先の www/ にコピー
+      7. test-www/ を出力先の www/ にコピー
       8. テスト用サイドカーを出力先にコピー
 
     実行後は生成された EXE をそのまま起動して動作確認できる。
@@ -135,7 +135,7 @@ try {
     }
 
     # ---------------------------------------------------------------------------
-    # 7. test-www/ と host.js を www/ にコピー
+    # 7. test-www/ を www/ にコピー
     # ---------------------------------------------------------------------------
     Write-Host "==> テスト用 Web コンテンツを配置中..." -ForegroundColor Cyan
 
@@ -145,13 +145,6 @@ try {
     # test-www/ 以下を www/ にコピー（既存ファイルは上書き）
     Copy-Item "test-www\*" $wwwDest -Recurse -Force
     Write-Host "    test-www -> $wwwDest" -ForegroundColor Gray
-
-    # host.js を www/ に配置（test-www 内に存在しない場合は web-content/ からコピー）
-    $hostJs = "web-content\host.js"
-    if (Test-Path $hostJs) {
-        Copy-Item $hostJs $wwwDest -Force
-        Write-Host "    host.js -> $wwwDest" -ForegroundColor Gray
-    }
 
     # ---------------------------------------------------------------------------
     # 8. テスト用サイドカーをコピー

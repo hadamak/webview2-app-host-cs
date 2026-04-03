@@ -2,35 +2,5 @@
   "title": "WebView2 App Host",
   "width": 1280,
   "height": 720,
-  "fullscreen": false,
-  "loadDlls": [
-    {
-      "alias": "Steam",
-      "dll": "Facepunch.Steamworks.Win64.dll",
-      "exposeEvents": ["OnAchievementProgress", "OnGameOverlayActivated", "OnMicroTxnAuthorizationResponse"]
-    },
-    {
-      "alias": "TestLib",
-      "dll": "TestLib.dll",
-      "exposeEvents": ["OnResult"]
-    }
-  ],
-  "sidecars": [
-    {
-      "alias": "NodeBackend",
-      "mode": "streaming",
-      "executable": "node.exe",
-      "workingDirectory": "node-runtime",
-      "args": ["server.js"],
-      "waitForReady": true
-    },
-    {
-      "alias": "TestSidecar",
-      "mode": "streaming",
-      "executable": "node.exe",
-      "workingDirectory": "test-sidecar",
-      "args": ["test_sidecar.js"],
-      "waitForReady": true
-    }
-  ]
+  "fullscreen": false
 }

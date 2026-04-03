@@ -3,6 +3,11 @@
   "width": 1280,
   "height": 800,
   "fullscreen": false,
-  "steamAppId": "480",
-  "steamDevMode": true
+  "loadDlls": [
+    {
+      "alias": "Steam",
+      "dll": "Facepunch.Steamworks.Win64.dll",
+      "exposeEvents": ["OnAchievementProgress", "OnGameOverlayActivated", "OnMicroTxnAuthorizationResponse", "OnScreenshotReady"]
+    }
+  ]
 }
