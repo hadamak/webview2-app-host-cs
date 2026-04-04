@@ -57,7 +57,7 @@ namespace WebView2AppHost
         protected readonly WebView2 _webView;
 
         /// <summary>JS に返したオブジェクトを保持するハンドルレジストリ。</summary>
-        private readonly ConcurrentDictionary<long, object> _handles =
+        protected readonly ConcurrentDictionary<long, object> _handles =
             new ConcurrentDictionary<long, object>();
 
         private long _nextHandleId = 1;
@@ -99,7 +99,7 @@ namespace WebView2AppHost
         /// </para>
         /// </summary>
         protected abstract Task<Type?> ResolveTypeAsync(
-            Dictionary<string, object> paramsObj,
+            Dictionary<string, object>? paramsObj,
             string className,
             string methodName,
             object?[]  argsRaw,
@@ -124,12 +124,12 @@ namespace WebView2AppHost
         // ---------------------------------------------------------------------------
 
         /// <summary>
-        /// JS から届いた JSON メッセージを解析してディスパッチする。
+        /// JS から届いた JSON-RPC 2.0 メッセージを解析してディスパッチする。
         /// IHostPlugin.HandleWebMessage の実装本体として呼ぶ。
-        /// source フィールドが <see cref="SourceName"/> と一致しない場合はただちに return する。
         /// </summary>
         protected void HandleWebMessageCore(string webMessageJson)
         {
+            AppLog.Log("INFO", $"{GetType().Name}.HandleWebMessageCore", $"Received: {webMessageJson}");
             if (_disposed || string.IsNullOrWhiteSpace(webMessageJson)) return;
 
             try
@@ -137,49 +137,190 @@ namespace WebView2AppHost
                 var msg = s_json.Deserialize<Dictionary<string, object>>(webMessageJson);
                 if (msg == null) return;
 
-                // source フィルタ
-                if (!msg.TryGetValue("source", out var srcObj) ||
-                    !string.Equals(srcObj?.ToString(), SourceName, StringComparison.OrdinalIgnoreCase))
-                    return;
-
-                msg.TryGetValue("messageId", out var midObj);
-                var messageId = midObj?.ToString();
-
-                msg.TryGetValue("asyncId", out var asyncIdObj);
-                var asyncId = (asyncIdObj is IConvertible cv) ? cv.ToDouble(null) : -1.0;
-
-                // ---- release: ハンドル解放 ----
-                if (messageId == "release")
+                // JSON-RPC 2.0 バージョン確認
+                if (!msg.TryGetValue("jsonrpc", out var jsonrpcObj) ||
+                    !string.Equals(jsonrpcObj?.ToString(), "2.0", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (msg.TryGetValue("params", out var pObj) && pObj is IDictionary pDict
-                        && pDict.Contains("handleId") && pDict["handleId"] is IConvertible hid)
-                    {
-                        _handles.TryRemove(hid.ToInt64(null), out _);
-#if DEBUG
-                        AppLog.Log("INFO", $"{GetType().Name}.Release",
-                            $"ハンドル {hid.ToInt64(null)} を解放しました");
-#endif
-                    }
+                    // legacy フォーマットへの対応
+                    HandleLegacyMessage(msg);
                     return;
                 }
 
-                if (messageId != "invoke")
+                // method フィールド必須
+                if (!msg.TryGetValue("method", out var methodObj) || methodObj == null)
+                    return;
+
+                var method = methodObj.ToString();
+                if (string.IsNullOrEmpty(method)) return;
+
+                // id はリクエストの場合は必須、通知の場合は省略可
+                msg.TryGetValue("id", out var idObj);
+                var id = (idObj is IConvertible cv) ? cv.ToDouble(null) : -1.0;
+
+                // method 形式: "PluginName.ClassName.MethodName" または "PluginName.EventName"
+                var parts = method.Split('.');
+                if (parts.Length < 2) return;
+
+                var sourceFromMethod = parts[0];
+
+                // イベント通知（id なし）
+                if (id < 0)
                 {
-                    AppLog.Log("WARN", $"{GetType().Name}.HandleWebMessage",
-                        $"未知の messageId: {messageId}");
+                    var eventName = string.Join(".", parts.Skip(1));
+                    var eventParams = msg.TryGetValue("params", out var pVal) ? pVal : null;
+                    OnNotificationReceived(eventName, eventParams);
                     return;
                 }
 
-                if (!msg.TryGetValue("params", out var paramsVal)
-                    || !(paramsVal is Dictionary<string, object> paramsObj))
+                // SourceName チェック
+                // "source" フィールドを優先し、なければ method から抽出した source を使用
+                string? sourceFromMsg = null;
+                if (msg.TryGetValue("source", out var srcObj))
+                    sourceFromMsg = srcObj?.ToString();
+
+                var source = !string.IsNullOrEmpty(sourceFromMsg) ? sourceFromMsg : sourceFromMethod;
+
+                if (!string.Equals(source, SourceName, StringComparison.OrdinalIgnoreCase))
                     return;
 
-                Task.Run(async () => await DispatchInvokeAsync(paramsObj, asyncId));
+                // リクエストdispatch（id あり）
+                Task.Run(async () => await DispatchJsonRpcRequestAsync(parts, id, msg));
             }
             catch (Exception ex)
             {
                 AppLog.Log("ERROR", $"{GetType().Name}.HandleWebMessage", ex.Message, ex);
             }
+        }
+
+        /// <summary>legacy フォーマット（jsonrpc なし）のメッセージを処理する。</summary>
+        private void HandleLegacyMessage(Dictionary<string, object>? msg)
+        {
+            if (msg == null) return;
+
+            // source フィルタ
+            if (!msg.TryGetValue("source", out var srcObj) ||
+                !string.Equals(srcObj?.ToString(), SourceName, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            msg.TryGetValue("messageId", out var midObj);
+            var messageId = midObj?.ToString();
+
+            msg.TryGetValue("asyncId", out var asyncIdObj);
+            var asyncId = (asyncIdObj is IConvertible cv) ? cv.ToDouble(null) : -1.0;
+
+            // release: ハンドル解放
+            if (messageId == "release")
+            {
+                if (msg.TryGetValue("params", out var pObj) && pObj is Dictionary<string, object> pDict
+                    && pDict.TryGetValue("handleId", out var hidObj) && hidObj is IConvertible hid)
+                {
+                    _handles.TryRemove(hid.ToInt64(null), out _);
+#if DEBUG
+                    AppLog.Log("INFO", $"{GetType().Name}.Release",
+                        $"ハンドル {hid.ToInt64(null)} を解放しました");
+#endif
+                }
+                return;
+            }
+
+            if (messageId != "invoke")
+            {
+                AppLog.Log("WARN", $"{GetType().Name}.HandleWebMessage",
+                    $"未知の messageId: {messageId}");
+                return;
+            }
+
+            if (!msg.TryGetValue("params", out var paramsVal)
+                || !(paramsVal is Dictionary<string, object> paramsObj))
+                return;
+
+            Task.Run(async () => await DispatchInvokeAsync(paramsObj, asyncId));
+        }
+
+        /// <summary>通知メッセージ（id なし）を処理する。</summary>
+        protected virtual void OnNotificationReceived(string eventName, object? eventParams)
+        {
+            AppLog.Log("WARN", $"{GetType().Name}.OnNotificationReceived",
+                $"未処理的通知: {eventName}");
+        }
+
+        /// <summary>JSON-RPC リクエストを処理する共通フロー。</summary>
+        protected async Task DispatchJsonRpcRequestAsync(string[] methodParts, double id, Dictionary<string, object> msg)
+        {
+            AppLog.Log("INFO", $"{GetType().Name}.DispatchJsonRpcRequestAsync", $"methodParts=[{string.Join(", ", methodParts)}], id={id}");
+            var logCtx = "?";
+            try
+            {
+                var paramsVal = msg.TryGetValue("params", out var pv) ? pv : null;
+
+                // インスタンス呼び出し（params に handleId がある場合）
+                if (paramsVal is Dictionary<string, object> pDict && pDict.TryGetValue("handleId", out _))
+                {
+                    var handleId = pDict["handleId"] is IConvertible hcv ? hcv.ToInt64(null) : 0L;
+                    if (!_handles.TryGetValue(handleId, out var inst))
+                        throw new InvalidOperationException(
+                            $"handleId {handleId} が見つかりません。Release 後に使用した可能性があります。");
+
+                    // インスタンス呼び出しは "PluginName.MethodName" 形式（className 不要）
+                    var methodName = methodParts.Length >= 2 ? methodParts.Last() : "Unknown";
+                    logCtx = $"{inst.GetType().Name}.{methodName}";
+
+                    var instArgs = ExtractArgs(pDict);
+                    var instResult = InvokeInstanceMember(inst, methodName, instArgs);
+                    instResult = await UnwrapTaskAsync(instResult);
+                    SendJsonRpcResult(id, instResult, null);
+                    return;
+                }
+
+                // 静的呼び出し
+                if (methodParts.Length < 3)
+                {
+                    // handleId がないのに methodParts < 3 の場合はエラー
+                    throw new ArgumentException("静的呼び出しには PluginName.ClassName.MethodName 形式が必要です。");
+                }
+
+                var className = methodParts[1];
+                var staticMethodName = methodParts[2];
+                logCtx = $"{className}.{staticMethodName}";
+
+                var staticArgs = ExtractArgsFromParams(paramsVal);
+
+                var type = await ResolveTypeAsync(paramsVal as Dictionary<string, object>, className, staticMethodName, staticArgs, id);
+                if (type == null || staticMethodName == null) return;
+
+                object? result = (staticMethodName == ".ctor" || staticMethodName == "Create")
+                    ? InvokeConstructor(type, staticArgs)
+                    : InvokeStaticMember(type, staticMethodName, staticArgs);
+
+                result = await UnwrapTaskAsync(result);
+                SendJsonRpcResult(id, result, null);
+            }
+            catch (Exception ex)
+            {
+                var inner = ex is TargetInvocationException tie ? tie.InnerException ?? ex : ex;
+                AppLog.Log("ERROR", $"{GetType().Name}.Dispatch[{logCtx}]", inner.Message, inner);
+                SendJsonRpcResult(id, null, inner.Message);
+            }
+        }
+
+        private static object?[] ExtractArgs(Dictionary<string, object>? pDict)
+        {
+            if (pDict == null || !pDict.TryGetValue("args", out var argsVal) || argsVal == null)
+                return Array.Empty<object?>();
+
+            if (argsVal is ArrayList arr)
+                return arr.Cast<object?>().ToArray();
+
+            return new[] { argsVal };
+        }
+
+        private static object?[] ExtractArgsFromParams(object? paramsVal)
+        {
+            if (paramsVal is Dictionary<string, object> pDict)
+                return ExtractArgs(pDict);
+            if (paramsVal is ArrayList arr)
+                return arr.Cast<object?>().ToArray();
+            return Array.Empty<object?>();
         }
 
         // ---------------------------------------------------------------------------
@@ -505,9 +646,10 @@ namespace WebView2AppHost
         // 共通: JS への送信
         // ---------------------------------------------------------------------------
 
-        /// <summary>invoke-result メッセージを JS へ送信する。</summary>
-        protected void SendResult(double asyncId, object? result, string? error)
+        /// <summary>JSON-RPC 2.0 正常応答またはエラー応答を送信する。</summary>
+        protected void SendJsonRpcResult(double id, object? result, string? errorMessage)
         {
+            AppLog.Log("INFO", $"{GetType().Name}.SendJsonRpcResult", $"id={id}, result={result}, error={errorMessage}");
             if (_disposed) return;
             if (_webView.IsDisposed || !_webView.IsHandleCreated) return;
 
@@ -516,40 +658,47 @@ namespace WebView2AppHost
                 if (_disposed || _webView.CoreWebView2 == null) return;
                 try
                 {
-                    // Dictionary の値型は object? — WrapResult は null を返すことがある
-                    // (void メソッドや null 戻り値は JSON null として JS に届く)
                     Dictionary<string, object?> payload;
-                    if (error != null)
+                    if (errorMessage != null)
                     {
                         payload = new Dictionary<string, object?>
                         {
-                            ["source"]    = SourceName,
-                            ["messageId"] = "invoke-result",
-                            ["error"]     = error,
-                            ["asyncId"]   = asyncId,
+                            ["jsonrpc"] = "2.0",
+                            ["id"]      = id,
+                            ["error"]   = new Dictionary<string, object>
+                            {
+                                ["code"]    = -32000,
+                                ["message"] = errorMessage,
+                            },
                         };
                     }
                     else
                     {
                         payload = new Dictionary<string, object?>
                         {
-                            ["source"]    = SourceName,
-                            ["messageId"] = "invoke-result",
-                            ["result"]    = WrapResult(result),
-                            ["asyncId"]   = asyncId,
+                            ["jsonrpc"] = "2.0",
+                            ["id"]      = id,
+                            ["result"]  = WrapResult(result),
                         };
                     }
                     _webView.CoreWebView2.PostWebMessageAsString(s_json.Serialize(payload));
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Log("ERROR", $"{GetType().Name}.SendResult", ex.Message, ex);
+                    AppLog.Log("ERROR", $"{GetType().Name}.SendJsonRpcResult", ex.Message, ex);
                 }
             }));
         }
 
+        /// <summary>invoke-result メッセージを JS へ送信する（legacy フォーマット）。</summary>
+        protected void SendResult(double asyncId, object? result, string? error)
+        {
+            SendJsonRpcResult(asyncId, result, error);
+        }
+
         /// <summary>
-        /// イベント通知メッセージ（invoke-result ではなく任意の event 名）を JS へ送信する。
+        /// イベント通知メッセージ（JSON-RPC 2.0 通知）を JS へ送信する。
+        /// 通知には id を含めない（応答を期待しない）。
         /// プラグインからのコールバック（OnAchievementProgress など）の通知に使用する。
         /// </summary>
         protected void PostEventToJs(string eventName, object eventParams)
@@ -564,9 +713,9 @@ namespace WebView2AppHost
                 {
                     var payload = s_json.Serialize(new Dictionary<string, object>
                     {
-                        ["source"] = SourceName,
-                        ["event"]  = eventName,
-                        ["params"] = eventParams,
+                        ["jsonrpc"] = "2.0",
+                        ["method"]  = $"{SourceName}.{eventName}",
+                        ["params"]  = eventParams,
                     });
                     _webView.CoreWebView2.PostWebMessageAsString(payload);
                 }

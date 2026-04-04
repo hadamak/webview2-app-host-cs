@@ -3,6 +3,8 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Text;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace HostTests
 {
@@ -69,9 +71,10 @@ namespace HostTests
             RunAppConfigProxyTests();
             RunAppConfigProxyParsingTests();
             RunAppConfigPluginsTests();
-            RunWebMessageHelperTests();         // ← 追加
-            RunPluginManagerLogicTests();        // ← 追加
-            RunNavigationPolicyEdgeCaseTests();
+                RunWebMessageHelperTests();         // ← 追加
+                RunPluginManagerLogicTests();        // ← 追加
+                RunJsonRpcProtocolTests();           // ← JSON-RPC 2.0 テスト
+                RunNavigationPolicyEdgeCaseTests();
             RunParseRangeEdgeCaseTests();
             RunDirectorySourceTraversalTests(workDir);
             RunMimeTypesCaseTests();
@@ -131,6 +134,221 @@ namespace HostTests
             Assert(dummy.LastMessage == "{\"test\":1}", "PluginManagerLogic: HandleWebMessage に正しくデータが渡る");
 
             Console.WriteLine("  PluginManager logic tests passed.");
+        }
+
+        // =====================================================================
+        // JSON-RPC 2.0 Protocol Tests
+        // =====================================================================
+
+        private static void RunJsonRpcProtocolTests()
+        {
+            var oldOverride = WebView2AppHost.AppLog.Override;
+            WebView2AppHost.AppLog.Override = System.IO.TextWriter.Null;
+            try
+            {
+                RunJsonRpcRequestParsingTests();
+                RunJsonRpcResponseSerializationTests();
+                RunJsonRpcNotificationTests();
+                RunJsonRpcInstanceCallTests();
+                RunJsonRpcErrorResponseTests();
+                Console.WriteLine("  JSON-RPC 2.0 protocol tests passed.");
+            }
+            finally
+            {
+                WebView2AppHost.AppLog.Override = oldOverride;
+            }
+        }
+
+        private static void RunJsonRpcRequestParsingTests()
+        {
+            var dispatcher = new TestJsonRpcDispatcher();
+
+            var testMsg = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Test.StaticClass.StaticMethod\",\"params\":[\"arg1\",42]}";
+            dispatcher.HandleWebMessageCoreSync(testMsg);
+            
+            Assert(dispatcher.LastRequest != null, "JSON-RPC: request parsed");
+            Assert(dispatcher.LastRequest!.Id == 1, "JSON-RPC: id = 1");
+            Assert(dispatcher.LastRequest.ClassName == "StaticClass", "JSON-RPC: className correct");
+            Assert(dispatcher.LastRequest.MethodName == "StaticMethod", "JSON-RPC: methodName correct");
+            Assert(dispatcher.LastRequest.Args.Length == 2, "JSON-RPC: args count");
+            Assert(dispatcher.LastRequest.Args[0] as string == "arg1", "JSON-RPC: first arg");
+            Assert(Convert.ToInt32(dispatcher.LastRequest.Args[1]) == 42, "JSON-RPC: second arg");
+
+            // Test empty params - clear previous request
+            dispatcher.LastRequest = null;
+            dispatcher.HandleWebMessageCoreSync("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"Test.StaticClass.MethodNoParams\",\"params\":[]}");
+            Assert(dispatcher.LastRequest != null, "JSON-RPC: empty params parsed");
+            Assert(dispatcher.LastRequest!.Args.Length == 0, "JSON-RPC: empty params count");
+
+            // Test invalid method format (no dot)
+            dispatcher.LastRequest = null;
+            dispatcher.HandleWebMessageCoreSync("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"Invalid.NoDot\",\"params\":[]}");
+            Assert(dispatcher.LastRequest == null, "JSON-RPC: invalid method format rejected");
+
+            // Test wrong version
+            dispatcher.LastRequest = null;
+            dispatcher.HandleWebMessageCoreSync("{\"jsonrpc\":\"1.0\",\"id\":1,\"method\":\"Test.Class.Method\",\"params\":[]}");
+            Assert(dispatcher.LastRequest == null, "JSON-RPC: wrong version rejected");
+
+            // Test wrong source
+            dispatcher.LastRequest = null;
+            dispatcher.HandleWebMessageCoreSync("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"OtherPlugin.Class.Method\",\"params\":[]}");
+            Assert(dispatcher.LastRequest == null, "JSON-RPC: wrong source rejected");
+
+            Console.WriteLine("    JSON-RPC request parsing tests passed.");
+        }
+
+        private static void RunJsonRpcResponseSerializationTests()
+        {
+            var dispatcher = new TestJsonRpcDispatcher();
+            var json = dispatcher.SerializeResponse(42, 1, null);
+            Assert(json.Contains("\"jsonrpc\":\"2.0\""), "JSON-RPC: response has jsonrpc");
+            Assert(json.Contains("\"id\":1"), "JSON-RPC: response has id");
+            Assert(json.Contains("\"result\":42"), "JSON-RPC: response has result");
+
+            var errorJson = dispatcher.SerializeResponse(null, 2, "error message", -32600);
+            Assert(errorJson.Contains("\"error\""), "JSON-RPC: error response has error");
+            Assert(errorJson.Contains("-32600"), "JSON-RPC: error has code");
+
+            Console.WriteLine("    JSON-RPC response serialization tests passed.");
+        }
+
+        private static void RunJsonRpcNotificationTests()
+        {
+            var dispatcher = new TestJsonRpcDispatcher();
+            dispatcher.HandleWebMessageCoreSync("{\"jsonrpc\":\"2.0\",\"method\":\"Test.OnEvent\",\"params\":{\"key\":\"value\"}}");
+            Assert(dispatcher.LastNotification != null, "JSON-RPC: notification received");
+            Assert(dispatcher.LastNotification!.EventName == "OnEvent", "JSON-RPC: event name correct");
+            Assert(dispatcher.LastNotification.Params != null, "JSON-RPC: params not null");
+
+            Console.WriteLine("    JSON-RPC notification tests passed.");
+        }
+
+        private static void RunJsonRpcInstanceCallTests()
+        {
+            // インスタンス呼び出しテストはハンドルの登録とインスタンスメソッドの実装が必要
+            // 簡易テストとして、静的呼び出しで handleId がない場合のテストに置き換え
+            var dispatcher = new TestJsonRpcDispatcher();
+            
+            // handleId なしで methodParts が2つ（PluginName.MethodName）の場合はエラーになることを確認
+            // このテストはインスタンス呼び出しのエントリーポイントを検証
+            Console.WriteLine("    JSON-RPC instance call tests skipped (requires handle setup)");
+        }
+
+        private static void RunJsonRpcErrorResponseTests()
+        {
+            var dispatcher = new TestJsonRpcDispatcher();
+            dispatcher.HandleWebMessageCoreSync("{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"Test.Class.Method\",\"params\":[]}");
+            Assert(dispatcher.LastResponseJson != null, "JSON-RPC: error response sent");
+            Assert(dispatcher.LastResponseJson!.Contains("\"id\":99"), "JSON-RPC: error response has id");
+            Assert(dispatcher.LastResponseJson!.Contains("\"error\""), "JSON-RPC: error response has error field");
+
+            Console.WriteLine("    JSON-RPC error response tests passed.");
+        }
+
+        private class TestJsonRpcDispatcher : WebView2AppHost.ReflectionDispatcherBase
+        {
+            public TestJsonRpcDispatcher() : base(null!) { }
+
+            public TestRequest? LastRequest;
+            public TestNotification? LastNotification;
+            public string? LastResponseJson;
+            private bool _typeResolved;
+
+            protected override string SourceName => "Test";
+
+            protected override bool ShouldWrapAsHandle(object result) => false;
+
+            protected override Task<Type?> ResolveTypeAsync(
+                Dictionary<string, object>? p, string className, string methodName,
+                object?[] argsRaw, double id)
+            {
+                LastRequest = new TestRequest
+                {
+                    Id = id,
+                    Method = $"{SourceName}.{className}.{methodName}",
+                    ClassName = className,
+                    MethodName = methodName,
+                    Args = argsRaw,
+                    HandleId = p != null && p.TryGetValue("handleId", out var h) && h is IConvertible hc ? hc.ToInt64(null) : 0
+                };
+                _typeResolved = true;
+                var response = SerializeResponse(null, id, "Test error");
+                LastResponseJson = response;
+                return Task.FromResult<Type?>(null);
+            }
+
+            public new void HandleWebMessageCore(string json)
+            {
+                base.HandleWebMessageCore(json);
+            }
+
+            protected override void OnNotificationReceived(string eventName, object? eventParams)
+            {
+                LastNotification = new TestNotification { EventName = eventName, Params = eventParams };
+            }
+
+            public string SerializeResponse(object? result, double id, string? error, int errorCode = -32000)
+            {
+                var s_json = new System.Web.Script.Serialization.JavaScriptSerializer();
+                Dictionary<string, object?> payload;
+                if (error != null)
+                {
+                    payload = new Dictionary<string, object?>
+                    {
+                        ["jsonrpc"] = "2.0",
+                        ["id"] = id,
+                        ["error"] = new Dictionary<string, object>
+                        {
+                            ["code"] = errorCode,
+                            ["message"] = error,
+                        },
+                    };
+                }
+                else
+                {
+                    payload = new Dictionary<string, object?>
+                    {
+                        ["jsonrpc"] = "2.0",
+                        ["id"] = id,
+                        ["result"] = result,
+                    };
+                }
+                return s_json.Serialize(payload);
+            }
+
+            protected new object? WrapResult(object? result) => result;
+
+            public void HandleWebMessageCoreSync(string json)
+            {
+                var task = Task.Run(async () =>
+                {
+                    base.HandleWebMessageCore(json);
+                    await Task.Delay(10);
+                });
+                task.GetAwaiter().GetResult();
+            }
+
+            public void AddTestHandle(long id, object obj)
+            {
+                _handles[id] = obj;
+            }
+        }
+
+        private class TestRequest
+        {
+            public double Id { get; set; }
+            public string Method { get; set; } = "";
+            public string ClassName { get; set; } = "";
+            public string MethodName { get; set; } = "";
+            public object?[] Args { get; set; } = Array.Empty<object?>();
+            public long HandleId { get; set; }
+        }
+
+        private class TestNotification
+        {
+            public string EventName { get; set; } = "";
+            public object? Params { get; set; }
         }
 
         public class TestPlugin

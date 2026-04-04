@@ -5,22 +5,17 @@
  * stdin から改行区切りの JSON (NDJSON) を受け取り、
  * 登録されたハンドラを呼び出して結果を stdout に書き出す。
  *
- * プロトコル（JS ↔ C# ↔ このプロセス）:
- *   C# → stdin: { "source":"Node", "messageId":"invoke",
- *                  "params":{ "className":"ClassName", "methodName":"method", "args":[...] },
- *                  "asyncId": N }
- *
- *   stdout → C#: { "source":"Node", "messageId":"invoke-result",
- *                   "result": <value>, "asyncId": N }
- *          または: { "source":"Node", "messageId":"invoke-result",
- *                   "error": "<message>", "asyncId": N }
+ * プロトコル (JSON-RPC 2.0):
+ *   C# → stdin: { "jsonrpc": "2.0", "id": N, "method": "Node.ClassName.Method", "params": [...] }
+ *   stdout → C#: { "jsonrpc": "2.0", "id": N, "result": ... }
+ *              または: { "jsonrpc": "2.0", "id": N, "error": { "code": -32000, "message": "..." } }
  *
  * ハンドラの登録:
  *   require('./server').register('MyClass', {
  *     async myMethod(arg1, arg2) { return arg1 + arg2; }
  *   });
  *
- * 利用例（host.js 経由で JS 側から呼ぶ場合）:
+ * 利用例:
  *   const result = await Host.Node.MyClass.myMethod('hello', 'world');
  */
 
@@ -33,80 +28,64 @@
 /** @type {Map<string, Record<string, Function>>} className → メソッドマップ */
 const _handlers = new Map();
 
-/**
- * クラス名とメソッドマップを登録する。
- * @param {string} className
- * @param {Record<string, Function>} methods
- */
 function register(className, methods) {
     _handlers.set(className, methods);
 }
 
 // ---------------------------------------------------------------------------
-// 送受信ユーティリティ
+// 送受信
 // ---------------------------------------------------------------------------
 
-/**
- * stdout に1行の NDJSON を書き出す。
- * @param {object} obj
- */
 function send(obj) {
     process.stdout.write(JSON.stringify(obj) + '\n');
 }
 
-/**
- * 成功結果を C# へ返す。
- * @param {number} asyncId
- * @param {any}    result
- */
-function resolve(asyncId, result) {
-    send({ source: 'Node', messageId: 'invoke-result', result, asyncId });
+function resolve(id, result) {
+    send({ jsonrpc: '2.0', id, result });
 }
 
-/**
- * エラーを C# へ返す。
- * @param {number} asyncId
- * @param {string} message
- */
-function reject(asyncId, message) {
-    send({ source: 'Node', messageId: 'invoke-result', error: String(message), asyncId });
+function reject(id, message) {
+    send({ jsonrpc: '2.0', id, error: { code: -32000, message: String(message) } });
 }
 
 // ---------------------------------------------------------------------------
 // メッセージディスパッチ
 // ---------------------------------------------------------------------------
 
-/**
- * C# から届いたメッセージを適切なハンドラへ振り分ける。
- * @param {object} msg
- */
 async function dispatch(msg) {
-    const { asyncId, messageId, params } = msg;
-
-    if (messageId !== 'invoke') {
-        // release 等のノーレスポンスメッセージは無視
+    if (msg.jsonrpc !== '2.0' || !msg.method) {
+        reject(msg.id ?? 0, 'Invalid JSON-RPC 2.0 request');
         return;
     }
 
-    const { className, methodName, args = [] } = params ?? {};
+    const methodParts = msg.method.split('.');
+    if (methodParts.length < 3) {
+        reject(msg.id, `Invalid method format: ${msg.method}`);
+        return;
+    }
+
+    const className = methodParts[1];
+    const methodName = methodParts[2];
+    const args = Array.isArray(msg.params) ? msg.params : [];
+    const id = msg.id;
 
     try {
         const classHandlers = _handlers.get(className);
         if (!classHandlers) {
-            reject(asyncId, `NodePlugin: クラス '${className}' が登録されていません`);
+            reject(id, `NodePlugin: クラス '${className}' が登録されていません`);
             return;
         }
 
         const fn = classHandlers[methodName];
         if (typeof fn !== 'function') {
-            reject(asyncId, `NodePlugin: ${className}.${methodName} が見つかりません`);
+            reject(id, `NodePlugin: ${className}.${methodName} が見つかりません`);
             return;
         }
 
         const result = await fn(...args);
-        resolve(asyncId, result ?? null);
+        resolve(id, result ?? null);
     } catch (err) {
-        reject(asyncId, err?.message ?? String(err));
+        reject(id, err?.message ?? String(err));
     }
 }
 
@@ -122,7 +101,6 @@ async function dispatch(msg) {
     process.stdin.on('data', (chunk) => {
         buffer += chunk;
         const lines = buffer.split('\n');
-        // 最後の要素は改行前の不完全な行かもしれないので buffer に戻す
         buffer = lines.pop() ?? '';
 
         for (const line of lines) {
@@ -140,8 +118,7 @@ async function dispatch(msg) {
     });
 
     process.stdin.on('end', () => {
-        // C# プロセスが stdin を閉じた = ホストが終了した
-        process.exit(0);
+        process.stderr.write('[server.js] stdin closed\n');
     });
 }
 
@@ -150,49 +127,35 @@ async function dispatch(msg) {
 // ---------------------------------------------------------------------------
 
 register('Node', {
-    /** バージョン情報を返す。動作確認用。 */
     version() {
-        return {
-            node: process.version,
-            platform: process.platform,
-            arch: process.arch,
-        };
+        return { node: process.version, platform: process.platform, arch: process.arch };
     },
-
-    /** npm パッケージが require できるかを確認する。 */
     hasModule(name) {
-        try {
-            require.resolve(name);
-            return true;
-        } catch {
-            return false;
-        }
+        try { require(name); return true; } catch { return false; }
     },
-
-    /** require してモジュールのバージョンを返す（package.json が必要）。 */
-    moduleVersion(name) {
-        try {
-            const pkg = require(`${name}/package.json`);
-            return pkg.version ?? null;
-        } catch {
-            return null;
-        }
+    getPackageVersion(name) {
+        try { return require(`${name}/package.json`).version ?? 'unknown'; } catch { return 'not found'; }
     },
+    getNodeVersion() { return process.version; },
+    getPlatform() { return process.platform; },
+    uptime() { return process.uptime(); },
+    memoryUsage() { return process.memoryUsage(); },
+    cpuUsage() { return process.cpuUsage(); }
 });
 
 // ---------------------------------------------------------------------------
-// 起動ログ（stderr に出す）
+// exports
+// ---------------------------------------------------------------------------
+
+module.exports = { register, send, resolve, reject };
+
+// ---------------------------------------------------------------------------
+// 起動ログ
 // ---------------------------------------------------------------------------
 
 process.stderr.write(
     `[server.js] Node.js サイドカー起動 (PID: ${process.pid}, Node: ${process.version})\n`
 );
-
-// ---------------------------------------------------------------------------
-// モジュールエクスポート（他スクリプトから register を使えるようにする）
-// ---------------------------------------------------------------------------
-
-module.exports = { register, send, resolve, reject };
 
 // 起動完了をホストに伝えるシグナル
 process.stdout.write(JSON.stringify({ ready: true }) + '\n');

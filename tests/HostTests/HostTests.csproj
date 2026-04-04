@@ -23,6 +23,8 @@
     <Compile Include="..\..\src\IHostPlugin.cs" />
     <Compile Include="..\..\src\PluginManager.cs" />
     <Compile Include="..\..\src\WebMessageHelper.cs" />
+    <Compile Include="..\..\src\ReflectionDispatcherBase.cs" />
+    <Compile Include="..\..\src\InternalHostPlugin.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -33,5 +35,6 @@
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Web.Extensions" />
   </ItemGroup>
 </Project>

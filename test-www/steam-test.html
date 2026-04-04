@@ -94,9 +94,9 @@
   <h2>スクリーンショット</h2>
   <p class="note">
     SteamScreenshots.TriggerScreenshot は DirectX フック前提のため WebView2 では動作しない。<br>
-    Host.Internal.WebView.CapturePreview() で RGB データを取得し、WriteScreenshot() に渡す。
+    Host.Internal.WebView.CapturePreview() で 画像を保存し、AddScreenshot() に渡す。
   </p>
-  <button onclick="takeScreenshot()">CapturePreview + WriteScreenshot</button>
+  <button onclick="takeScreenshot()">CapturePreview + AddScreenshot</button>
 </section>
 
 <!-- Steam Cloud -->

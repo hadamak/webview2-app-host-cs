@@ -64,30 +64,93 @@ namespace WebView2AppHost
         // 基底クラスの default 実装（null を返す → 汎用変換へフォールバック）をそのまま使う。
 
         /// <summary>
-        /// "dllName" からアセンブリを特定し、"className" で Type を検索する。
-        /// GenericDllPlugin に特例処理はないため、常に Type を返す（null は返さない）。
+        /// "dllName"（または className）からアセンブリを特定し、className で Type を検索する。
         /// </summary>
         protected override Task<Type?> ResolveTypeAsync(
-            Dictionary<string, object> paramsObj,
-            string className, string methodName,
-            object?[] argsRaw, double asyncId)
+            Dictionary<string, object>? p, string className, string methodName,
+            object?[] argsRaw, double id)
         {
-            var dllName = paramsObj.TryGetValue("dllName", out var dn) ? dn?.ToString() : null;
+            AppLog.Log("INFO", "GenericDllPlugin.ResolveTypeAsync", $"className={className}, methodName={methodName}");
+
+            // DLL 名を取得: params に dllName があれば使用、なければ className をエイリアスとして試す
+            string? dllName = null;
+            if (p != null && p.TryGetValue("dllName", out var dllObj))
+            {
+                dllName = dllObj?.ToString();
+            }
+
+            // params に dllName がない場合は className をエイリアスとして試す
+            if (string.IsNullOrEmpty(dllName))
+            {
+                dllName = className;
+            }
 
             if (string.IsNullOrEmpty(dllName))
-                throw new ArgumentException(
-                    "dllName が空です。loadDlls で指定したエイリアスを params.dllName に渡してください。");
+            {
+                AppLog.Log("WARN", "GenericDllPlugin.ResolveTypeAsync", "dllName が特定できませんでした");
+                return Task.FromResult<Type?>(null);
+            }
 
+            // アセンブリを検索（className をそのまま試す）
             if (!_assemblies.TryGetValue(dllName!, out var asm))
-                throw new TypeLoadException(
-                    $"DLL エイリアス '{dllName}' はロードされていません。" +
-                    $" app.conf.json の loadDlls を確認してください。");
+            {
+                // 見つからなければ、Steam なら "Steam" として試す
+                if (dllName != "Steam" && _assemblies.TryGetValue("Steam", out var steamAsm))
+                {
+                    asm = steamAsm;
+                    dllName = "Steam";
+                }
+            }
 
-            var type = ResolveType(asm, className)
-                ?? throw new TypeLoadException(
-                    $"クラス '{className}' が {asm.GetName().Name} の公開型に見つかりません。");
+            if (asm == null)
+            {
+                AppLog.Log("WARN", "GenericDllPlugin.ResolveTypeAsync", $"アセンブリが見つかりません: {dllName}");
+                return Task.FromResult<Type?>(null);
+            }
 
-            return Task.FromResult<Type?>(type);
+            // 型を検索 - 複数のパターンを試す
+            try
+            {
+                // 1. そのまま試す
+                var type = asm.GetType(className, false, true);
+                
+                // 2. Facepunch.Steamworks.プレフィックスを試す
+                if (type == null)
+                    type = asm.GetType($"Facepunch.Steamworks.{className}", false, true);
+                
+                // 3. クラス名だけを確認（静的クラスの可能性）
+                if (type == null)
+                {
+                    foreach (var t in asm.GetExportedTypes())
+                    {
+                        if (string.Equals(t.Name, className, StringComparison.OrdinalIgnoreCase))
+                        {
+                            type = t;
+                            break;
+                        }
+                    }
+                }
+
+                if (type == null)
+                {
+                    // 型が見つからない場合は、アセンブリ内のすべての型をログ出力
+                    AppLog.Log("INFO", "GenericDllPlugin.ResolveTypeAsync", $"アセンブリ内の型をスキャン中...");
+                    foreach (var t in asm.GetExportedTypes().Take(20))
+                    {
+                        AppLog.Log("INFO", "GenericDllPlugin.ResolveTypeAsync", $"  - {t.FullName}");
+                    }
+                    AppLog.Log("WARN", "GenericDllPlugin.ResolveTypeAsync", $"型が見つかりません: {className}");
+                    return Task.FromResult<Type?>(null);
+                }
+
+                AppLog.Log("INFO", "GenericDllPlugin.ResolveTypeAsync", $"resolved: {type.FullName}");
+                return Task.FromResult<Type?>(type);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Log("ERROR", "GenericDllPlugin.ResolveTypeAsync", $"型解決エラー: {ex.Message}", ex);
+                return Task.FromResult<Type?>(null);
+            }
         }
 
         // ---------------------------------------------------------------------------
@@ -148,26 +211,58 @@ namespace WebView2AppHost
             try
             {
                 var dict = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(webMessageJson);
-                if (dict != null && dict.TryGetValue("source", out var srcObj))
+                if (dict == null) return;
+
+                string? source = null;
+
+                // JSON-RPC 2.0 形式の検出
+                if (dict.TryGetValue("jsonrpc", out var jsonrpcObj) &&
+                    string.Equals(jsonrpcObj?.ToString(), "2.0", StringComparison.OrdinalIgnoreCase))
                 {
-                    var source = srcObj?.ToString();
-                    if (source != null && _assemblies.ContainsKey(source))
+                    // method フィールドから PluginName を抽出
+                    if (dict.TryGetValue("method", out var methodObj) && methodObj != null)
                     {
-                        // dllName が無い場合は source をエイリアスとして使う
-                        if (dict.TryGetValue("params", out var pObj) && pObj is Dictionary<string, object> pDict)
+                        var methodStr = methodObj.ToString();
+                        if (!string.IsNullOrEmpty(methodStr))
                         {
-                            pDict["dllName"] = source;
+                            var dotIdx = methodStr.IndexOf('.');
+                            if (dotIdx > 0)
+                            {
+                                source = methodStr.Substring(0, dotIdx);
+                            }
                         }
-                        
-                        // 基底クラス(ReflectionDispatcherBase)が処理できるように source を "Host" に偽装する
-                        dict["source"] = "Host";
-                        webMessageJson = new JavaScriptSerializer().Serialize(dict);
                     }
                 }
+                else
+                {
+                    // legacy 形式: source フィールドを使用
+                    if (dict.TryGetValue("source", out var srcObj))
+                    {
+                        source = srcObj?.ToString();
+                    }
+                }
+
+                // 登録された DLL アセンブリがあるか確認
+                if (source != null && _assemblies.ContainsKey(source))
+                {
+                    // DLL 名を設定
+                    if (dict.TryGetValue("params", out var pObj) && pObj is Dictionary<string, object> pDict)
+                    {
+                        pDict["dllName"] = source;
+                    }
+                    
+                    // 基底クラス(ReflectionDispatcherBase)が処理できるように source を "Host" に偽装する
+                    dict["source"] = "Host";
+                    webMessageJson = new JavaScriptSerializer().Serialize(dict);
+                    
+                    HandleWebMessageCore(webMessageJson);
+                    return;
+                }
+
+                // DLL に該当しない場合は、他のプラグイン（SidecarPluginなど）に任せる
+                // HandleWebMessageCore を呼び出さない
             }
             catch { /* json parse error ignore */ }
-
-            HandleWebMessageCore(webMessageJson);
         }
 
         // ---------------------------------------------------------------------------

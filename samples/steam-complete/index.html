@@ -213,8 +213,8 @@
             <h2>Screenshot</h2>
             <p class="note">
                 WebView2 の画面をキャプチャし、Steam のスクリーンショットライブラリに保存します。<br>
-                Host.Internal.WebView.CapturePreview() で RGB データを取得し、
-                Host.Steam.SteamScreenshots.WriteScreenshot() で書き込みます。
+                Host.Internal.WebView.CapturePreview() で 画像を出力し、
+                Host.Steam.SteamScreenshots.AddScreenshot() で書き込みます。
             </p>
             <div class="row">
                 <button id="screenshot-btn">Take Screenshot</button>

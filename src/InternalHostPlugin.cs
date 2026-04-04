@@ -63,6 +63,43 @@ namespace WebView2AppHost
                 var msg = _jss.Deserialize<Dictionary<string, object>>(webMessageJson);
                 if (msg == null) return;
 
+                // JSON-RPC 2.0 形式の検出
+                if (msg.TryGetValue("jsonrpc", out var jsonrpcObj) &&
+                    string.Equals(jsonrpcObj?.ToString(), "2.0", StringComparison.OrdinalIgnoreCase))
+                {
+                    // JSON-RPC 2.0 形式を処理
+                    if (!msg.TryGetValue("method", out var methodObj) || methodObj == null)
+                        return;
+
+                    var methodStr = methodObj.ToString();
+                    if (string.IsNullOrEmpty(methodStr))
+                        return;
+
+                    // method 形式: "Internal.ClassName.MethodName"
+                    var methodParts = methodStr.Split('.');
+                    if (methodParts.Length < 3 || methodParts[0] != "Internal")
+                        return;
+
+                    var jsonClassName = methodParts[1];
+                    var jsonMethodName = methodParts[2];
+                    var jsonId = msg.TryGetValue("id", out var idObj) && idObj != null
+                        ? Convert.ToDouble(idObj) : -1.0;
+
+                    // params は配列またはオブジェクト
+                    var jsonArgs = new ArrayList();
+                    if (msg.TryGetValue("params", out var paramsVal))
+                    {
+                        if (paramsVal is ArrayList arr)
+                            jsonArgs = arr;
+                        else if (paramsVal is Dictionary<string, object> pDict && pDict.TryGetValue("args", out var rawArgs) && rawArgs is ArrayList arr2)
+                            jsonArgs = arr2;
+                    }
+
+                    DispatchClassName(jsonClassName, jsonMethodName, jsonArgs, jsonId);
+                    return;
+                }
+
+                // legacy 形式
                 if (!(msg.TryGetValue("source", out var src) &&
                       string.Equals(src as string, "Internal", StringComparison.OrdinalIgnoreCase)))
                     return;
@@ -76,25 +113,26 @@ namespace WebView2AppHost
                 var p = msg.TryGetValue("params", out var pv)
                     ? pv as Dictionary<string, object> : null;
 
-                var className  = p != null && p.TryGetValue("className",  out var cn) ? cn as string : null;
-                var methodName = p != null && p.TryGetValue("methodName", out var mn) ? mn as string : null;
+                var legacyClassName  = p != null && p.TryGetValue("className",  out var cn) ? cn as string : null;
+                var legacyMethodName = p != null && p.TryGetValue("methodName", out var mn) ? mn as string : null;
 
-                if (string.IsNullOrEmpty(className))
+                if (string.IsNullOrEmpty(legacyClassName))
                 {
                     SendError(asyncId, "className が指定されていません。");
                     return;
                 }
-                if (string.IsNullOrEmpty(methodName))
+                if (string.IsNullOrEmpty(legacyMethodName))
                 {
                     SendError(asyncId, "methodName が指定されていません。");
                     return;
                 }
 
-                var args = p != null && p.TryGetValue("args", out var argsVal) && argsVal is ArrayList al
-                    ? al
+                var legacyArgs = p != null && p.TryGetValue("args", out var rawLegacyArgs) && rawLegacyArgs is ArrayList arr3
+                    ? arr3
                     : new ArrayList();
 
-                DispatchClassName(className!, methodName!, args, asyncId);
+                if (legacyClassName != null && legacyMethodName != null)
+                    DispatchClassName(legacyClassName, legacyMethodName, legacyArgs, asyncId);
             }
             catch (Exception ex)
             {
@@ -244,17 +282,14 @@ namespace WebView2AppHost
         private void SendResult(double asyncId, string resultJson)
         {
             PostToWebView(
-                $"{{\"source\":\"Internal\",\"messageId\":\"invoke-result\"," +
-                $"\"result\":{resultJson}," +
-                $"\"asyncId\":{FormatDouble(asyncId)}}}");
+                $"{{\"jsonrpc\":\"2.0\",\"id\":{FormatDouble(asyncId)},\"result\":{resultJson}}}");
         }
 
         private void SendError(double asyncId, string errorMessage)
         {
             PostToWebView(
-                $"{{\"source\":\"Internal\",\"messageId\":\"invoke-result\"," +
-                $"\"error\":\"{EscapeJsonString(errorMessage)}\"," +
-                $"\"asyncId\":{FormatDouble(asyncId)}}}");
+                $"{{\"jsonrpc\":\"2.0\",\"id\":{FormatDouble(asyncId)}," +
+                $"\"error\":{{\"code\":-32000,\"message\":\"{EscapeJsonString(errorMessage)}\"}}}}");
         }
 
         private void PostToWebView(string payload)

@@ -11,19 +11,18 @@
  *   ClassName   プラグイン内のクラス名（プラグインの実装に依存）
  *   MethodName  呼び出すメソッド名
  *
- * 例（常駐の組み込みプラグイン Internal）:
+ * 例（常駐の組み込み插件 Internal）:
  *   const preview = await Host.Internal.WebView.CapturePreview();
  *
  * イベント受信:
  *   Host.on('EventName', (params) => { ... });
  *   Host.off('EventName', handler);
  *
- * メッセージフォーマット (JS → C#):
- *   { "source": "<PluginName>", "messageId": "invoke",
- *     "params": { "className": "...", "methodName": "...", "args": [...] },
- *     "asyncId": N }
- *
- *   各プラグインは source が自身の名前と一致しないメッセージを無視する。
+ * メッセージフォーマット (JSON-RPC 2.0):
+ *   リクエスト: { "jsonrpc": "2.0", "id": N, "method": "PluginName.ClassName.Method", "params": [...] }
+ *   応答:       { "jsonrpc": "2.0", "id": N, "result": ... }
+ *   エラー:     { "jsonrpc": "2.0", "id": N, "error": { "code": -32000, "message": "..." } }
+ *   通知:       { "jsonrpc": "2.0", "method": "PluginName.EventName", "params": {...} }
  *
  * 注意:
  *   - await Host.<PluginName> が Thenable と誤認されないよう、then/catch/finally は
@@ -39,9 +38,9 @@ const Host = (() => {
         typeof window.chrome !== 'undefined' &&
         typeof window.chrome.webview !== 'undefined';
 
-    let _asyncId = 0;
+    let _requestId = 0;
 
-    /** asyncId → { resolve, reject, pluginName } の pending マップ */
+    /** request id → { resolve, reject, pluginName } の pending マップ */
     const _pending = new Map();
 
     /** イベント名 → ハンドラ関数リスト */
@@ -53,15 +52,15 @@ const Host = (() => {
 
     /**
      * JS プロキシが GC された際に C# へ release メッセージを送る。
-     * pluginName を含めることで複数プラグイン環境に対応する。
+     * pluginName を含めることで複数插件環境に対応する。
      */
     const _handleFinalizer = typeof FinalizationRegistry !== 'undefined'
         ? new FinalizationRegistry(({ handleId, pluginName }) => {
             if (!_isHost) return;
             window.chrome.webview.postMessage(JSON.stringify({
-                source:    pluginName,
-                messageId: 'release',
-                params:    { handleId },
+                jsonrpc: '2.0',
+                method: `${pluginName}.release`,
+                params: { handleId },
             }));
         })
         : null;
@@ -105,34 +104,45 @@ const Host = (() => {
 
     if (_isHost) {
         window.chrome.webview.addEventListener('message', (e) => {
+            console.log('[host.js] received message:', e.data);
             let msg;
             try {
                 msg = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
             } catch {
+                console.log('[host.js] parse failed');
                 return;
             }
 
-            // source フィールドのないメッセージはシステムメッセージ（visibilityChange 等）のため無視
-            if (!msg || !msg.source) return;
+            console.log('[host.js] parsed:', msg);
 
-            // invoke の応答（asyncId でルーティング）
-            if (msg.messageId === 'invoke-result') {
-                const prom = _pending.get(msg.asyncId);
+            // JSON-RPC 2.0 バージョン確認
+            if (!msg || msg.jsonrpc !== '2.0') {
+                console.log('[host.js] not JSON-RPC 2.0, ignoring');
+                return;
+            }
+
+            // 応答（id あり）
+            if (msg.id != null) {
+                const prom = _pending.get(msg.id);
                 if (!prom) return;
-                _pending.delete(msg.asyncId);
-                if (msg.error != null) {
-                    prom.reject(new Error(`[Host/${prom.pluginName}] ${msg.error}`));
+                _pending.delete(msg.id);
+                if (msg.error) {
+                    prom.reject(new Error(`[Host/${prom.pluginName}] ${msg.error.message}`));
                 } else {
                     prom.resolve(wrapHandles(msg.result, prom.pluginName));
                 }
                 return;
             }
 
-            // プラグインからのイベント通知
-            if (msg.event) {
-                const handlers = _eventHandlers.get(msg.event);
+            // 通知（id なし）: イベント通知
+            if (msg.method) {
+                const dotIdx = msg.method.indexOf('.');
+                if (dotIdx === -1) return;
+                const pluginName = msg.method.slice(0, dotIdx);
+                const eventName = msg.method.slice(dotIdx + 1);
+                const handlers = _eventHandlers.get(eventName);
                 if (handlers) {
-                    const wrappedParams = wrapHandles(msg.params, msg.source);
+                    const wrappedParams = wrapHandles(msg.params, pluginName);
                     handlers.forEach((h) => {
                         try { h(wrappedParams); } catch (err) {
                             console.error('[Host] event handler error:', err);
@@ -155,17 +165,19 @@ const Host = (() => {
      * @returns {Promise<any>}
      */
     function invoke(pluginName, className, methodName, args) {
+        console.log(`[host.js] invoke: ${pluginName}.${className}.${methodName}`, args);
         return new Promise((resolve, reject) => {
-            const id = ++_asyncId;
+            const id = ++_requestId;
             _pending.set(id, { resolve, reject, pluginName });
 
             const message = JSON.stringify({
-                source:    pluginName,
-                messageId: 'invoke',
-                params:    { className, methodName, args: args ?? [] },
-                asyncId:   id,
+                jsonrpc: '2.0',
+                id,
+                method: `${pluginName}.${className}.${methodName}`,
+                params: args ?? [],
             });
 
+            console.log(`[host.js] posting: ${message}`);
             if (_isHost) {
                 window.chrome.webview.postMessage(message);
             } else {
@@ -185,14 +197,14 @@ const Host = (() => {
      */
     function invokeInstance(pluginName, handleId, methodName, args) {
         return new Promise((resolve, reject) => {
-            const id = ++_asyncId;
+            const id = ++_requestId;
             _pending.set(id, { resolve, reject, pluginName });
 
             const message = JSON.stringify({
-                source:    pluginName,
-                messageId: 'invoke',
-                params:    { handleId, methodName, args: args ?? [] },
-                asyncId:   id,
+                jsonrpc: '2.0',
+                id,
+                method: `${pluginName}.${methodName}`,
+                params: { handleId, args: args ?? [] },
             });
 
             if (_isHost) {

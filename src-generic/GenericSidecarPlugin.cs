@@ -99,6 +99,7 @@ namespace WebView2AppHost
 
         /// <summary>
         /// source フィールドがエイリアスと一致するメッセージを受け取り、サイドカーへ転送する。
+        /// JSON-RPC 2.0 と legacy 形式の両方に対応する。
         /// </summary>
         public void HandleWebMessage(string webMessageJson)
         {
@@ -108,12 +109,48 @@ namespace WebView2AppHost
             {
                 var serializer = new JavaScriptSerializer();
                 var msg = serializer.Deserialize<Dictionary<string, object>>(webMessageJson);
-                if (msg == null || !msg.TryGetValue("source", out var srcObj)) return;
+                if (msg == null) return;
 
-                var source = srcObj?.ToString();
+                string? source = null;
+
+                // JSON-RPC 2.0 形式の検出
+                if (msg.TryGetValue("jsonrpc", out var jsonrpcObj) &&
+                    string.Equals(jsonrpcObj?.ToString(), "2.0", StringComparison.OrdinalIgnoreCase))
+                {
+                    // method フィールドから PluginName を抽出
+                    if (msg.TryGetValue("method", out var methodObj) && methodObj != null)
+                    {
+                        var methodStr = methodObj.ToString();
+                        if (!string.IsNullOrEmpty(methodStr))
+                        {
+                            var dotIdx = methodStr.IndexOf('.');
+                            if (dotIdx > 0)
+                            {
+                                source = methodStr.Substring(0, dotIdx);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    // legacy 形式: source フィールドを使用
+                    if (msg.TryGetValue("source", out var srcObj))
+                    {
+                        source = srcObj?.ToString();
+                    }
+                }
+
                 if (string.IsNullOrEmpty(source)) return;
 
-                if (_sidecars.TryGetValue(source, out var sidecar))
+                // サイドカーが登録されているエイリアスか確認
+                if (!_sidecars.ContainsKey(source!))
+                {
+                    return;
+                }
+
+                AppLog.Log("INFO", "GenericSidecarPlugin.HandleWebMessage", $"source={source}, message={webMessageJson.Substring(0, Math.Min(100, webMessageJson.Length))}");
+
+                if (_sidecars.TryGetValue(source!, out var sidecar))
                 {
                     _ = sidecar.SendAsync(webMessageJson);
                 }
