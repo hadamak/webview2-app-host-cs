@@ -4,7 +4,7 @@
 [![Release](https://img.shields.io/github/v/release/hadamak/webview2-app-host-cs)](https://github.com/hadamak/webview2-app-host-cs/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/hadamak/webview2-app-host-cs)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078d4?logo=windows)](https://www.microsoft.com/windows)
-[![.NET Framework](https://img.shields.io/badge/.NET_Framework-4.7.2-512bd4?logo=dotnet)](https://dotnet.microsoft.com)
+[![.NET Framework](https://img.shields.io/badge/.NET_Framework-4.8-512bd4?logo=dotnet)](https://dotnet.microsoft.com)
 
 A lightweight host for distributing HTML/CSS/JavaScript web apps as Windows desktop applications using WebView2.
 
