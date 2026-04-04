@@ -183,7 +183,7 @@ namespace WebView2AppHost
             if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                 Directory.CreateDirectory(dir);
 
-            var tcs = new TaskCompletionSource<(string path, int width, int height)>();
+            var tcs = new TaskCompletionSource<(string? path, int width, int height)>();
 
             _webView.BeginInvoke(new Action(async () =>
             {
@@ -223,7 +223,7 @@ namespace WebView2AppHost
                     $"キャプチャ完了 ({width}x{height}) → {path}");
 #endif
                 SendResult(asyncId,
-                    $"{{\"path\":\"{EscapeJsonString(path)}\"," +
+                    $"{{\"path\":\"{EscapeJsonString(path ?? "")}\"," +
                     $"\"width\":{width}," +
                     $"\"height\":{height}}}");
             }
