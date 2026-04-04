@@ -10,6 +10,7 @@ A lightweight host for distributing HTML/CSS/JavaScript web apps as Windows desk
 
 - 🌐 Fully local delivery via `https://app.local/`
 - 🔗 Native integration with standard Web APIs like `window.close()` and `requestFullscreen()`
+- 🚀 Generic Plugins — Extend your app with C# DLLs or external sidecar processes (Node.js, Python, etc.)
 - 📦 Web content can be served from a `www/` folder, a ZIP file, an EXE-appended ZIP, or an embedded resource
 - 🚀 Multiple distribution methods available — all keeping the package small and fast
 
@@ -31,7 +32,7 @@ A lightweight host for distributing HTML/CSS/JavaScript web apps as Windows desk
 8. [Distribution Methods](#distribution-methods)
 9. [Configuration](#configuration)
 10. [Web API Integration](#web-api-integration)
-11. [Steam Integration](#steam-integration)
+11. [Generic Plugins](#generic-plugins)
 12. [Limitations](#limitations)
 13. [Keyboard Shortcuts](#keyboard-shortcuts)
 14. [FAQ](#faq)
@@ -51,6 +52,7 @@ Intended use cases:
 - Distributing with little to no installation required
 - Using different distribution styles (EXE-appended, bundled ZIP, external `www/`) depending on the situation
 - Running content that can't be hosted on a network server, served from an `https://` origin without a local server
+- Calling C# DLLs or interacting with external processes like Node.js from JavaScript
 
 ---
 
@@ -78,21 +80,21 @@ The host provides a browser-compatible environment, so your content doesn't need
 - `target="_blank"` / `window.open()` — open external links in the default browser
 - `visibilityState` / `visibilitychange` — detect window minimization
 
-### 4. 🎮 Steam Integration
-Ship your web game on Steam without touching the Steamworks SDK. Add the Steam support ZIP and call the Facepunch.Steamworks API from your HTML via `steam.js` — that's the entire integration.
+### 4. 🚀 Generic Plugins (DLL & Sidecar)
+Extend your application's capabilities infinitely with C# DLLs or independent sidecar processes.
 
-### 5. ⚡ Node.js Support (Sidecar)
-Need to access the local file system or run complex server-side tasks? Add the Node.js support components and run a local Node.js sidecar process. Communication happens via standard `postMessage()` / `WebMessageReceived`, providing a familiar bridge for web developers.
+- **DLL Plugin**: Simply list DLL names in `app.conf.json` to call .NET classes and methods directly from JS (e.g. Steamworks integration, direct SQLite access).
+- **Sidecar Plugin**: Launch executables like Node.js or Python as sidecars and communicate via JSON over StdIO.
 
 ---
 
-To keep the application as lightweight as possible, WebView2 App Host is distributed in three separate parts. You only need to download and bundle the parts your specific application requires.
+WebView2 App Host is distributed as a single package that includes expansion capabilities via plugins. Depending on your application's requirements, choose the files you need to bundle:
 
-1.  **Core (Host)** - The minimal WebView2 host (~900KB).
-2.  **Steam Support** - Optional plugin for Steamworks API integration.
-3.  **Node.js Support** - Optional plugin for running a local Node.js sidecar.
+- **WebView2AppHost.exe** — The minimal WebView2 host (~900KB)
+- **WebView2AppHost.GenericDllPlugin.dll** — Generic plugin for C# DLL integration
+- **WebView2AppHost.GenericSidecarPlugin.dll** — Generic plugin for external sidecar processes
 
-> ℹ️ **Node.js Note:** The Node.js runtime (`node.exe`) is not included in the release package for size reasons. Application authors should provide their own Node.exe in the `node-runtime/` directory.
+> ℹ️ **Third-party Libraries:** External libraries and runtimes such as `Facepunch.Steamworks.Win64.dll` or `node.exe` are not included in the release package due to size and licensing. Developers should obtain and bundle these from their official sources as needed.
 
 ---
 
@@ -343,17 +345,22 @@ Not provided. The design intent is to stay close to standard Web APIs rather tha
 
 ---
 
-## 🎮 Steam Integration
+## 🚀 Generic Plugins
 
-Steamworks support is optional. The host itself is designed around standard Web APIs, but Steam integration uses the Facepunch.Steamworks API from JS via `steam.js`.
+WebView2 App Host provides two ways to extend its capabilities beyond standard Web APIs.
 
-For that reason, this README only points to dedicated, audience-specific documents.
+### 1. 🧩 Generic DLL Plugin (C# Integration)
+Integrate any .NET DLL into your app and call its classes and methods directly from JavaScript.
+Perfect for using Steamworks SDK (Facepunch.Steamworks), direct SQLite access, or other .NET libraries.
 
-- 📖 App developer entry point: `docs/steam/en/overview.md`
-- ⚡ Quick start: `docs/steam/en/getting-started.md`
-- 🎯 Bundled sample: `samples/steam-complete/`
+- 📖 Details: `docs/generic-dll-plugin.md`
+- 🎯 Steam Integration Example: `docs/steam/en/overview.md`
 
-Normal distribution files and Steam-related files are intended to be shipped separately. Add the Steam support bundle only when your app actually needs Steamworks.
+### 2. 🚛 Generic Sidecar Plugin (External Process Integration)
+Launch executables like Node.js or Python as "sidecars" and communicate via JSON over StdIO.
+Ideal for complex server-side logic or leveraging existing Node.js code.
+
+- 📖 Details: `docs/generic-sidecar-plugin.md`
 
 ---
 
@@ -393,8 +400,10 @@ Replace `resources/app.ico` and rebuild. You can also set a favicon in your HTML
 ### How do I open DevTools?
 DevTools is enabled automatically in Debug builds. To enable it in a Release build, adjust the `#if DEBUG` block in `src/App.cs`.
 
-### How do I use Steamworks?
-The main README intentionally keeps Steam coverage brief. App developers should start with `docs/steam/en/overview.md`, then use `docs/steam/en/getting-started.md` and `docs/steam/en/api-reference.md` as needed.
+### How do I use C# DLLs or Node.js?
+Add the generic plugins:
+- To call .NET DLLs: Include `WebView2AppHost.GenericDllPlugin.dll` and configure `loadDlls` in `app.conf.json`.
+- To run external processes: Include `WebView2AppHost.GenericSidecarPlugin.dll` and configure `sidecars` in `app.conf.json`.
 
 ### What files do I need to distribute?
 This depends on your distribution method, but the typical set is:
@@ -408,7 +417,7 @@ This depends on your distribution method, but the typical set is:
 - `LICENSE`
 - `THIRD_PARTY_NOTICES.md`
 
-A README template for distribution packages is available at `docs/README_TEMPLATE.en.txt`.
+If you use plugins, you'll also need `WebView2AppHost.GenericDllPlugin.dll` or `WebView2AppHost.GenericSidecarPlugin.dll`, plus any DLLs or runtimes they depend on.
 
 ### Should I use `www/` or ZIP?
 Use `www/` during development, and ZIP or embedded resources for distribution. For large media files, `www/` is the better fit.
@@ -420,47 +429,23 @@ Both modes can be used at the same time — you can pick the right location on a
 
 ```text
 .
-├── .github/
-│   └── workflows/          # CI/CD (build, release)
 ├── docs/
-│   └── steam/
-│       ├── en/
-│       │   ├── feature-guides/   # Achievements, Stats, Cloud, Leaderboards, ...
-│       │   ├── overview.md
-│       │   ├── getting-started.md
-│       │   └── api-reference.md
-│       ├── feature-guides/       # Same content in Japanese
-│       ├── overview.md
-│       ├── getting-started.md
-│       └── api-reference.md
-├── images/                 # Screenshots for README
-├── resources/
-│   └── app.ico
+│   ├── generic-dll-plugin.md      # DLL Plugin specification
+│   ├── generic-sidecar-plugin.md  # Sidecar Plugin specification
+│   └── steam/                     # Steam integration (example of DLL Plugin)
 ├── samples/
-│   └── steam-complete/     # Full working Steam sample
-├── src/                    # Host application (no Steam dependency)
+│   └── steam-complete/            # Full working Steam sample
+├── src/                           # Host application (plugin-independent)
 │   ├── App.cs
-│   ├── AppConfig.cs
-│   ├── SteamBridge.cs      # Plugin loader (loads Steam DLL via reflection)
-│   ├── ISteamBridgeImpl.cs # Interface contract for Steam DLL
-│   ├── WebResourceHandler.cs
-│   ├── WebView2AppHost.csproj
+│   ├── PluginManager.cs           # Plugin loader
 │   └── ...
-├── src-steam/              # Steam DLL project (separate build)
-│   ├── SteamBridgeImpl.cs
-│   └── WebView2AppHost.Steam.csproj
-├── steam-support/          # Prebuilt Steam support ZIP for distribution
-├── test-www/               # Dev/test web content
-├── tests/
-│   ├── HostTests/          # C# host tests
-│   └── steam-js/           # JavaScript steam.js tests
-├── tools/
-│   └── package-steam-support.ps1
-├── web-content/            # Default embedded web content
-│   ├── index.html
-│   ├── steam.js
-│   └── app.conf.json
-├── Directory.Packages.props
+├── src-generic/                   # Generic plugin projects
+│   ├── GenericDllPlugin.cs
+│   └── GenericSidecarPlugin.cs
+├── test-www/                      # Dev/test web content
+├── tests/                         # Various tests
+├── tools/                         # Build and packaging scripts
+├── web-content/                   # Default embedded web content
 ├── LICENSE
 ├── README.md
 ├── README.ja.md
@@ -471,9 +456,9 @@ Both modes can be used at the same time — you can pick the right location on a
 
 ## 🔨 Development Notes
 
-- Main implementation is under `src/`
-- Sample web content is in `web-content/`
-- GitHub Actions workflows for automated build and release are included
+- Main implementation is under `src/`.
+- Generic extensions are under `src-generic/` and can be built or replaced independently from the host.
+- GitHub Actions workflows for automated build and release are included.
 
 ---
 

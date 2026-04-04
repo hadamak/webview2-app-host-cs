@@ -1,33 +1,32 @@
 /**
- * server.js — WebView2AppHost Node.js サイドカー
+ * server.js — WebView2AppHost Node.js サイドカーサンプル
  *
- * C# (GenericSidecarPlugin.cs) の子プロセスとして起動される。
- * stdin から改行区切りの JSON (NDJSON) を受け取り、
- * 登録されたハンドラを呼び出して結果を stdout に書き出す。
- *
- * プロトコル (JSON-RPC 2.0):
- *   C# → stdin: { "jsonrpc": "2.0", "id": N, "method": "Node.ClassName.Method", "params": [...] }
- *   stdout → C#: { "jsonrpc": "2.0", "id": N, "result": ... }
- *              または: { "jsonrpc": "2.0", "id": N, "error": { "code": -32000, "message": "..." } }
- *
- * ハンドラの登録:
- *   require('./server').register('MyClass', {
- *     async myMethod(arg1, arg2) { return arg1 + arg2; }
- *   });
- *
- * 利用例:
- *   const result = await Host.Node.MyClass.myMethod('hello', 'world');
+ * 【概要】
+ * C# (GenericSidecarPlugin.cs) から子プロセスとして起動され、
+ * 標準入出力 (StdIO) を介して JavaScript と JSON-RPC 2.0 形式で通信します。
+ * 
+ * 【通信プロトコル (NDJSON)】
+ *   - 受信 (stdin): {"jsonrpc":"2.0", "id":1, "method":"Node.ClassName.MethodName", "params":[...]}
+ *   - 送信 (stdout): {"jsonrpc":"2.0", "id":1, "result":...}
+ *   - ログ (stderr): ホストのログに出力されます
  */
 
 'use strict';
+
+const fs = require('fs').promises;
+const path = require('path');
 
 // ---------------------------------------------------------------------------
 // ハンドラレジストリ
 // ---------------------------------------------------------------------------
 
-/** @type {Map<string, Record<string, Function>>} className → メソッドマップ */
 const _handlers = new Map();
 
+/**
+ * クラス名とメソッドのマップを登録します。
+ * @param {string} className JS からアクセスする際のクラス名
+ * @param {Record<string, Function>} methods メソッドの定義
+ */
 function register(className, methods) {
     _handlers.set(className, methods);
 }
@@ -82,9 +81,11 @@ async function dispatch(msg) {
             return;
         }
 
+        // メソッドの実行（async/await に対応）
         const result = await fn(...args);
         resolve(id, result ?? null);
     } catch (err) {
+        process.stderr.write(`[server.js] Error in ${msg.method}: ${err}\n`);
         reject(id, err?.message ?? String(err));
     }
 }
@@ -95,9 +96,7 @@ async function dispatch(msg) {
 
 {
     let buffer = '';
-
     process.stdin.setEncoding('utf8');
-
     process.stdin.on('data', (chunk) => {
         buffer += chunk;
         const lines = buffer.split('\n');
@@ -109,53 +108,43 @@ async function dispatch(msg) {
             try {
                 const msg = JSON.parse(trimmed);
                 dispatch(msg).catch((err) => {
-                    process.stderr.write(`[server.js] dispatch error: ${err}\n`);
+                    process.stderr.write(`[server.js] dispatch fatal: ${err}\n`);
                 });
             } catch (parseErr) {
                 process.stderr.write(`[server.js] JSON parse error: ${parseErr}\n`);
             }
         }
     });
-
-    process.stdin.on('end', () => {
-        process.stderr.write('[server.js] stdin closed\n');
-    });
 }
 
 // ---------------------------------------------------------------------------
-// デフォルトハンドラ（組み込み）
+// ハンドラ登録
 // ---------------------------------------------------------------------------
 
+// 1. 基本情報
 register('Node', {
-    version() {
-        return { node: process.version, platform: process.platform, arch: process.arch };
+    version() { return process.version; },
+    platform() { return process.platform; },
+    memory() { return process.memoryUsage(); }
+});
+
+// 2. ファイルシステム操作の例
+register('FileSystem', {
+    async listFiles(dirPath) {
+        const entries = await fs.readdir(dirPath, { withFileTypes: true });
+        return entries.map(e => ({ name: e.name, isDirectory: e.isDirectory() }));
     },
-    hasModule(name) {
-        try { require(name); return true; } catch { return false; }
-    },
-    getPackageVersion(name) {
-        try { return require(`${name}/package.json`).version ?? 'unknown'; } catch { return 'not found'; }
-    },
-    getNodeVersion() { return process.version; },
-    getPlatform() { return process.platform; },
-    uptime() { return process.uptime(); },
-    memoryUsage() { return process.memoryUsage(); },
-    cpuUsage() { return process.cpuUsage(); }
+    async readFile(filePath) {
+        return await fs.readFile(filePath, 'utf8');
+    }
 });
 
 // ---------------------------------------------------------------------------
-// exports
+// 起動処理
 // ---------------------------------------------------------------------------
 
-module.exports = { register, send, resolve, reject };
+process.stderr.write(`[server.js] Node.js サイドカー起動 (PID: ${process.pid})\n`);
 
-// ---------------------------------------------------------------------------
-// 起動ログ
-// ---------------------------------------------------------------------------
-
-process.stderr.write(
-    `[server.js] Node.js サイドカー起動 (PID: ${process.pid}, Node: ${process.version})\n`
-);
-
-// 起動完了をホストに伝えるシグナル
+// ホストに起動完了（Ready）を通知
+// app.conf.json で waitForReady: true の場合、この受信までメッセージがキューイングされます
 process.stdout.write(JSON.stringify({ ready: true }) + '\n');

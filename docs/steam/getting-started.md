@@ -1,65 +1,62 @@
 # Steam 対応の最短導入手順
 
-既存の HTML / JavaScript ゲームを最短で Steam 対応したい方向けのガイドです。
+既存の HTML / JavaScript ゲームを最短で Steam 対応するためのガイドです。
 
 ---
 
-## 0. Steamworks 管理画面での事前設定（コードより先）
+## 0. Steamworks 管理画面での事前設定
 
-使う機能だけ対応してください。未設定のまま API を呼んでも常に失敗します。
+使用する機能（実績、統計、リーダーボード、クラウド）は、あらかじめ Steamworks Partner サイトで定義し、**Publish** しておく必要があります。
 
-| 使う機能 | 必要な手順 |
-|---------|-----------| 
-| 実績 | App Admin → Achievements → 実績を定義 → **Publish** |
-| User Stats | App Admin → Stats → stat 名・型・初期値を定義 → **Publish** |
-| Leaderboards | App Admin → Leaderboards → ボードを作成 → **Publish** |
-| Steam Cloud | App Admin → Steam Cloud → 有効化・クォータ設定 → **Publish** |
-
-> 開発中は AppID `480`（Valve の Spacewar）を使えば上記設定なしで動作確認できます。
+> 開発中は AppID `480`（Spacewar）を使用することで、自前の設定なしで動作確認が可能です。
 
 ---
 
-## 1. DLL の配置（これだけで Steam 機能が有効になります）
+## 1. DLL の配置
 
-`WebView2AppHost.exe` と**同じフォルダ**に以下の3ファイルを置くだけです。
+`WebView2AppHost.exe` と同じフォルダに以下の DLL を配置します。
 
 ```text
 MyGame/
 ├── WebView2AppHost.exe
-├── WebView2AppHost.Steam.dll          ← Steam サポート ZIP に同梱
-├── Facepunch.Steamworks.Win64.dll     ← Steam サポート ZIP に同梱
-├── steam_api64.dll                    ← Steam サポート ZIP に同梱
-└── www/ または game.zip
+├── WebView2AppHost.GenericDllPlugin.dll   ← 汎用 DLL プラグイン
+├── Facepunch.Steamworks.Win64.dll         ← Steamworks C# ラッパー
+├── steam_api64.dll                        ← Steam 公式 SDK
+└── www/
     ├── index.html
-    ├── steam.js
+    ├── host.js                            ← プラグインブリッジ
     └── app.conf.json
 ```
-
-`WebView2AppHost.Steam.dll` が存在しない場合、Steam 機能は自動的に無効になります（アプリはクラッシュしません）。
 
 ---
 
 ## 2. `app.conf.json` の設定
 
+`GenericDllPlugin` を有効化し、Steamworks DLL をエイリアス `Steam` としてロードします。
+
 ```json
 {
-  "title": "My Game",
-  "width": 1280,
-  "height": 720,
+  "plugins": ["GenericDllPlugin"],
+  "loadDlls": [
+    {
+      "alias": "Steam",
+      "dll": "Facepunch.Steamworks.Win64.dll",
+      "exposeEvents": ["OnAchievementProgress", "OnGameOverlayActivated"]
+    }
+  ],
   "steamAppId": "480",
   "steamDevMode": true
 }
 ```
 
-- `steamAppId`: Steam の AppID（本番では自分のタイトルの AppID に変更）
-- `steamDevMode`: 開発時は `true`
-
 ---
 
-## 3. `steam.js` の読み込み
+## 3. `host.js` の読み込み
+
+`host.js` を読み込むことで、JavaScript から `Host` オブジェクトを介して全機能へアクセスできるようになります。
 
 ```html
-<script src="steam.js"></script>
+<script src="host.js"></script>
 ```
 
 ---
@@ -67,13 +64,13 @@ MyGame/
 ## 4. 最小コード
 
 ```html
-<script src="steam.js"></script>
 <script>
 async function main() {
-    // SteamClient の初期化確認（init メソッドは C# 側で行われるため、
-    // JS 側は直接 API を呼び出せるかどうかを確認する）
     try {
-        const name = await Steam.SteamFriends.GetPersonaName();
+        // Steam プレイヤー名を表示してみる
+        // Host.<Alias>.<ClassName>.<MemberName> で呼び出せます
+        await Host.Steam.SteamClient.Init(480, true);
+        const name = await Host.Steam.SteamClient.Name();
         console.log('Player:', name);
     } catch (e) {
         console.log('Steam is unavailable:', e.message);
@@ -90,77 +87,41 @@ main();
 ### 実績の解除
 
 ```js
-await Steam.SteamUserStats.SetAchievement('ACH_WIN_ONE_GAME');
-await Steam.SteamUserStats.StoreStats();
+await Host.Steam.SteamUserStats.SetAchievement('ACH_WIN_ONE_GAME');
+await Host.Steam.SteamUserStats.StoreStats();
 ```
 
-### User Stats の設定
+### スクリーンショットの保存
+
+WebView2 の画面をキャプチャし、Steam のスクリーンショットライブラリに保存します。
 
 ```js
-await Steam.SteamUserStats.SetStat('NumGames', 10);
-await Steam.SteamUserStats.StoreStats();
-```
+// 1. WebView2 の画面を画像ファイルとして出力
+const preview = await Host.Internal.WebView.CapturePreview("screenshot.png");
 
-### Leaderboard へのスコア投稿
-
-```js
-// 汎用インスタンス・ディスパッチャにより、JS側でシームレスにメソッドを呼べます
-const board = await Steam.SteamUserStats.FindOrCreateLeaderboardAsync(
-    'Feet Traveled',
-    2,   // LeaderboardSort.Descending
-    1    // LeaderboardDisplay.Numeric
+// 2. 出力されたファイルを Steam に登録
+await Host.Steam.SteamScreenshots.AddScreenshot(
+    preview.path, "", preview.width, preview.height
 );
-await board.SubmitScoreAsync(5000);
-```
-
-### Steam Cloud への書き込み
-
-```js
-const data = JSON.stringify({ level: 3, score: 9000 });
-const bytes = new TextEncoder().encode(data);
-await Steam.SteamRemoteStorage.FileWriteAsync('save.json', bytes, bytes.length);
-```
-
-### スクリーンショット
-
-```js
-// WebView2 の画面をキャプチャして Steam に登録（Base64 変換なし、C# 側で直接処理）
-await Steam.SteamScreenshots.TriggerScreenshot();
 ```
 
 ### コールバックイベントの受信
 
 ```js
-Steam.on('OnAchievementProgress', ({ achievementName, currentProgress, maxProgress }) => {
+Host.on('OnAchievementProgress', ({ achievementName, currentProgress, maxProgress }) => {
     console.log(`Progress: ${achievementName} ${currentProgress}/${maxProgress}`);
-});
-
-Steam.on('OnGameOverlayActivated', ({ active }) => {
-    document.querySelector('#overlay-indicator').hidden = !active;
 });
 ```
 
 ---
 
-## 6. 呼び出し可能な API の調べ方
+## 6. 呼び出し可能な API と制限事項
 
-JavaScript からは Facepunch.Steamworks の**すべての静的 API** をそのまま呼び出せます。
+Facepunch.Steamworks の**静的 API** をほぼそのまま呼び出せます。詳細は [Facepunch.Steamworks ドキュメント](https://wiki.facepunch.com/steamworks/) を参照してください。
 
-1. [Facepunch.Steamworks ドキュメント](https://wiki.facepunch.com/steamworks/) を開く
-2. 使いたいクラス（例: `SteamUserStats`）とメソッド名を確認する
-3. `Steam.SteamUserStats.SetAchievement(...)` のように呼び出す
+### ⚠️ 重要な制限事項（データサイズ）
 
-API を追加しても `steam.js` の変更は一切不要です。
-
----
-
-## 7. AppID `480`（Spacewar）使用時の注意
-
-付属サンプルは開発用に `480` を使います。実績名・stat 名・leaderboard 名も Spacewar のものを使う必要があります。
-
-- Achievement: `ACH_WIN_ONE_GAME`
-- Int stat: `NumGames`
-- Float stat: `FeetTraveled`
-- Leaderboard: `Feet Traveled`
-
-自分のタイトルでは Steamworks 管理画面で登録した API 名に置き換えてください。
+- **通信サイズ制限**: ホストと JavaScript 間の通信（JSON シリアライザ）にはサイズ制限（約 2MB）があります。
+- **バイナリ転送の回避**: `byte[]` などのバイナリデータは JSON 上で数値配列（`[255, 0, ...]`）として転送されるため、メモリ効率が極めて悪くなります。
+- **巨大なデータの扱い**: スクリーンショットの画像データ、音声データ、巨大なセーブデータなどを**数値配列として直接やり取りすることはできません。**
+- **推奨される設計**: 巨大なデータはファイルとして書き出してからパスを渡す（スクリーンショットの例のように）、あるいはプラグイン側（C#）で処理を完結させるようにしてください。

@@ -42,6 +42,9 @@ namespace WebView2AppHost
         private readonly Dictionary<string, SidecarProcess> _sidecars =
             new Dictionary<string, SidecarProcess>(StringComparer.OrdinalIgnoreCase);
         
+        private readonly Dictionary<string, SidecarEntry> _sidecarEntries =
+            new Dictionary<string, SidecarEntry>(StringComparer.OrdinalIgnoreCase);
+        
         private bool _disposed;
 
         // ---------------------------------------------------------------------------
@@ -63,11 +66,6 @@ namespace WebView2AppHost
 
         public string PluginName => "GenericSidecarPlugin";
 
-        /// <summary>
-        /// ホストから app.conf.json の内容を JSON 文字列として受け取り、初期化する。
-        /// プラグインは内部で JSON をパースし、"sidecars" 配列だけを抽出する。
-        /// ホストの型（AppConfig など）には一切依存しない。
-        /// </summary>
         public void Initialize(string configJson)
         {
             try
@@ -88,7 +86,40 @@ namespace WebView2AppHost
 
                 var baseDir = AppDomain.CurrentDomain.BaseDirectory;
                 foreach (var item in itemList)
-                    TryStartSidecar(baseDir, item);
+                {
+                    var entry = ParseSidecarEntry(item);
+                    if (entry == null) continue;
+
+                    // 1. 設定を保持
+                    _sidecarEntries[entry.Alias] = entry;
+
+                    // 2. 実行ファイルのフルパスを解決
+                    string? execPath = ResolveExecutablePath(baseDir, entry.Executable);
+                    if (execPath == null)
+                    {
+                        AppLog.Log("WARN", "GenericSidecarPlugin", $"実行ファイルが見つかりません: {entry.Executable} (alias={entry.Alias})");
+                        continue;
+                    }
+                    entry.Executable = execPath;
+
+                    // 3. 作業ディレクトリの解決
+                    if (string.IsNullOrEmpty(entry.WorkingDirectory))
+                    {
+                        entry.WorkingDirectory = baseDir;
+                    }
+                    else
+                    {
+                        entry.WorkingDirectory = Path.IsPathRooted(entry.WorkingDirectory)
+                            ? entry.WorkingDirectory
+                            : Path.Combine(baseDir, entry.WorkingDirectory);
+                    }
+
+                    // 4. streaming モードのみ即時起動
+                    if (string.Equals(entry.Mode, "streaming", StringComparison.OrdinalIgnoreCase))
+                    {
+                        TryStartSidecar(entry);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -98,8 +129,54 @@ namespace WebView2AppHost
         }
 
         /// <summary>
+        /// 汎用的な Dictionary から SidecarEntry を生成する。
+        /// </summary>
+        private SidecarEntry? ParseSidecarEntry(object? item)
+        {
+            if (!(item is Dictionary<string, object> d)) return null;
+
+            var entry = new SidecarEntry { Mode = "streaming" };
+            foreach (var kvp in d)
+            {
+                var key = kvp.Key.ToLowerInvariant();
+                var val = kvp.Value;
+                switch (key)
+                {
+                    case "alias": entry.Alias = val?.ToString() ?? ""; break;
+                    case "mode": entry.Mode = val?.ToString() ?? "streaming"; break;
+                    case "executable": entry.Executable = val?.ToString() ?? ""; break;
+                    case "workingdirectory": entry.WorkingDirectory = val?.ToString() ?? ""; break;
+                    case "args":
+                        if (val is System.Collections.ArrayList arr)
+                            entry.Args = arr.Cast<object>().Select(x => x?.ToString() ?? "").ToArray();
+                        break;
+                    case "encoding": entry.Encoding = val?.ToString() ?? "utf-8"; break;
+                    case "waitforready": if (val is bool b) entry.WaitForReady = b; break;
+                }
+            }
+            return entry;
+        }
+
+        private Encoding GetEncoding(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return new UTF8Encoding(false);
+            
+            var lower = name.ToLowerInvariant();
+            try
+            {
+                if (lower == "utf-8" || lower == "utf8") return new UTF8Encoding(false);
+                if (lower == "shift-jis" || lower == "sjis" || lower == "cp932") return Encoding.GetEncoding(932);
+                if (lower == "oem" || lower == "default") return Console.OutputEncoding;
+                return Encoding.GetEncoding(name);
+            }
+            catch
+            {
+                return new UTF8Encoding(false);
+            }
+        }
+
+        /// <summary>
         /// source フィールドがエイリアスと一致するメッセージを受け取り、サイドカーへ転送する。
-        /// JSON-RPC 2.0 と legacy 形式の両方に対応する。
         /// </summary>
         public void HandleWebMessage(string webMessageJson)
         {
@@ -112,53 +189,157 @@ namespace WebView2AppHost
                 if (msg == null) return;
 
                 string? source = null;
+                object? requestId = null;
 
                 // JSON-RPC 2.0 形式の検出
                 if (msg.TryGetValue("jsonrpc", out var jsonrpcObj) &&
                     string.Equals(jsonrpcObj?.ToString(), "2.0", StringComparison.OrdinalIgnoreCase))
                 {
-                    // method フィールドから PluginName を抽出
+                    msg.TryGetValue("id", out requestId);
                     if (msg.TryGetValue("method", out var methodObj) && methodObj != null)
                     {
                         var methodStr = methodObj.ToString();
                         if (!string.IsNullOrEmpty(methodStr))
                         {
                             var dotIdx = methodStr.IndexOf('.');
-                            if (dotIdx > 0)
-                            {
-                                source = methodStr.Substring(0, dotIdx);
-                            }
+                            if (dotIdx > 0) source = methodStr.Substring(0, dotIdx);
                         }
                     }
                 }
                 else
                 {
-                    // legacy 形式: source フィールドを使用
-                    if (msg.TryGetValue("source", out var srcObj))
-                    {
-                        source = srcObj?.ToString();
-                    }
+                    if (msg.TryGetValue("source", out var srcObj)) source = srcObj?.ToString();
                 }
 
                 if (string.IsNullOrEmpty(source)) return;
 
-                // サイドカーが登録されているエイリアスか確認
-                if (!_sidecars.ContainsKey(source!))
-                {
-                    return;
-                }
-
-                AppLog.Log("INFO", "GenericSidecarPlugin.HandleWebMessage", $"source={source}, message={webMessageJson.Substring(0, Math.Min(100, webMessageJson.Length))}");
-
+                // 1. 常駐サイドカー (streaming) をチェック
                 if (_sidecars.TryGetValue(source!, out var sidecar))
                 {
                     _ = sidecar.SendAsync(webMessageJson);
+                    return;
+                }
+
+                // 2. オンデマンドサイドカー (cli) をチェック
+                if (_sidecarEntries.TryGetValue(source!, out var entry) &&
+                    string.Equals(entry.Mode, "cli", StringComparison.OrdinalIgnoreCase))
+                {
+                    _ = ExecuteCliAsync(entry, msg, webMessageJson);
                 }
             }
-            catch
+            catch { }
+        }
+
+        /// <summary>
+        /// cli モードのサイドカーを起動し、結果を JS に返す。
+        /// </summary>
+        private async Task ExecuteCliAsync(SidecarEntry entry, Dictionary<string, object> msg, string originalJson)
+        {
+            try
             {
-                // 無視
+                var requestId = msg.ContainsKey("id") ? msg["id"] : null;
+                var args = new List<string>(entry.Args);
+
+                // JS からの params を引数に展開する
+                if (msg.TryGetValue("params", out var pObj))
+                {
+                    if (pObj is System.Collections.ArrayList pList)
+                    {
+                        foreach (var p in pList)
+                        {
+                            var pStr = p?.ToString() ?? "";
+                            // {args} プレースホルダがあれば置換、なければ末尾に追加
+                            bool replaced = false;
+                            for (int i = 0; i < args.Count; i++)
+                            {
+                                if (args[i] == "{args}")
+                                {
+                                    args[i] = pStr;
+                                    replaced = true;
+                                    break;
+                                }
+                            }
+                            if (!replaced) args.Add(pStr);
+                        }
+                    }
+                    else if (pObj is Dictionary<string, object> pDict)
+                    {
+                        // key-value は JSON 文字列として渡すか、あるいは無視するか
+                        // ここでは簡易的に JSON 文字列化して渡す
+                        args.Add(new JavaScriptSerializer().Serialize(pDict));
+                    }
+                }
+
+                // {args} が残っている場合は削除
+                args.RemoveAll(a => a == "{args}");
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = entry.Executable,
+                    Arguments = string.Join(" ", args.Select(a => a.Contains(" ") ? $"\"{a}\"" : a)),
+                    WorkingDirectory = entry.WorkingDirectory,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = GetEncoding(entry.Encoding),
+                    StandardErrorEncoding = GetEncoding(entry.Encoding)
+                };
+
+                AppLog.Log("INFO", "GenericSidecarPlugin.CLI", $"Execute: {psi.FileName} {psi.Arguments}");
+
+                using (var process = new Process { StartInfo = psi })
+                {
+                    process.Start();
+                    
+                    var stdoutTask = process.StandardOutput.ReadToEndAsync();
+                    var stderrTask = process.StandardError.ReadToEndAsync();
+
+                    await Task.WhenAll(stdoutTask, stderrTask);
+                    process.WaitForExit();
+
+                    var stdout = await stdoutTask;
+                    var stderr = await stderrTask;
+
+                    if (!string.IsNullOrWhiteSpace(stderr))
+                    {
+                        AppLog.Log("WARN", $"Sidecar.{entry.Alias}.Stderr", stderr);
+                    }
+
+                    // 結果を JS に送信
+                    // stdout が有効な JSON であればパースして result に入れる。そうでなければ文字列。
+                    object result;
+                    try { result = new JavaScriptSerializer().DeserializeObject(stdout); }
+                    catch { result = stdout.Trim(); }
+
+                    SendResponseToJs(requestId, result, entry.Alias);
+                }
             }
+            catch (Exception ex)
+            {
+                AppLog.Log("ERROR", "GenericSidecarPlugin.ExecuteCli", ex.Message, ex);
+            }
+        }
+
+        private void SendResponseToJs(object? id, object result, string alias)
+        {
+            if (_webView.IsDisposed || !_webView.IsHandleCreated) return;
+
+            var response = new Dictionary<string, object>
+            {
+                ["jsonrpc"] = "2.0",
+                ["id"] = id ?? 0,
+                ["result"] = result,
+                ["source"] = alias
+            };
+
+            var json = new JavaScriptSerializer().Serialize(response);
+
+            _webView.BeginInvoke(new Action(() =>
+            {
+                if (_webView.CoreWebView2 != null)
+                    _webView.CoreWebView2.PostWebMessageAsString(json);
+            }));
         }
 
         // ---------------------------------------------------------------------------
@@ -170,59 +351,14 @@ namespace WebView2AppHost
         /// </summary>
         private void TryStartSidecar(SidecarEntry entry)
         {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            TryStartSidecar(baseDir, entry);
-        }
-
-        /// <summary>
-        /// SidecarEntry を解析してサイドカープロセスを起動する。
-        /// </summary>
-        private void TryStartSidecar(string baseDir, SidecarEntry entry)
-        {
-            if (string.IsNullOrEmpty(entry.Alias) || string.IsNullOrEmpty(entry.Executable))
-            {
-                AppLog.Log("WARN", "GenericSidecarPlugin.TryStartSidecar", "Alias または Executable が空です");
-                return;
-            }
-
-            // 1. 実行ファイルのフルパスを解決（前回の PATH 検索ロジックを含む）
-            string? execPath = ResolveExecutablePath(baseDir, entry.Executable);
-
-            if (execPath == null)
-            {
-                AppLog.Log("WARN", "GenericSidecarPlugin.TryStartSidecar", $"実行ファイルが見つかりません: {entry.Executable}");
-                return;
-            }
-
-            // 2. 作業ディレクトリ (CWD) の決定
-            string workDir;
-            if (string.IsNullOrEmpty(entry.WorkingDirectory))
-            {
-                workDir = baseDir; 
-            }
-            else
-            {
-                // 指定がある場合は アプリ からの相対パスとして解決
-                workDir = Path.IsPathRooted(entry.WorkingDirectory)
-                    ? entry.WorkingDirectory
-                    : Path.Combine(baseDir, entry.WorkingDirectory);
-            }
-
-            // 3. ディレクトリの存在確認
-            if (!Directory.Exists(workDir))
-            {
-                AppLog.Log("WARN", "GenericSidecarPlugin", $"作業ディレクトリが見つかりません: {workDir}。baseDir を使用します。");
-                workDir = baseDir;
-            }
-
             try
             {
-                // 起動（execPath はグローバルな場所、workDir はアプリの場所になる）
-                var sidecar = new SidecarProcess(entry.Alias, execPath, workDir, entry.Args, entry.WaitForReady, _webView);
+                // すでに解決済みの Executable と WorkingDirectory を使用
+                var sidecar = new SidecarProcess(entry, _webView, GetEncoding);
                 sidecar.Start();
                 _sidecars[entry.Alias] = sidecar;
 
-                AppLog.Log("INFO", "GenericSidecarPlugin", $"サイドカー起動成功: {entry.Alias} (CWD: {workDir})");
+                AppLog.Log("INFO", "GenericSidecarPlugin", $"サイドカー(streaming)起動成功: {entry.Alias}");
             }
             catch (Exception ex)
             {
@@ -294,51 +430,8 @@ namespace WebView2AppHost
         /// </summary>
         private void TryStartSidecar(string baseDir, object? item)
         {
-            if (item is Dictionary<string, object> d)
-            {
-                // 大文字小文字を区別せずにキーを検索
-                var entry = new SidecarEntry
-                {
-                    Alias = "",
-                    Mode = "streaming",
-                    Executable = "",
-                    WorkingDirectory = "",
-                    Args = Array.Empty<string>(),
-                    WaitForReady = false
-                };
-
-                foreach (var kvp in d)
-                {
-                    var key = kvp.Key.ToLowerInvariant();
-                    var value = kvp.Value;
-
-                    switch (key)
-                    {
-                        case "alias":
-                            entry.Alias = value?.ToString() ?? "";
-                            break;
-                        case "mode":
-                            entry.Mode = value?.ToString() ?? "streaming";
-                            break;
-                        case "executable":
-                            entry.Executable = value?.ToString() ?? "";
-                            break;
-                        case "workingdirectory":
-                            entry.WorkingDirectory = value?.ToString() ?? "";
-                            break;
-                        case "args":
-                            if (value is System.Collections.ArrayList arr)
-                                entry.Args = arr.Cast<object>().Select(x => x?.ToString() ?? "").ToArray();
-                            break;
-                        case "waitforready":
-                            if (value is bool b)
-                                entry.WaitForReady = b;
-                            break;
-                    }
-                }
-
-                TryStartSidecar(baseDir, entry);
-            }
+            // Initialize 側で ParseSidecarEntry を呼ぶようになったため、このメソッドは不要になったか
+            // あるいは互換性のために残す。現在は Initialize 内で処理している。
         }
 
         // ---------------------------------------------------------------------------
@@ -376,8 +469,10 @@ namespace WebView2AppHost
             private readonly string _executable;
             private readonly string _workingDirectory;
             private readonly string[] _args;
+            private readonly string _encoding;
             private readonly WebView2 _webView;
             private readonly bool _waitForReady;
+            private readonly Func<string, Encoding> _getEncoding;
             
             private Process? _process;
             private StreamWriter? _stdin;
@@ -386,30 +481,33 @@ namespace WebView2AppHost
             private bool _isReady;
             private bool _disposed;
 
-            public SidecarProcess(string alias, string executable, string workingDirectory, string[] args, bool waitForReady, WebView2 webView)
+            public SidecarProcess(SidecarEntry entry, WebView2 webView, Func<string, Encoding> getEncoding)
             {
-                Alias = alias;
-                _executable = executable;
-                _workingDirectory = workingDirectory;
-                _args = args;
-                _waitForReady = waitForReady;
+                Alias = entry.Alias;
+                _executable = entry.Executable;
+                _workingDirectory = entry.WorkingDirectory;
+                _args = entry.Args;
+                _encoding = entry.Encoding;
                 _webView = webView;
+                _waitForReady = entry.WaitForReady;
+                _getEncoding = getEncoding;
             }
 
             public void Start()
             {
+                var encoding = _getEncoding(_encoding);
                 var psi = new ProcessStartInfo
                 {
                     FileName = _executable,
-                    Arguments = string.Join(" ", _args),
+                    Arguments = string.Join(" ", _args.Select(a => a.Contains(" ") ? $"\"{a}\"" : a)),
                     WorkingDirectory = _workingDirectory,
                     UseShellExecute = false,
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     CreateNoWindow = true,
-                    StandardOutputEncoding = new UTF8Encoding(false),
-                    StandardErrorEncoding = new UTF8Encoding(false),
+                    StandardOutputEncoding = encoding,
+                    StandardErrorEncoding = encoding,
                 };
 
                 _process = new Process { StartInfo = psi, EnableRaisingEvents = true };
@@ -421,7 +519,7 @@ namespace WebView2AppHost
                 _process.BeginOutputReadLine();
                 _process.BeginErrorReadLine();
 
-                _stdin = new StreamWriter(_process.StandardInput.BaseStream, new UTF8Encoding(false));
+                _stdin = new StreamWriter(_process.StandardInput.BaseStream, encoding);
 
                 AppLog.Log("INFO", "SidecarProcess",
                     $"サイドカープロセスを起動しました: alias={Alias}, PID={_process.Id}");

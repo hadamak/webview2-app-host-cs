@@ -91,18 +91,8 @@ namespace WebView2AppHost
                 return Task.FromResult<Type?>(null);
             }
 
-            // アセンブリを検索（className をそのまま試す）
+            // アセンブリを検索
             if (!_assemblies.TryGetValue(dllName!, out var asm))
-            {
-                // 見つからなければ、Steam なら "Steam" として試す
-                if (dllName != "Steam" && _assemblies.TryGetValue("Steam", out var steamAsm))
-                {
-                    asm = steamAsm;
-                    dllName = "Steam";
-                }
-            }
-
-            if (asm == null)
             {
                 AppLog.Log("WARN", "GenericDllPlugin.ResolveTypeAsync", $"アセンブリが見つかりません: {dllName}");
                 return Task.FromResult<Type?>(null);
@@ -111,14 +101,10 @@ namespace WebView2AppHost
             // 型を検索 - 複数のパターンを試す
             try
             {
-                // 1. そのまま試す
+                // 1. そのまま試す（完全修飾名など）
                 var type = asm.GetType(className, false, true);
                 
-                // 2. Facepunch.Steamworks.プレフィックスを試す
-                if (type == null)
-                    type = asm.GetType($"Facepunch.Steamworks.{className}", false, true);
-                
-                // 3. クラス名だけを確認（静的クラスの可能性）
+                // 2. クラス名だけを確認（静的クラスの可能性）
                 if (type == null)
                 {
                     foreach (var t in asm.GetExportedTypes())
@@ -133,12 +119,6 @@ namespace WebView2AppHost
 
                 if (type == null)
                 {
-                    // 型が見つからない場合は、アセンブリ内のすべての型をログ出力
-                    AppLog.Log("INFO", "GenericDllPlugin.ResolveTypeAsync", $"アセンブリ内の型をスキャン中...");
-                    foreach (var t in asm.GetExportedTypes().Take(20))
-                    {
-                        AppLog.Log("INFO", "GenericDllPlugin.ResolveTypeAsync", $"  - {t.FullName}");
-                    }
                     AppLog.Log("WARN", "GenericDllPlugin.ResolveTypeAsync", $"型が見つかりません: {className}");
                     return Task.FromResult<Type?>(null);
                 }
@@ -242,25 +222,40 @@ namespace WebView2AppHost
                     }
                 }
 
-                // 登録された DLL アセンブリがあるか確認
-                if (source != null && _assemblies.ContainsKey(source))
+                // 登録された DLL アセンブリがあるか確認。一致する場合は dllName を補完して Host へルーティングする
+                bool isDllAlias = source != null && _assemblies.ContainsKey(source);
+                if (isDllAlias)
                 {
-                    // DLL 名を設定
-                    if (dict.TryGetValue("params", out var pObj) && pObj is Dictionary<string, object> pDict)
+                    if (dict.TryGetValue("params", out var pObj))
                     {
-                        pDict["dllName"] = source;
+                        if (pObj is Dictionary<string, object> pDict)
+                        {
+                            pDict["dllName"] = source;
+                        }
+                        else if (pObj is System.Collections.ArrayList pList)
+                        {
+                            // params が配列の場合は、dllName と args を持つ Dictionary に変換する
+                            // これにより ResolveTypeAsync で dllName を特定可能にする
+                            dict["params"] = new Dictionary<string, object>
+                            {
+                                ["dllName"] = source,
+                                ["args"] = pList
+                            };
+                        }
                     }
                     
                     // 基底クラス(ReflectionDispatcherBase)が処理できるように source を "Host" に偽装する
-                    dict["source"] = "Host";
+                    dict["source"] = SourceName;
                     webMessageJson = new JavaScriptSerializer().Serialize(dict);
-                    
-                    HandleWebMessageCore(webMessageJson);
-                    return;
                 }
 
-                // DLL に該当しない場合は、他のプラグイン（SidecarPluginなど）に任せる
-                // HandleWebMessageCore を呼び出さない
+                // source が "Host" の場合のみ、基底クラスのディスパッチャへ渡す
+                // (DLL エイリアスからの偽装後、または最初から source:"Host" だった場合)
+                if (dict.TryGetValue("source", out var finalSrc) && 
+                    string.Equals(finalSrc?.ToString(), SourceName, StringComparison.OrdinalIgnoreCase))
+                {
+                    HandleWebMessageCore(webMessageJson);
+                }
             }
             catch { /* json parse error ignore */ }
         }

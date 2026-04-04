@@ -1,28 +1,30 @@
-About the Steam Support Package
-====================================
+WebView2 App Host - Steam Integration (via GenericDllPlugin)
+==========================================================
 
-This ZIP contains the Steamworks-related files that are meant to be added 
-on top of the standard package.
+This project supports Steamworks integration using the GenericDllPlugin.
+You can call the Facepunch.Steamworks API directly from JavaScript.
 
-■ Contents
-- WebView2AppHost.Steam.dll: Steam bridge DLL for WebView2AppHost
-- Facepunch.Steamworks.Win64.dll: Managed bridge connecting WebView2AppHost to Steamworks SDK
-- steam_api64.dll: Steamworks SDK runtime DLL
-- steam.js: Proprietary Steam API used from HTML content
-- steam-sample/: Complete working sample
-- STEAM.md: Start-here overview guide
-- steam-docs/: Setup guide, feature guides, and API reference
-- LICENSE: License for this application
-- THIRD_PARTY_NOTICES.md: Third-party library notices
+■ How to use
+1. Place the following files next to WebView2AppHost.exe:
+   - WebView2AppHost.GenericDllPlugin.dll
+   - Facepunch.Steamworks.Win64.dll
+   - steam_api64.dll
 
-■ Installation
-1.  Extract the standard package (Core).
-2.  Extract this Steam support package into the same folder.
-3.  Add `steam.js` and Steam-related `app.conf.json` settings to your own content.
+2. Configure app.conf.json:
+   {
+     "plugins": ["GenericDllPlugin"],
+     "loadDlls": ["Facepunch.Steamworks.Win64.dll"]
+   }
 
-■ Usage
-Use `steam-sample/` as a ready-to-run validation sample if needed.
+3. Call from JavaScript:
+   await Host.invoke({
+     dllName: "Facepunch.Steamworks.Win64",
+     className: "SteamClient",
+     methodName: "Init",
+     args: [480]
+   });
 
-■ Details
-This ZIP is for app developers using the bridge. Start with `STEAM.md`, 
-then use `steam-docs/en/` for English documentation.
+■ Documentation
+For more details, see:
+- docs/generic-dll-plugin.md (Plugin specification)
+- docs/steam/overview.md (Steam specific guide)

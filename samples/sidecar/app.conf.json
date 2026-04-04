@@ -1,0 +1,20 @@
+{
+  "sidecars": [
+    {
+      "alias": "PowerShell",
+      "mode": "streaming",
+      "executable": "powershell",
+      "workingDirectory": "powershell-runtime",
+      "args": ["server.ps1"],
+      "waitForReady": true
+    },
+    {
+      "alias": "Ping",
+      "mode": "cli",
+      "executable": "ping",
+      "args": ["-n", "1", "{args}"],
+      "waitForReady": false,
+      "encoding": "sjis"
+    }
+  ]
+}

@@ -26,32 +26,14 @@ jobs:
       - name: Build
         run: msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
 
-      - name: Build Steam DLL
-        run: msbuild src-steam\WebView2AppHost.Steam.csproj /p:Configuration=Release /p:Platform=x64
+      - name: Build Generic Plugins
+        run: |
+          msbuild src-generic\WebView2AppHost.GenericDllPlugin.csproj /p:Configuration=Release /p:Platform=x64
+          msbuild src-generic\WebView2AppHost.GenericSidecarPlugin.csproj /p:Configuration=Release /p:Platform=x64
 
-      - name: Build Node DLL
-        run: msbuild src-node\WebView2AppHost.Node.csproj /p:Configuration=Release /p:Platform=x64
-
-      - name: Build HostTests
-        run: msbuild tests\HostTests\HostTests.csproj "/t:Restore;Build" /p:Configuration=Debug /p:Platform=x64
-
-      - name: Run HostTests
-        run: tests\HostTests\bin\x64\Debug\net48\HostTests.exe
-
-      - name: Run steam.js unit tests
-        run: node tests/steam-js/steam.test.js
-
-      - name: Package Core
+      - name: Package Release
         shell: pwsh
-        run: .\tools\package-core.ps1
-
-      - name: Package Steam support
-        shell: pwsh
-        run: .\tools\package-steam-support.ps1
-
-      - name: Package Node support
-        shell: pwsh
-        run: .\tools\package-node-support.ps1
+        run: .\tools\package-release.ps1
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -60,10 +42,6 @@ jobs:
           path: |
             dist/*.zip
             dist/*.sha256
-            steam-support/*.zip
-            steam-support/*.sha256
-            node-support/*.zip
-            node-support/*.sha256
 
       - name: Create GitHub Release
         if: github.ref_type == 'tag'
@@ -74,7 +52,3 @@ jobs:
           files: |
             dist/*.zip
             dist/*.sha256
-            steam-support/*.zip
-            steam-support/*.sha256
-            node-support/*.zip
-            node-support/*.sha256

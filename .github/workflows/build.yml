@@ -18,11 +18,13 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v3
 
-    - name: Restore NuGet packages
-      run: msbuild src\WebView2AppHost.csproj /t:Restore
-
     - name: Build
-      run: msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
+      run: msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64
+
+    - name: Build Generic Plugins
+      run: |
+        msbuild src-generic\WebView2AppHost.GenericDllPlugin.csproj "/t:Restore;Build"/p:Configuration=Release /p:Platform=x64
+        msbuild src-generic\WebView2AppHost.GenericSidecarPlugin.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64
 
     - name: Build HostTests
       run: msbuild tests\HostTests\HostTests.csproj "/t:Restore;Build" /p:Configuration=Debug /p:Platform=x64
@@ -30,8 +32,8 @@ jobs:
     - name: Run HostTests
       run: tests\HostTests\bin\x64\Debug\net48\HostTests.exe
 
-    - name: Run steam.js unit tests
-      run: node tests/steam-js/steam.test.js
+    - name: Run host.js unit tests
+      run: node tests/host-js/host.test.js
 
     - name: Upload artifact
       uses: actions/upload-artifact@v7

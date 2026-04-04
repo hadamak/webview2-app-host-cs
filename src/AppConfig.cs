@@ -269,6 +269,9 @@ namespace WebView2AppHost
         [DataMember(Name = "args")]
         public string[] Args { get; set; } = Array.Empty<string>();
 
+        [DataMember(Name = "encoding")]
+        public string Encoding { get; set; } = "utf-8";
+
         [DataMember(Name = "waitForReady")]
         public bool WaitForReady { get; set; } = false;
     }

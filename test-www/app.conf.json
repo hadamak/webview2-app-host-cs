@@ -12,11 +12,6 @@
       "alias": "Steam",
       "dll": "Facepunch.Steamworks.Win64.dll",
       "exposeEvents": ["OnAchievementProgress", "OnGameOverlayActivated", "OnMicroTxnAuthorizationResponse"]
-    },
-    {
-      "alias": "TestLib",
-      "dll": "TestLib.dll",
-      "exposeEvents": ["OnResult"]
     }
   ],
   "sidecars": [
@@ -29,12 +24,12 @@
       "waitForReady": true
     },
     {
-      "alias": "TestSidecar",
-      "mode": "streaming",
-      "executable": "node",
-      "workingDirectory": "test-sidecar",
-      "args": ["test_sidecar.js"],
-      "waitForReady": true
+      "alias": "Ping",
+      "mode": "cli",
+      "executable": "ping",
+      "args": ["-n", "1", "{args}"],
+      "waitForReady": false,
+      "encoding": "sjis"
     }
   ]
 }
