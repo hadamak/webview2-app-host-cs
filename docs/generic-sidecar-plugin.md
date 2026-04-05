@@ -47,10 +47,12 @@ www/
 | キー | 型 | 説明 |
 |------|----|------|
 | `alias` | string | JS からメッセージを送る際の宛先名。一意である必要がある。 |
+| `mode` | string | 起動モード。`streaming`（常駐・双方向）または `cli`（都度実行）。既定値は `streaming`。 |
 | `executable` | string | 実行ファイルのパス。app.conf.json からの相対パスまたは絶対パス。 |
 | `workingDirectory`| string | プロセスの作業ディレクトリ。省略時は EXE の場所。 |
 | `args` | string[] | 起動引数の配列。 |
-| `waitForReady` | bool | `true` の場合、サイドカーから最初のメッセージ（Ready通知）が来るまで、JS からの送信をキューイングする。 |
+| `encoding` | string | 標準入出力に使う文字コード。`utf-8` / `shift-jis` / `cp932` / `oem` などを指定可能。既定値は `utf-8`。 |
+| `waitForReady` | bool | `true` の場合、起動時に `{"ready":true}` が来るまでホスト側が初期化待機する（最大約10秒）。 |
 
 ---
 
@@ -107,21 +109,26 @@ window.chrome.webview.addEventListener('message', (e) => {
 ```js
 const fs = require('fs').promises;
 
-// ハンドラの登録
-const handlers = {
-  async listFiles(dir) {
-    return await fs.readdir(dir);
-  }
-};
+// メッセージ単位 (NDJSON) で受信する
+let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', async (chunk) => {
+  buffer += chunk;
+  const lines = buffer.split('\n');
+  buffer = lines.pop() ?? '';
 
-// メインループ
-process.stdin.on('data', (data) => {
-  const msg = JSON.parse(data);
-  const result = handlers[msg.method.split('.')[2]](...msg.params);
-  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result }) + '\n');
+  for (const line of lines) {
+    const msg = JSON.parse(line);
+    const args = Array.isArray(msg.params) ? msg.params : [];
+
+    if (msg.method === 'Node.FileSystem.listFiles') {
+      const result = await fs.readdir(args[0] ?? '.');
+      process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result }) + '\n');
+    }
+  }
 });
 
-// 起動完了通知
+// 起動完了通知（waitForReady: true で待機される）
 process.stdout.write(JSON.stringify({ ready: true }) + '\n');
 ```
 

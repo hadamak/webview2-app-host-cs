@@ -21,11 +21,16 @@ You can run node.exe as a sidecar process and communicate via JSON.
      ]
    }
 
-3. Communicate from JavaScript:
-   window.chrome.webview.postMessage({
-     source: "NodeBackend",
-     method: "hello"
-   });
+3. Communicate from JavaScript (JSON-RPC 2.0):
+   window.chrome.webview.postMessage(JSON.stringify({
+     jsonrpc: "2.0",
+     id: 1,
+     method: "NodeBackend.Node.version",
+     params: []
+   }));
+
+   Or use the bundled host.js helper for a simpler call style:
+   const version = await Host.NodeBackend.Node.version();
 
 ■ Documentation
 For more details, see:
