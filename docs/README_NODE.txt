@@ -21,11 +21,16 @@ Node.js と連携できます。node.exe をサイドカーとして起動し、
      ]
    }
 
-3. JavaScript から通信します。
-   window.chrome.webview.postMessage({
-     source: "NodeBackend",
-     method: "hello"
-   });
+3. JavaScript から通信します（JSON-RPC 2.0）。
+   window.chrome.webview.postMessage(JSON.stringify({
+     jsonrpc: "2.0",
+     id: 1,
+     method: "NodeBackend.Node.version",
+     params: []
+   }));
+
+   あるいは同梱の host.js を使うと、より簡単に呼び出せます。
+   const version = await Host.NodeBackend.Node.version();
 
 ■ 詳細ドキュメント
 詳細は以下を参照してください。
