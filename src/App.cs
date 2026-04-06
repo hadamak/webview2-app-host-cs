@@ -40,8 +40,10 @@ namespace WebView2AppHost
         // favicon 管理
         private Icon? _favicon = null;
 
-        // プラグインマネージャー（Steam 等のプラグインを統合管理）
-        private PluginManager? _pluginManager;
+        // コネクターバス（新設計）
+        private MessageBus?      _bus;
+        private McpConnector?    _mcpConnector;
+        private readonly System.Threading.CancellationTokenSource _shutdownCts = new System.Threading.CancellationTokenSource();
 
         private CdpProxyHandler? _cdpProxy;
 
@@ -255,7 +257,13 @@ namespace WebView2AppHost
         {
             try
             {
-                _pluginManager = PluginManager.Create(_webView, _config, _config.RawJson);
+                // ConnectorFactory でバスを構築
+                var enableMcp = Array.IndexOf(System.Environment.GetCommandLineArgs(), "--mcp") >= 0;
+                (_bus, _mcpConnector) = ConnectorFactory.BuildWithBrowser(
+                    _webView, _config, enableMcp, _shutdownCts.Token);
+
+                if (enableMcp && _mcpConnector != null)
+                    StartMcpConnector();
             }
             catch (Exception ex)
             {
@@ -263,27 +271,8 @@ namespace WebView2AppHost
                 return;
             }
 
-            if (!_pluginManager.HasPlugins) return;
-
-            _webView.CoreWebView2.WebMessageReceived += (s, e) =>
-            {
-                try
-                {
-                    string messageJson = WebMessageHelper.GetJsonPayload(
-                        () => e.TryGetWebMessageAsString(),
-                        () => e.WebMessageAsJson
-                    );
-                    _pluginManager?.HandleWebMessage(messageJson);
-                }
-                catch (Exception ex)
-                {
-                    AppLog.Log("ERROR", "App.WebMessageReceived", ex.Message, ex);
-                }
-            };
-
-#if DEBUG
-            AppLog.Log("INFO", "App.InitPlugins", "プラグインマネージャーを有効化しました");
-#endif
+            // WebMessageReceived は BrowserConnector が内部で購読している
+            AppLog.Log("INFO", "App.InitPlugins", "コネクターバスを有効化しました");
         }
 
         // ---------------------------------------------------------------------------
@@ -658,13 +647,30 @@ namespace WebView2AppHost
             StartCloseNavigation();
         }
 
-        protected override void Dispose(bool disposing)
+        private void StartMcpConnector()
+        {
+            if (_mcpConnector == null) return;
+            var thread = new System.Threading.Thread(() =>
+                _mcpConnector.RunAsync(_shutdownCts.Token).GetAwaiter().GetResult())
+            {
+                IsBackground = true,
+                Name         = "McpConnectorThread",
+            };
+            thread.Start();
+            AppLog.Log("INFO", "App", "McpConnector 起動（--mcp モード）");
+        }
+
+                protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                // MCP スレッドとサイドカーに終了を通知
+                _shutdownCts.Cancel();
+                _shutdownCts.Dispose();
+
                 _favicon?.Dispose();
                 _cdpProxy?.Dispose();
-                _pluginManager?.Dispose();
+                _bus?.Dispose();
                 if (_disposeZipOnClose)
                     _zip.Dispose();
             }

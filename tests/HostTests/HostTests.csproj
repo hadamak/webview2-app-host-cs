@@ -8,33 +8,63 @@
     <Nullable>enable</Nullable>
     <RootNamespace>HostTests</RootNamespace>
     <AssemblyName>HostTests</AssemblyName>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
+  <!-- ================================
+       変更なしのソースファイル（本体 src/ から参照）
+       ================================ -->
   <ItemGroup>
-    <Compile Include="..\..\src\PopupWindowOptions.cs" />
-    <Compile Include="..\..\src\ZipContentProvider.cs" />
-    <Compile Include="..\..\src\SubStream.cs" />
-    <Compile Include="..\..\src\WebResourceHandler.cs" />
-    <Compile Include="..\..\src\NavigationPolicy.cs" />
-    <Compile Include="..\..\src\MimeTypes.cs" />
     <Compile Include="..\..\src\AppLog.cs" />
     <Compile Include="..\..\src\AppConfig.cs" />
     <Compile Include="..\..\src\CloseRequestState.cs" />
-    <Compile Include="..\..\src\IHostPlugin.cs" />
-    <Compile Include="..\..\src\PluginManager.cs" />
+    <Compile Include="..\..\src\IConnector.cs" />
+    <Compile Include="..\..\src\MimeTypes.cs" />
+    <Compile Include="..\..\src\NavigationPolicy.cs" />
+    <Compile Include="..\..\src\PopupWindowOptions.cs" />
+    <Compile Include="..\..\src\SubStream.cs" />
     <Compile Include="..\..\src\WebMessageHelper.cs" />
-    <Compile Include="..\..\src\ReflectionDispatcherBase.cs" />
-    <Compile Include="..\..\src\InternalHostPlugin.cs" />
+    <Compile Include="..\..\src\WebResourceHandler.cs" />
+    <Compile Include="..\..\src\ZipContentProvider.cs" />
   </ItemGroup>
 
+  <!-- ================================
+       新設計ファイル（テスト対象）
+       ================================ -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.Web.WebView2" />
+    <Compile Include="..\..\src\MessageBus.cs" />
+    <Compile Include="..\..\src\ReflectionDispatcherBase.cs" />
+    <Compile Include="..\..\src\McpBridge.cs" />
+    <Compile Include="..\..\src\Connectors\IBrowserTools.cs" />
+    <Compile Include="..\..\src\Connectors\McpConnector.cs" />
+    <Compile Include="..\..\src\Connectors\PipeServerConnector.cs" />
+    <Compile Include="..\..\src\Connectors\PipeClientConnector.cs" />
+    <Compile Include="..\..\src\Connectors\SidecarConnector.cs" />
+    <Compile Include="..\..\src\Connectors\DllConnector.cs" />
   </ItemGroup>
 
+  <!-- ================================
+       テストファイル
+       ================================ -->
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="McpTests.cs" />
+  </ItemGroup>
+
+  <!-- ================================
+       フレームワーク参照
+       ================================ -->
   <ItemGroup>
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Web.Extensions" />
   </ItemGroup>
+
+  <!--
+    WebView2 は BrowserConnector / ConnectorFactory が参照するが、
+    テストではこれらを使わないため不要。
+    UseWindowsForms=true は ZipContentProvider 等が間接的に必要。
+  -->
+
 </Project>

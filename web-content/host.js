@@ -12,7 +12,7 @@
  *   MethodName  呼び出すメソッド名
  *
  * 例（常駐の組み込み插件 Internal）:
- *   const preview = await Host.Internal.WebView.CapturePreview();
+ *   const preview = await Host.Browser.WebView.ScreenshotAsync();
  *
  * イベント受信:
  *   Host.on('EventName', (params) => { ... });

@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>net48</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
+    <UseWindowsForms>false</UseWindowsForms>
     <AssemblyName>WebView2AppHost.GenericDllPlugin</AssemblyName>
     <RootNamespace>WebView2AppHost</RootNamespace>
     <Nullable>enable</Nullable>
@@ -12,6 +12,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <DebugType Condition="'$(Configuration)'=='Release'">none</DebugType>
     <DebugSymbols Condition="'$(Configuration)'=='Release'">false</DebugSymbols>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,17 +23,14 @@
       ReflectionDispatcherBase はディスパッチャ共通基底。
     -->
     <Compile Include="..\src\AppLog.cs"                   Link="AppLog.cs" />
-    <Compile Include="..\src\IHostPlugin.cs"              Link="IHostPlugin.cs" />
     <Compile Include="..\src\ReflectionDispatcherBase.cs" Link="ReflectionDispatcherBase.cs" />
     <Compile Include="..\src\AppConfig.cs"                Link="AppConfig.cs" />
+    <Compile Include="IHostPlugin.cs" />
+    <Compile Include="PluginContext.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <Reference Include="System.Web.Extensions" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Web.WebView2" />
   </ItemGroup>
 
 </Project>

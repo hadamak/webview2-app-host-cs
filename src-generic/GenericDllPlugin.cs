@@ -6,7 +6,6 @@ using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
-using Microsoft.Web.WebView2.WinForms;
 
 namespace WebView2AppHost
 {
@@ -36,6 +35,8 @@ namespace WebView2AppHost
         // GenericDllPlugin 固有フィールド
         // ---------------------------------------------------------------------------
 
+        private readonly PluginContext _ctx;
+
         /// <summary>エイリアス（大文字小文字不問）→ ロード済みアセンブリ。</summary>
         private readonly Dictionary<string, Assembly> _assemblies =
             new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
@@ -64,37 +65,29 @@ namespace WebView2AppHost
         // 基底クラスの default 実装（null を返す → 汎用変換へフォールバック）をそのまま使う。
 
         /// <summary>
-        /// "dllName"（または className）からアセンブリを特定し、className で Type を検索する。
+        /// "source"（または className）からアセンブリを特定し、className で Type を検索する。
         /// </summary>
         protected override Task<Type?> ResolveTypeAsync(
-            Dictionary<string, object>? p, string className, string methodName,
-            object?[] argsRaw, double id)
+            string? source, Dictionary<string, object>? p, string className, string methodName,
+            object?[] argsRaw, object? id)
         {
-            AppLog.Log("INFO", "GenericDllPlugin.ResolveTypeAsync", $"className={className}, methodName={methodName}");
+            AppLog.Log("INFO", "GenericDllPlugin.ResolveTypeAsync", $"source={source}, className={className}, methodName={methodName}");
 
-            // DLL 名を取得: params に dllName があれば使用、なければ className をエイリアスとして試す
-            string? dllName = null;
-            if (p != null && p.TryGetValue("dllName", out var dllObj))
-            {
-                dllName = dllObj?.ToString();
-            }
+            // source (エイリアス名) が指定されていれば優先、なければ className をエイリアスとして試す
+            string? dllAlias = source;
+            if (string.IsNullOrEmpty(dllAlias) || string.Equals(dllAlias, SourceName, StringComparison.OrdinalIgnoreCase))
+                dllAlias = className;
 
-            // params に dllName がない場合は className をエイリアスとして試す
-            if (string.IsNullOrEmpty(dllName))
+            if (string.IsNullOrEmpty(dllAlias))
             {
-                dllName = className;
-            }
-
-            if (string.IsNullOrEmpty(dllName))
-            {
-                AppLog.Log("WARN", "GenericDllPlugin.ResolveTypeAsync", "dllName が特定できませんでした");
+                AppLog.Log("WARN", "GenericDllPlugin.ResolveTypeAsync", "dllAlias が特定できませんでした");
                 return Task.FromResult<Type?>(null);
             }
 
             // アセンブリを検索
-            if (!_assemblies.TryGetValue(dllName!, out var asm))
+            if (!_assemblies.TryGetValue(dllAlias!, out var asm))
             {
-                AppLog.Log("WARN", "GenericDllPlugin.ResolveTypeAsync", $"アセンブリが見つかりません: {dllName}");
+                AppLog.Log("WARN", "GenericDllPlugin.ResolveTypeAsync", $"アセンブリが見つかりません: {dllAlias}");
                 return Task.FromResult<Type?>(null);
             }
 
@@ -141,7 +134,11 @@ namespace WebView2AppHost
         /// PluginManager の汎用ローダーから
         /// Activator.CreateInstance(type, webView) で呼ばれる。
         /// </summary>
-        public GenericDllPlugin(WebView2 webView) : base(webView) { }
+        public GenericDllPlugin(PluginContext ctx)
+        {
+            _ctx = ctx ?? throw new ArgumentNullException(nameof(ctx));
+            _postMessage = _ctx.PostMessage;
+        }
 
         // ---------------------------------------------------------------------------
         // IHostPlugin
@@ -222,28 +219,10 @@ namespace WebView2AppHost
                     }
                 }
 
-                // 登録された DLL アセンブリがあるか確認。一致する場合は dllName を補完して Host へルーティングする
+                // 登録された DLL アセンブリがあるか確認。一致する場合は Host へルーティングする
                 bool isDllAlias = source != null && _assemblies.ContainsKey(source);
                 if (isDllAlias)
                 {
-                    if (dict.TryGetValue("params", out var pObj))
-                    {
-                        if (pObj is Dictionary<string, object> pDict)
-                        {
-                            pDict["dllName"] = source;
-                        }
-                        else if (pObj is System.Collections.ArrayList pList)
-                        {
-                            // params が配列の場合は、dllName と args を持つ Dictionary に変換する
-                            // これにより ResolveTypeAsync で dllName を特定可能にする
-                            dict["params"] = new Dictionary<string, object>
-                            {
-                                ["dllName"] = source,
-                                ["args"] = pList
-                            };
-                        }
-                    }
-                    
                     // 基底クラス(ReflectionDispatcherBase)が処理できるように source を "Host" に偽装する
                     dict["source"] = SourceName;
                     webMessageJson = new JavaScriptSerializer().Serialize(dict);
@@ -558,20 +537,14 @@ namespace WebView2AppHost
         private void PostWebMessageAsJson(string json)
         {
             if (_disposed) return;
-            if (_webView.IsDisposed || !_webView.IsHandleCreated) return;
-
-            _webView.BeginInvoke(new Action(() =>
+            try
             {
-                if (_disposed || _webView.CoreWebView2 == null) return;
-                try
-                {
-                    _webView.CoreWebView2.PostWebMessageAsString(json);
-                }
-                catch (Exception ex)
-                {
-                    AppLog.Log("ERROR", "GenericDllPlugin.PostWebMessageAsJson", ex.Message, ex);
-                }
-            }));
+                _ctx.PostMessage(json);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Log("ERROR", "GenericDllPlugin.PostWebMessageAsJson", ex.Message, ex);
+            }
         }
     }
 }

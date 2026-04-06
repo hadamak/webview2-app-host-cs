@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>WinExe</OutputType>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>WebView2AppHost</AssemblyName>
@@ -27,6 +27,9 @@
     <EmbeddedResource Include="app.zip" />
   </ItemGroup>
 
+  <!-- ================================
+       フレームワーク参照
+       ================================ -->
   <ItemGroup>
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
@@ -35,6 +38,9 @@
     <Reference Include="System.Web.Extensions" />
   </ItemGroup>
 
+  <!-- ================================
+       NuGet パッケージ
+       ================================ -->
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" />
   </ItemGroup>

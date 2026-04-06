@@ -7,7 +7,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
-using Microsoft.Web.WebView2.WinForms;
 
 namespace WebView2AppHost
 {
@@ -38,7 +37,7 @@ namespace WebView2AppHost
         // フィールド
         // ---------------------------------------------------------------------------
 
-        private readonly WebView2 _webView;
+        private readonly PluginContext _ctx;
         private readonly Dictionary<string, SidecarProcess> _sidecars =
             new Dictionary<string, SidecarProcess>(StringComparer.OrdinalIgnoreCase);
         
@@ -55,9 +54,9 @@ namespace WebView2AppHost
         /// GenericSidecarPlugin を生成する。
         /// PluginManager の汎用ローダーから Activator.CreateInstance(type, webView) で呼ばれる。
         /// </summary>
-        public GenericSidecarPlugin(WebView2 webView)
+        public GenericSidecarPlugin(PluginContext ctx)
         {
-            _webView = webView;
+            _ctx = ctx ?? throw new ArgumentNullException(nameof(ctx));
         }
 
         // ---------------------------------------------------------------------------
@@ -323,8 +322,6 @@ namespace WebView2AppHost
 
         private void SendResponseToJs(object? id, object result, string alias)
         {
-            if (_webView.IsDisposed || !_webView.IsHandleCreated) return;
-
             var response = new Dictionary<string, object>
             {
                 ["jsonrpc"] = "2.0",
@@ -334,12 +331,7 @@ namespace WebView2AppHost
             };
 
             var json = new JavaScriptSerializer().Serialize(response);
-
-            _webView.BeginInvoke(new Action(() =>
-            {
-                if (_webView.CoreWebView2 != null)
-                    _webView.CoreWebView2.PostWebMessageAsString(json);
-            }));
+            _ctx.PostMessage(json);
         }
 
         // ---------------------------------------------------------------------------
@@ -354,7 +346,7 @@ namespace WebView2AppHost
             try
             {
                 // すでに解決済みの Executable と WorkingDirectory を使用
-                var sidecar = new SidecarProcess(entry, _webView, GetEncoding);
+                var sidecar = new SidecarProcess(entry, _ctx, GetEncoding);
                 sidecar.Start();
                 _sidecars[entry.Alias] = sidecar;
 
@@ -470,7 +462,7 @@ namespace WebView2AppHost
             private readonly string _workingDirectory;
             private readonly string[] _args;
             private readonly string _encoding;
-            private readonly WebView2 _webView;
+            private readonly PluginContext _ctx;
             private readonly bool _waitForReady;
             private readonly Func<string, Encoding> _getEncoding;
             
@@ -481,14 +473,14 @@ namespace WebView2AppHost
             private bool _isReady;
             private bool _disposed;
 
-            public SidecarProcess(SidecarEntry entry, WebView2 webView, Func<string, Encoding> getEncoding)
+            public SidecarProcess(SidecarEntry entry, PluginContext ctx, Func<string, Encoding> getEncoding)
             {
                 Alias = entry.Alias;
                 _executable = entry.Executable;
                 _workingDirectory = entry.WorkingDirectory;
                 _args = entry.Args;
                 _encoding = entry.Encoding;
-                _webView = webView;
+                _ctx = ctx;
                 _waitForReady = entry.WaitForReady;
                 _getEncoding = getEncoding;
             }
@@ -604,21 +596,15 @@ namespace WebView2AppHost
             private void PostToJs(string json)
             {
                 if (_disposed) return;
-                if (_webView.IsDisposed || !_webView.IsHandleCreated) return;
-
-                _webView.BeginInvoke(new Action(() =>
+                try
                 {
-                    if (_disposed || _webView.CoreWebView2 == null) return;
-                    try
-                    {
-                        _webView.CoreWebView2.PostWebMessageAsString(json);
-                    }
-                    catch (Exception ex)
-                    {
-                        AppLog.Log("WARN", "SidecarProcess.PostToJs",
-                            $"JS への投稿に失敗: {ex.Message}");
-                    }
-                }));
+                    _ctx.PostMessage(json);
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Log("WARN", "SidecarProcess.PostToJs",
+                        $"メッセージ送信に失敗: {ex.Message}");
+                }
             }
 
             public void Dispose()

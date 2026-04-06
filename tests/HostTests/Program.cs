@@ -248,7 +248,7 @@ namespace HostTests
 
         private class TestJsonRpcDispatcher : WebView2AppHost.ReflectionDispatcherBase
         {
-            public TestJsonRpcDispatcher() : base(null!) { }
+            public TestJsonRpcDispatcher() { }
 
             public TestRequest? LastRequest;
             public TestNotification? LastNotification;

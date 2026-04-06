@@ -3,7 +3,7 @@
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>net48</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
+    <UseWindowsForms>false</UseWindowsForms>
     <AssemblyName>WebView2AppHost.GenericSidecarPlugin</AssemblyName>
     <RootNamespace>WebView2AppHost</RootNamespace>
     <Nullable>enable</Nullable>
@@ -22,17 +22,14 @@
       アセンブリ境界を越えた型同一性の問題を回避する。
     -->
     <Compile Include="..\src\AppLog.cs"                   Link="AppLog.cs" />
-    <Compile Include="..\src\IHostPlugin.cs"              Link="IHostPlugin.cs" />
     <Compile Include="..\src\AppConfig.cs"                Link="AppConfig.cs" />
+    <Compile Include="IHostPlugin.cs" />
+    <Compile Include="PluginContext.cs" />
     <Compile Include="GenericSidecarPlugin.cs" />
   </ItemGroup>
 
   <ItemGroup>
     <Reference Include="System.Web.Extensions" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Web.WebView2" />
   </ItemGroup>
 
 </Project>
