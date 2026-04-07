@@ -42,7 +42,7 @@ namespace WebView2AppHost
         private readonly McpBridge   _bridge = new McpBridge();
 
         private Action<string>?      _publish;
-        private IBrowserTools?      _browser;   // 登録後に注入される（WebView2 依存を剥がす）
+        private IBrowserTools        _browser;   // デフォルトでバス経由のプロキシが入る
 
         private static readonly JavaScriptSerializer s_json =
             new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
@@ -64,11 +64,14 @@ namespace WebView2AppHost
             _out         = output ?? new StreamWriter(Console.OpenStandardOutput(), encoding) { AutoFlush = true };
             _callTimeout = callTimeout == default ? TimeSpan.FromSeconds(30) : callTimeout;
 
+            // デフォルトではバス経由でブラウザ操作を試みる
+            _browser = new BusBrowserTools(this);
+
             // バスから届いた id なしメッセージ（イベント）を MCP 通知として転送
             _bridge.UnsolicitedMessage += ForwardEventAsNotification;
         }
 
-        /// <summary>ブラウザツールが利用可能な場合に注入する。</summary>
+        /// <summary>ブラウザツールが直接利用可能な場合（同一プロセス内）に注入する。</summary>
         public void SetBrowser(IBrowserTools browser) => _browser = browser;
 
         // -------------------------------------------------------------------
@@ -209,37 +212,34 @@ namespace WebView2AppHost
                     required: new[] { "method" }),
             };
 
-            // BrowserConnector が登録されていればブラウザツールを追加
-            if (_browser != null)
-            {
-                tools.Add(BuildToolDef("browser_evaluate",
-                    "ページの JS を実行して DOM を読み書きする。",
-                    new Dictionary<string, object>
-                    {
-                        ["script"] = Prop("string", "実行する JS（例: 'document.title'）"),
-                    },
-                    required: new[] { "script" }));
+            // ブラウザツールを追加
+            tools.Add(BuildToolDef("browser_evaluate",
+                "ページの JS を実行して DOM を読み書きする。",
+                new Dictionary<string, object>
+                {
+                    ["script"] = Prop("string", "実行する JS（例: 'document.title'）"),
+                },
+                required: new[] { "script" }));
 
-                tools.Add(BuildToolDef("browser_screenshot",
-                    "現在の画面を PNG でキャプチャする。AI が画面を「見る」ときに使う。",
-                    new Dictionary<string, object>(), required: null));
+            tools.Add(BuildToolDef("browser_screenshot",
+                "現在の画面を PNG でキャプチャする。AI が画面を「見る」ときに使う。",
+                new Dictionary<string, object>(), required: null));
 
-                tools.Add(BuildToolDef("browser_navigate",
-                    "指定 URL にナビゲートし、読み込み完了を待つ。",
-                    new Dictionary<string, object>
-                    {
-                        ["url"] = Prop("string", "ナビゲート先 URL"),
-                    },
-                    required: new[] { "url" }));
+            tools.Add(BuildToolDef("browser_navigate",
+                "指定 URL にナビゲートし、読み込み完了を待つ。",
+                new Dictionary<string, object>
+                {
+                    ["url"] = Prop("string", "ナビゲート先 URL"),
+                },
+                required: new[] { "url" }));
 
-                tools.Add(BuildToolDef("browser_get_url",
-                    "現在の URL を返す。",
-                    new Dictionary<string, object>(), required: null));
+            tools.Add(BuildToolDef("browser_get_url",
+                "現在の URL を返す。",
+                new Dictionary<string, object>(), required: null));
 
-                tools.Add(BuildToolDef("browser_get_content",
-                    "現在のページ全体の HTML を返す（DOM の現在状態）。",
-                    new Dictionary<string, object>(), required: null));
-            }
+            tools.Add(BuildToolDef("browser_get_content",
+                "現在のページ全体の HTML を返す（DOM の現在状態）。",
+                new Dictionary<string, object>(), required: null));
 
             WriteResult(id, new Dictionary<string, object> { ["tools"] = tools });
         }
@@ -353,18 +353,12 @@ namespace WebView2AppHost
         }
 
         // -------------------------------------------------------------------
-        // ブラウザツール（BrowserConnector を直接呼ぶ）
+        // ブラウザツール（BrowserConnector を直接、または BusBrowserTools 経由で呼ぶ）
         // -------------------------------------------------------------------
 
         private async Task HandleBrowserToolAsync(
             object? id, string toolName, Dictionary<string, object>? args, CancellationToken ct)
         {
-            if (_browser == null)
-            {
-                WriteToolError(id, $"{toolName} は --mcp モード（WebView2 あり）でのみ使用できます。");
-                return;
-            }
-
             try
             {
                 switch (toolName)
@@ -502,5 +496,63 @@ namespace WebView2AppHost
         // -------------------------------------------------------------------
 
         public void Dispose() => _disposed = true;
+
+        // -------------------------------------------------------------------
+        // 内部クラス: BusBrowserTools (MessageBus 経由でブラウザ操作を行うプロキシ)
+        // -------------------------------------------------------------------
+
+        private sealed class BusBrowserTools : IBrowserTools
+        {
+            private readonly McpConnector _parent;
+            public BusBrowserTools(McpConnector parent) => _parent = parent;
+
+            public async Task<string> EvaluateAsync(string script, CancellationToken ct)
+                => await CallAsync<string>("Browser.WebView.EvaluateAsync", new { script }, ct);
+
+            public async Task<(string Base64, int Width, int Height)> ScreenshotAsync(CancellationToken ct)
+            {
+                var res = await CallAsync<Dictionary<string, object>>("Browser.WebView.ScreenshotAsync", null, ct);
+                return (res["base64"].ToString(), (int)res["width"], (int)res["height"]);
+            }
+
+            public async Task NavigateAsync(string url, CancellationToken ct)
+                => await CallAsync<object>("Browser.WebView.NavigateAsync", new { url }, ct);
+
+            public async Task<string> GetUrlAsync(CancellationToken ct)
+                => await CallAsync<string>("Browser.WebView.GetUrlAsync", null, ct);
+
+            public async Task<string> GetContentAsync(CancellationToken ct)
+                => await CallAsync<string>("Browser.WebView.GetContentAsync", null, ct);
+
+            private async Task<T> CallAsync<T>(string method, object? args, CancellationToken ct)
+            {
+                var callId = $"mcp-browser-{Interlocked.Increment(ref _parent._nextId)}";
+                var request = s_json.Serialize(new Dictionary<string, object?>
+                {
+                    ["jsonrpc"] = "2.0",
+                    ["id"]      = callId,
+                    ["method"]  = method,
+                    ["params"]  = args ?? (object)Array.Empty<object>(),
+                });
+
+                var responseJson = await _parent._bridge.CallAsync(
+                    request, callId, _parent._publish!, _parent._callTimeout, ct)
+                    .ConfigureAwait(false);
+
+                var resp = s_json.Deserialize<Dictionary<string, object>>(responseJson);
+                if (resp != null && resp.TryGetValue("error", out var errObj) && errObj != null)
+                {
+                    var ed = errObj as Dictionary<string, object>;
+                    var msg = ed != null && ed.TryGetValue("message", out var em) ? em?.ToString() : errObj.ToString();
+                    throw new Exception(msg);
+                }
+
+                if (resp != null && resp.TryGetValue("result", out var res))
+                {
+                    return (T)res;
+                }
+                throw new Exception("不正な応答形式です。");
+            }
+        }
     }
 }

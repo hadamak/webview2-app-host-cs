@@ -8,24 +8,12 @@ namespace WebView2AppHost
 {
     internal static class Program
     {
-        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
-        private static extern IntPtr GetConsoleWindow();
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-        private const int SW_HIDE = 0;
-
         [STAThread]
         static void Main(string[] args)
         {
             try
             {
-                // MCP 引数がない（通常起動）ならコンソールウィンドウを隠す
                 bool isMcpMode = Array.IndexOf(args, "--mcp-headless") >= 0 || Array.IndexOf(args, "--mcp-proxy") >= 0;
-                if (!isMcpMode)
-                {
-                    var hWnd = GetConsoleWindow();
-                    if (hWnd != IntPtr.Zero) ShowWindow(hWnd, SW_HIDE);
-                }
 
                 // MCP モードの時だけ BOM なし UTF-8 を設定する
                 if (isMcpMode)
