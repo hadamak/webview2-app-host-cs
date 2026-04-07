@@ -328,9 +328,25 @@ namespace WebView2AppHost
         private static object?[] ExtractArgsFromParams(object? paramsVal)
         {
             if (paramsVal is Dictionary<string, object> pDict)
-                return ExtractArgs(pDict);
-            if (paramsVal is ArrayList arr)
-                return arr.Cast<object?>().ToArray();
+            {
+                // "args" キーがあればそれを使う（従来の挙動）
+                if (pDict.TryGetValue("args", out var argsVal) && argsVal != null)
+                {
+                    if (argsVal is ArrayList arr) return arr.Cast<object?>().ToArray();
+                    return new[] { argsVal };
+                }
+                
+                // "args" キーがなく、他のキーがある場合（名前付き引数など）
+                // 辞書の値を配列に変換してフォールバックを試みる
+                if (pDict.Count > 0)
+                {
+                    return pDict.Values.ToArray();
+                }
+            }
+            
+            if (paramsVal is ArrayList arr2)
+                return arr2.Cast<object?>().ToArray();
+                
             return Array.Empty<object?>();
         }
 

@@ -567,7 +567,7 @@ namespace WebView2AppHost
             public BusBrowserTools(McpConnector parent) => _parent = parent;
 
             public async Task<string> EvaluateAsync(string script, CancellationToken ct)
-                => await CallAsync<string>("Browser.WebView.EvaluateAsync", new { script }, ct);
+                => await CallAsync<string>("Browser.WebView.EvaluateAsync", new[] { script }, ct);
 
             public async Task<(string Base64, int Width, int Height)> ScreenshotAsync(CancellationToken ct)
             {
@@ -576,7 +576,7 @@ namespace WebView2AppHost
             }
 
             public async Task NavigateAsync(string url, CancellationToken ct)
-                => await CallAsync<object>("Browser.WebView.NavigateAsync", new { url }, ct);
+                => await CallAsync<object>("Browser.WebView.NavigateAsync", new[] { url }, ct);
 
             public async Task<string> GetUrlAsync(CancellationToken ct)
                 => await CallAsync<string>("Browser.WebView.GetUrlAsync", null, ct);
