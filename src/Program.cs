@@ -123,15 +123,16 @@ namespace WebView2AppHost
 
             try
             {
-                var pipeName    = ConnectorFactory.GetPipeName();
-                var serverExe   = ConnectorFactory.GetServerExePath();
-                var cts         = new CancellationTokenSource();
+                var config    = LoadConfigFromExeDir();
+                var pipeName  = ConnectorFactory.GetPipeName();
+                var serverExe = ConnectorFactory.GetServerExePath();
+                var cts       = new CancellationTokenSource();
 
                 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
 
                 // ローカルバス: McpConnector（stdio）↔ PipeClientConnector（Named Pipe）
                 var bus    = new MessageBus();
-                var mcp    = new McpConnector(callTimeout: TimeSpan.FromSeconds(30));
+                var mcp    = new McpConnector(config, callTimeout: TimeSpan.FromSeconds(30));
                 var client = new PipeClientConnector(pipeName, serverExe);
 
                 bus.Register(mcp);

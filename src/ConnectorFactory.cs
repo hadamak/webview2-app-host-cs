@@ -72,7 +72,7 @@ namespace WebView2AppHost
             McpConnector? mcp = null;
             if (enableMcp)
             {
-                mcp = new McpConnector(callTimeout: System.TimeSpan.FromSeconds(30));
+                mcp = new McpConnector(config, callTimeout: System.TimeSpan.FromSeconds(30));
                 mcp.SetBrowser(browser);
                 bus.Register(mcp);
             }
@@ -103,7 +103,7 @@ namespace WebView2AppHost
             RegisterSidecars(bus, config, shutdownToken);
 
             // McpConnector（BrowserConnector なし = ブラウザツール非公開）
-            var mcp = new McpConnector(callTimeout: System.TimeSpan.FromSeconds(30));
+            var mcp = new McpConnector(config, callTimeout: System.TimeSpan.FromSeconds(30));
             bus.Register(mcp);
 
             return (bus, mcp);

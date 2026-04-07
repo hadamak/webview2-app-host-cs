@@ -40,6 +40,7 @@ namespace WebView2AppHost
         private readonly TextWriter  _out;
         private readonly TimeSpan    _callTimeout;
         private readonly McpBridge   _bridge = new McpBridge();
+        private readonly AppConfig   _config;
 
         private Action<string>?      _publish;
         private IBrowserTools        _browser;   // デフォルトでバス経由のプロキシが入る
@@ -55,10 +56,12 @@ namespace WebView2AppHost
         // -------------------------------------------------------------------
 
         public McpConnector(
+            AppConfig?          config,
             TextReader? input       = null,
             TextWriter? output      = null,
             TimeSpan    callTimeout = default)
         {
+            _config = config ?? new AppConfig();
             var encoding = new UTF8Encoding(false);
             _in          = input  ?? new StreamReader(Console.OpenStandardInput(),  encoding);
             _out         = output ?? new StreamWriter(Console.OpenStandardOutput(), encoding) { AutoFlush = true };
@@ -199,47 +202,41 @@ namespace WebView2AppHost
 
         private void HandleToolsList(object? id)
         {
-            var tools = new System.Collections.ArrayList
+            var tools = new System.Collections.ArrayList();
+
+            // 1. DLL插件の動的リストアップ
+            foreach (var dll in _config.LoadDlls)
             {
-                BuildToolDef("plugin_call",
-                    "DLL / サイドカーのメソッドを呼び出す。\n" +
-                    "method 形式: 'Alias.ClassName.MethodName'",
+                var alias = string.IsNullOrEmpty(dll.Alias) ? Path.GetFileNameWithoutExtension(dll.Dll) : dll.Alias;
+                tools.Add(BuildToolDef(
+                    $"invoke_dll_{alias}",
+                    $".NET DLL '{alias}' ({dll.Dll}) のメソッドを呼び出します。\n" +
+                    $"利用可能なイベント: {(dll.ExposeEvents.Length > 0 ? string.Join(", ", dll.ExposeEvents) : "なし")}",
                     new Dictionary<string, object>
                     {
-                        ["method"] = Prop("string", "呼び出すメソッド名（例: 'SQLite.Database.QueryAll'）"),
-                        ["params"] = new Dictionary<string, object> { ["description"] = "引数（省略可）" },
+                        ["method"] = Prop("string", "クラス名.メソッド名 (例: 'ClassName.MethodName')"),
+                        ["args"] = new Dictionary<string, object> { ["type"] = "array", ["description"] = "引数の配列" },
                     },
-                    required: new[] { "method" }),
-            };
+                    required: new[] { "method" }));
+            }
 
-            // ブラウザツールを追加
-            tools.Add(BuildToolDef("browser_evaluate",
-                "ページの JS を実行して DOM を読み書きする。",
-                new Dictionary<string, object>
-                {
-                    ["script"] = Prop("string", "実行する JS（例: 'document.title'）"),
-                },
-                required: new[] { "script" }));
+            // 2. サイドカーの動的リストアップ
+            foreach (var sc in _config.Sidecars)
+            {
+                tools.Add(BuildToolDef(
+                    $"call_sidecar_{sc.Alias}",
+                    $"外部プロセス '{sc.Alias}' ({sc.Executable}) と通信します。\n" +
+                    $"モード: {sc.Mode}, 文字コード: {sc.Encoding}",
+                    new Dictionary<string, object>
+                    {
+                        ["method"] = Prop("string", "サイドカー側で定義されたメソッド名"),
+                        ["params"] = new Dictionary<string, object> { ["type"] = "object", ["description"] = "JSONパラメータ" },
+                    },
+                    required: new[] { "method" }));
+            }
 
-            tools.Add(BuildToolDef("browser_screenshot",
-                "現在の画面を PNG でキャプチャする。AI が画面を「見る」ときに使う。",
-                new Dictionary<string, object>(), required: null));
-
-            tools.Add(BuildToolDef("browser_navigate",
-                "指定 URL にナビゲートし、読み込み完了を待つ。",
-                new Dictionary<string, object>
-                {
-                    ["url"] = Prop("string", "ナビゲート先 URL"),
-                },
-                required: new[] { "url" }));
-
-            tools.Add(BuildToolDef("browser_get_url",
-                "現在の URL を返す。",
-                new Dictionary<string, object>(), required: null));
-
-            tools.Add(BuildToolDef("browser_get_content",
-                "現在のページ全体の HTML を返す（DOM の現在状態）。",
-                new Dictionary<string, object>(), required: null));
+            // 3. ブラウザツールの追加 (既存)
+            AddBrowserTools(tools);
 
             WriteResult(id, new Dictionary<string, object> { ["tools"] = tools });
         }
@@ -267,6 +264,37 @@ namespace WebView2AppHost
         private static Dictionary<string, object> Prop(string type, string desc) =>
             new Dictionary<string, object> { ["type"] = type, ["description"] = desc };
 
+        private static void AddBrowserTools(System.Collections.ArrayList tools)
+        {
+            tools.Add(BuildToolDef("browser_evaluate",
+                "ページの JS を実行して DOM を読み書きする。",
+                new Dictionary<string, object>
+                {
+                    ["script"] = Prop("string", "実行する JS（例: 'document.title'）"),
+                },
+                required: new[] { "script" }));
+
+            tools.Add(BuildToolDef("browser_screenshot",
+                "現在の画面を PNG でキャプチャする。AI が画面を「見る」ときに使う。",
+                new Dictionary<string, object>(), required: null));
+
+            tools.Add(BuildToolDef("browser_navigate",
+                "指定 URL にナビゲートし、読み込み完了を待つ。",
+                new Dictionary<string, object>
+                {
+                    ["url"] = Prop("string", "ナビゲート先 URL"),
+                },
+                required: new[] { "url" }));
+
+            tools.Add(BuildToolDef("browser_get_url",
+                "現在の URL を返す。",
+                new Dictionary<string, object>(), required: null));
+
+            tools.Add(BuildToolDef("browser_get_content",
+                "現在のページ全体の HTML を返す（DOM の現在状態）。",
+                new Dictionary<string, object>(), required: null));
+        }
+
         // -------------------------------------------------------------------
         // tools/call
         // -------------------------------------------------------------------
@@ -283,38 +311,71 @@ namespace WebView2AppHost
             var args = callParams != null && callParams.TryGetValue("arguments", out var av)
                 ? av as Dictionary<string, object> : null;
 
+            if (string.IsNullOrEmpty(toolName))
+            {
+                WriteToolError(id, "ツール名が指定されていません。");
+                return;
+            }
+
+            var toolName2 = toolName!;
+
             // ブラウザツール
-            if (toolName != null && toolName.StartsWith("browser_"))
+            if (toolName2.StartsWith("browser_"))
             {
-                await HandleBrowserToolAsync(id, toolName, args, ct).ConfigureAwait(false);
+                await HandleBrowserToolAsync(id, toolName2, args, ct).ConfigureAwait(false);
                 return;
             }
 
-            // plugin_call
-            if (toolName != "plugin_call")
+            // DLL ツール (invoke_dll_Alias)
+            if (toolName2.StartsWith("invoke_dll_"))
             {
-                WriteToolError(id, $"未知のツール: {toolName}");
+                var targetAlias = toolName2.Substring("invoke_dll_".Length);
+                var methodName = args != null && args.TryGetValue("method", out var m) ? m?.ToString() : null;
+
+                if (string.IsNullOrEmpty(methodName))
+                {
+                    WriteToolError(id, "'method' が指定されていません。");
+                    return;
+                }
+
+                var fullMethod = $"{targetAlias}.{methodName}";
+                var callArgs = args != null && args.TryGetValue("args", out var a) ? a : Array.Empty<object>();
+
+                await ExecutePluginCall(id, fullMethod, callArgs, ct).ConfigureAwait(false);
                 return;
             }
 
-            var pluginMethod = args != null && args.TryGetValue("method", out var pm)
-                ? pm?.ToString() : null;
-
-            if (string.IsNullOrEmpty(pluginMethod))
+            // サイドカーツール (call_sidecar_Alias)
+            if (toolName2.StartsWith("call_sidecar_"))
             {
-                WriteToolError(id, "'method' が指定されていません。");
+                var targetAlias = toolName2.Substring("call_sidecar_".Length);
+                var methodName = args != null && args.TryGetValue("method", out var m) ? m?.ToString() : null;
+
+                if (string.IsNullOrEmpty(methodName))
+                {
+                    WriteToolError(id, "'method' が指定されていません。");
+                    return;
+                }
+
+                var fullMethod = $"{targetAlias}.{methodName}";
+                var callParams2 = args != null && args.TryGetValue("params", out var p) ? p : new Dictionary<string, object>();
+
+                await ExecutePluginCall(id, fullMethod, callParams2, ct).ConfigureAwait(false);
                 return;
             }
 
-            var pluginParams = args != null && args.TryGetValue("params", out var pp) ? pp : null;
+            WriteToolError(id, $"未知のツール: {toolName2}");
+        }
+
+        private async Task ExecutePluginCall(object? mcpId, string fullMethod, object? parameters, CancellationToken ct)
+        {
             var callId = $"mcp-{Interlocked.Increment(ref _nextId)}";
-
             var request = s_json.Serialize(new Dictionary<string, object?>
             {
                 ["jsonrpc"] = "2.0",
                 ["id"]      = callId,
-                ["method"]  = pluginMethod,
-                ["params"]  = pluginParams ?? (object)Array.Empty<object>(),
+                ["method"]  = fullMethod,
+                ["params"]  = parameters ?? (object)Array.Empty<object>(),
             });
 
             string responseJson;
@@ -324,11 +385,10 @@ namespace WebView2AppHost
                     request, callId, _publish!, _callTimeout, ct)
                     .ConfigureAwait(false);
             }
-            catch (TimeoutException ex)         { WriteToolError(id, ex.Message); return; }
-            catch (OperationCanceledException)  { WriteToolError(id, "キャンセルされました。"); return; }
-            catch (Exception ex)                { WriteToolError(id, ex.Message); return; }
+            catch (TimeoutException ex)         { WriteToolError(mcpId, ex.Message); return; }
+            catch (OperationCanceledException)  { WriteToolError(mcpId, "キャンセルされました。"); return; }
+            catch (Exception ex)                { WriteToolError(mcpId, ex.Message); return; }
 
-            // プラグイン応答を MCP result に変換
             string? pluginError = null;
             object? pluginResult = null;
             try
@@ -347,9 +407,9 @@ namespace WebView2AppHost
             }
             catch { pluginResult = responseJson; }
 
-            if (pluginError != null) { WriteToolError(id, pluginError); return; }
+            if (pluginError != null) { WriteToolError(mcpId, pluginError); return; }
 
-            WriteToolResult(id, pluginResult is string s ? s : s_json.Serialize(pluginResult));
+            WriteToolResult(mcpId, pluginResult is string s ? s : s_json.Serialize(pluginResult));
         }
 
         // -------------------------------------------------------------------
