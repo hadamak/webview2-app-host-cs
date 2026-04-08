@@ -8,12 +8,6 @@ namespace WebView2AppHost
 {
     /// <summary>
     /// app.conf.json の設定を読み、コネクターを生成して MessageBus に登録する。
-    ///
-    /// <para>
-    /// 旧: PluginManager（プラグインのロードと HandleWebMessage ブロードキャスト）
-    /// 新: ConnectorFactory（コネクターの生成と MessageBus への登録のみ）
-    ///     ブロードキャストのロジックは MessageBus が担う
-    /// </para>
     /// </summary>
     public static class ConnectorFactory
     {
@@ -21,27 +15,14 @@ namespace WebView2AppHost
         // パイプ名
         // -------------------------------------------------------------------
 
-        /// <summary>
-        /// EXE 名をもとにパイプ名を生成する。
-        /// 異なるアプリ（異なる EXE 名）は別々のパイプを使う。
-        /// </summary>
         public static string GetPipeName() =>
             $"webview2apphost-{Path.GetFileNameWithoutExtension(Process.GetCurrentProcess().MainModule!.FileName!).ToLowerInvariant()}";
 
-        /// <summary>
-        /// プロキシ用の本体 EXE パスを返す。
-        /// --mcp-proxy と同じ EXE を使う（引数なしで起動すれば本体 GUI になる）。
-        /// </summary>
         public static string GetServerExePath() =>
             Process.GetCurrentProcess().MainModule!.FileName!;
+
         /// <summary>
         /// Mode 2 用（WebView2 あり）の MessageBus を構築する。
-        ///
-        /// 登録されるコネクター:
-        ///   BrowserConnector … WebView2 JS ↔ C#
-        ///   DllConnector     … loadDlls に定義された DLL
-        ///   SidecarConnector … sidecars に定義されたプロセス（エントリ数ぶん）
-        ///   McpConnector     … --mcp フラグがあれば追加
         /// </summary>
         public static (MessageBus bus, McpConnector? mcp) BuildWithBrowser(
             WebView2           webView,
@@ -51,28 +32,32 @@ namespace WebView2AppHost
         {
             var bus = new MessageBus();
 
-            // 1. BrowserConnector（WebView2 が初期化済みであること）
+            // 1. BrowserConnector（WebView2 操作）
             var browser = new BrowserConnector(webView);
             bus.Register(browser);
 
-            // 2. DllConnector
+            // 2. InternalConnector（ホスト本体のネイティブ機能）
+            var @internal = new InternalConnector(webView);
+            bus.Register(@internal);
+
+            // 3. DllConnector（loadDlls に定義された外部 DLL）
             var dll = new DllConnector();
             dll.Initialize(config.RawJson);
             bus.Register(dll);
 
-            // 3. SidecarConnectors（1エントリ = 1コネクター）
+            // 4. SidecarConnectors（sidecars に定義された外部プロセス）
             RegisterSidecars(bus, config, shutdownToken);
 
-            // 4. PipeServerConnector（常に登録 - プロキシ接続を受け付ける）
+            // 5. PipeServerConnector（外部プロキシからの接続を受け付ける）
             var pipe = new PipeServerConnector(GetPipeName(), shutdownToken);
             bus.Register(pipe);
             pipe.Start();
 
-            // 5. McpConnector（--mcp フラグ時のみ）
+            // 6. McpConnector（--mcp フラグ時のみ）
             McpConnector? mcp = null;
             if (enableMcp)
             {
-                mcp = new McpConnector(config, callTimeout: System.TimeSpan.FromSeconds(30));
+                mcp = new McpConnector(config, callTimeout: TimeSpan.FromSeconds(30));
                 mcp.SetBrowser(browser);
                 bus.Register(mcp);
             }
@@ -82,11 +67,6 @@ namespace WebView2AppHost
 
         /// <summary>
         /// Mode 1 用（WebView2 なし）の MessageBus を構築する。
-        ///
-        /// 登録されるコネクター:
-        ///   DllConnector     … loadDlls に定義された DLL
-        ///   SidecarConnector … sidecars に定義されたプロセス
-        ///   McpConnector     … 常に登録（Mode 1 は MCP 専用）
         /// </summary>
         public static (MessageBus bus, McpConnector mcp) BuildHeadless(
             AppConfig          config,
@@ -102,8 +82,8 @@ namespace WebView2AppHost
             // SidecarConnectors
             RegisterSidecars(bus, config, shutdownToken);
 
-            // McpConnector（BrowserConnector なし = ブラウザツール非公開）
-            var mcp = new McpConnector(config, callTimeout: System.TimeSpan.FromSeconds(30));
+            // McpConnector
+            var mcp = new McpConnector(config, callTimeout: TimeSpan.FromSeconds(30));
             bus.Register(mcp);
 
             return (bus, mcp);
@@ -129,11 +109,9 @@ namespace WebView2AppHost
                     continue;
                 }
 
-                // 実行ファイルパスを解決
                 entry.Executable = ResolveExecutablePath(baseDir, entry.Executable)
                     ?? entry.Executable;
 
-                // 作業ディレクトリを解決
                 if (string.IsNullOrEmpty(entry.WorkingDirectory))
                     entry.WorkingDirectory = baseDir;
                 else if (!Path.IsPathRooted(entry.WorkingDirectory))

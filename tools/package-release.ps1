@@ -5,9 +5,8 @@ $ErrorActionPreference = "Stop"
     WebView2AppHost のリリース用 ZIP を作成する。
 
 .DESCRIPTION
-    ビルド済みの WebView2AppHost.exe と必須ライブラリ、
-    および汎用プラグイン（DLL / Sidecar）を 1 つの ZIP に固めるスクリプト。
-    サードパーティライブラリ（Facepunch.Steamworks や node.exe）は含みません。
+    ビルド済みの WebView2AppHost.exe と必須ライブラリを 1 つの ZIP に固めるスクリプト。
+    すべてのコネクター機能（DLL / Sidecar）は本体に内包されています。
 
     使い方:
       .\tools\package-release.ps1
@@ -17,25 +16,13 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 
 Push-Location $repoRoot
 try {
-    # --- 1. 各プロジェクトをビルド ---
-    Write-Host "プロジェクトをビルド中..." -ForegroundColor Cyan
-    
-    # ホスト本体
-    msbuild src\WebView2AppHost.csproj /t:Restore
-    msbuild src\WebView2AppHost.csproj /p:Configuration=Release /p:Platform=x64
+    # --- 1. ビルド ---
+    Write-Host "ビルド中..." -ForegroundColor Cyan
+    msbuild src\WebView2AppHost.csproj /t:Restore;Build /p:Configuration=Release /p:Platform=x64 /v:minimal
 
-    # 汎用プラグイン
-    msbuild src-generic\WebView2AppHost.GenericDllPlugin.csproj /t:Restore
-    msbuild src-generic\WebView2AppHost.GenericDllPlugin.csproj /p:Configuration=Release /p:Platform=x64
-    
-    msbuild src-generic\WebView2AppHost.GenericSidecarPlugin.csproj /t:Restore
-    msbuild src-generic\WebView2AppHost.GenericSidecarPlugin.csproj /p:Configuration=Release /p:Platform=x64
-
-    $baseHost    = "src\bin\x64\Release\net48"
-    $baseGeneric = "src-generic\bin\x64\Release\net48"
-    
-    $outDir = "dist\_build\WebView2AppHost-win-x64"
-    $zipPath = "dist\WebView2AppHost-win-x64.zip"
+    $baseHost = "src\bin\x64\Release\net48"
+    $outDir   = "dist\_build\WebView2AppHost-win-x64"
+    $zipPath  = "dist\WebView2AppHost-win-x64.zip"
     $hashPath = "$zipPath.sha256"
 
     # --- 2. 出力ディレクトリを初期化 ---
@@ -58,10 +45,6 @@ try {
     Copy-Item "$baseHost\Microsoft.Web.WebView2.WinForms.dll" $outDir
     Copy-Item "$baseHost\WebView2Loader.dll" $outDir
 
-    # 汎用プラグイン DLL
-    Copy-Item "$baseGeneric\WebView2AppHost.GenericDllPlugin.dll" $outDir
-    Copy-Item "$baseGeneric\WebView2AppHost.GenericSidecarPlugin.dll" $outDir
-
     # Web コンテンツ (デフォルト)
     Copy-Item "web-content" "$outDir\www" -Recurse
 
@@ -72,7 +55,6 @@ try {
     Copy-Item "THIRD_PARTY_NOTICES.md" $outDir
     
     $docOut = New-Item -ItemType Directory -Force -Path (Join-Path $outDir "docs")
-    # docs フォルダをコピー (保守者向けフォルダを除外)
     Copy-Item "docs\*" $docOut -Recurse -Exclude "maintainer"
 
     # サンプル

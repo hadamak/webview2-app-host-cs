@@ -12,7 +12,7 @@
   </PropertyGroup>
 
   <!-- ================================
-       変更なしのソースファイル（本体 src/ から参照）
+       本体ソース参照
        ================================ -->
   <ItemGroup>
     <Compile Include="..\..\src\AppLog.cs" />
@@ -26,34 +26,27 @@
     <Compile Include="..\..\src\WebMessageHelper.cs" />
     <Compile Include="..\..\src\WebResourceHandler.cs" />
     <Compile Include="..\..\src\ZipContentProvider.cs" />
-  </ItemGroup>
-
-  <!-- ================================
-       新設計ファイル（テスト対象）
-       ================================ -->
-  <ItemGroup>
     <Compile Include="..\..\src\MessageBus.cs" />
     <Compile Include="..\..\src\ReflectionDispatcherBase.cs" />
     <Compile Include="..\..\src\McpBridge.cs" />
-    <Compile Include="..\..\src\Connectors\IBrowserTools.cs" />
-    <Compile Include="..\..\src\Connectors\McpConnector.cs" />
-    <Compile Include="..\..\src\Connectors\PipeServerConnector.cs" />
-    <Compile Include="..\..\src\Connectors\PipeClientConnector.cs" />
-    <Compile Include="..\..\src\Connectors\SidecarConnector.cs" />
-    <Compile Include="..\..\src\Connectors\DllConnector.cs" />
+    <Compile Include="..\..\src\connectors\IBrowserTools.cs" />
+    <Compile Include="..\..\src\connectors\McpConnector.cs" />
+    <Compile Include="..\..\src\connectors\PipeServerConnector.cs" />
+    <Compile Include="..\..\src\connectors\PipeClientConnector.cs" />
+    <Compile Include="..\..\src\connectors\SidecarConnector.cs" />
+    <Compile Include="..\..\src\connectors\DllConnector.cs" />
   </ItemGroup>
 
   <!-- ================================
-       テストファイル
+       テストソース
        ================================ -->
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="McpTests.cs" />
+    <Compile Include="SidecarTests.cs" />
+    <Compile Include="ConnectorQualityTests.cs" />
   </ItemGroup>
 
-  <!-- ================================
-       フレームワーク参照
-       ================================ -->
   <ItemGroup>
     <Reference Include="System.IO.Compression" />
     <Reference Include="System.IO.Compression.FileSystem" />
@@ -61,10 +54,7 @@
     <Reference Include="System.Web.Extensions" />
   </ItemGroup>
 
-  <!--
-    WebView2 は BrowserConnector / ConnectorFactory が参照するが、
-    テストではこれらを使わないため不要。
-    UseWindowsForms=true は ZipContentProvider 等が間接的に必要。
-  -->
-
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" />
+  </ItemGroup>
 </Project>

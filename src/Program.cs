@@ -133,6 +133,7 @@ namespace WebView2AppHost
                 // ローカルバス: McpConnector（stdio）↔ PipeClientConnector（Named Pipe）
                 var bus    = new MessageBus();
                 var mcp    = new McpConnector(config, callTimeout: TimeSpan.FromSeconds(30));
+                mcp.EnableBrowserProxy();
                 var client = new PipeClientConnector(pipeName, serverExe);
 
                 bus.Register(mcp);

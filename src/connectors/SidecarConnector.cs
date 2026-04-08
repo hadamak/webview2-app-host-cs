@@ -1,4 +1,7 @@
 using System;
+using System.Collections;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -13,19 +16,9 @@ namespace WebView2AppHost
     /// 1 つのサイドカープロセスを管理するコネクター。
     ///
     /// <para>
-    /// 旧: GenericSidecarPlugin がすべてのサイドカーを管理（1対多）
-    /// 新: SidecarConnector 1 インスタンス = 1 プロセス（1対1）
-    ///     PluginManager が config を読んで必要な数だけ生成する
+    /// サイドカーが発行したリクエスト ID を追跡し、バスから戻ってきたレスポンスを
+    /// 確実にそのサイドカーへルーティングする機能を備える。
     /// </para>
-    ///
-    /// ルーティング:
-    ///   source / method prefix が自分の Name（alias）と一致するメッセージを
-    ///   サイドカーの stdin に転送する。
-    ///   サイドカーの stdout から受け取ったメッセージは Publish でバスに流す。
-    ///
-    /// モード:
-    ///   streaming … 起動時にプロセスを立ち上げ、常駐させる。
-    ///   cli       … メッセージのたびにプロセスを起動し、stdout を受け取って終了させる。
     /// </summary>
     public sealed class SidecarConnector : IConnector
     {
@@ -44,6 +37,10 @@ namespace WebView2AppHost
         private readonly ManualResetEventSlim _ready = new ManualResetEventSlim(false);
         private bool _isReady;
         private bool _disposed;
+
+        // 自分が発行したリクエスト ID を保持する（応答を自分に戻すため）
+        private readonly ConcurrentDictionary<string, bool> _pendingRequestIds =
+            new ConcurrentDictionary<string, bool>(StringComparer.Ordinal);
 
         private static readonly JavaScriptSerializer s_json =
             new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
@@ -74,27 +71,79 @@ namespace WebView2AppHost
         {
             if (_disposed || string.IsNullOrWhiteSpace(messageJson)) return;
 
-            // source / method prefix が自分の alias と一致するか確認
-            if (!IsForMe(messageJson)) return;
+            // 1. 自分宛のリクエストかチェック (source / method prefix)
+            if (IsForMe(messageJson))
+            {
+                if (string.Equals(_entry.Mode, "streaming", StringComparison.OrdinalIgnoreCase))
+                    _ = SendToProcessAsync(messageJson);
+                else
+                    _ = ExecuteCliAsync(messageJson);
+                return;
+            }
 
-            if (string.Equals(_entry.Mode, "streaming", StringComparison.OrdinalIgnoreCase))
+            // 2. 自分が発行したリクエストへのレスポンスかチェック
+            if (IsResponseForMe(messageJson))
             {
                 _ = SendToProcessAsync(messageJson);
             }
-            else // cli
+        }
+
+        // -------------------------------------------------------------------
+        // ルーティングロジック
+        // -------------------------------------------------------------------
+
+        private bool IsForMe(string json)
+        {
+            try
             {
-                _ = ExecuteCliAsync(messageJson);
+                var dict = s_json.Deserialize<Dictionary<string, object>>(json);
+                if (dict == null) return false;
+
+                if (dict.TryGetValue("jsonrpc", out var jv)
+                    && string.Equals(jv?.ToString(), "2.0", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (dict.TryGetValue("method", out var mv) && mv != null)
+                    {
+                        var idx = mv.ToString()!.IndexOf('.');
+                        if (idx > 0)
+                            return string.Equals(mv.ToString()!.Substring(0, idx),
+                                Name, StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+                else if (dict.TryGetValue("source", out var sv))
+                {
+                    return string.Equals(sv?.ToString(), Name, StringComparison.OrdinalIgnoreCase);
+                }
+                return false;
             }
+            catch { return false; }
+        }
+
+        /// <summary>
+        /// メッセージが、このサイドカーが以前発行したリクエストに対するレスポンスかどうかを判定する。
+        /// </summary>
+        private bool IsResponseForMe(string json)
+        {
+            try
+            {
+                var dict = s_json.Deserialize<Dictionary<string, object>>(json);
+                if (dict == null) return false;
+
+                // レスポンスの条件: id があり、method がない
+                if (dict.TryGetValue("id", out var idObj) && idObj != null && !dict.ContainsKey("method"))
+                {
+                    var id = idObj.ToString();
+                    return _pendingRequestIds.TryRemove(id, out _);
+                }
+            }
+            catch { }
+            return false;
         }
 
         // -------------------------------------------------------------------
         // 起動
         // -------------------------------------------------------------------
 
-        /// <summary>
-        /// streaming モードのプロセスを起動する。
-        /// PluginManager.Start() から呼ばれる。
-        /// </summary>
         public void Start()
         {
             if (_disposed) return;
@@ -138,7 +187,7 @@ namespace WebView2AppHost
         }
 
         // -------------------------------------------------------------------
-        // stdin 送信
+        // 通信
         // -------------------------------------------------------------------
 
         private async Task SendToProcessAsync(string json)
@@ -147,7 +196,7 @@ namespace WebView2AppHost
             await _writeLock.WaitAsync(_shutdownToken).ConfigureAwait(false);
             try
             {
-                await _stdin.WriteLineAsync(json).ConfigureAwait(false);
+                await _stdin.WriteLineAsync(json);
                 await _stdin.FlushAsync().ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -157,23 +206,18 @@ namespace WebView2AppHost
             finally { _writeLock.Release(); }
         }
 
-        // -------------------------------------------------------------------
-        // CLI モード
-        // -------------------------------------------------------------------
-
         private async Task ExecuteCliAsync(string requestJson)
         {
             try
             {
-                var req = s_json.Deserialize<System.Collections.Generic.Dictionary<string, object>>(requestJson);
+                var req = s_json.Deserialize<Dictionary<string, object>>(requestJson);
                 var id  = req != null && req.TryGetValue("id", out var idV) ? idV : null;
 
                 var psi = BuildProcessStartInfo();
-                // params を引数に展開
                 if (req != null && req.TryGetValue("params", out var pObj))
                 {
-                    var args = new System.Collections.Generic.List<string>(_entry.Args);
-                    if (pObj is System.Collections.ArrayList pList)
+                    var args = new List<string>(_entry.Args);
+                    if (pObj is ArrayList pList)
                     {
                         foreach (var p in pList)
                         {
@@ -205,7 +249,7 @@ namespace WebView2AppHost
                 try { result = s_json.DeserializeObject(stdout); }
                 catch { result = stdout.Trim(); }
 
-                var response = s_json.Serialize(new System.Collections.Generic.Dictionary<string, object?>
+                var response = s_json.Serialize(new Dictionary<string, object?>
                 {
                     ["jsonrpc"] = "2.0",
                     ["id"]      = id ?? (object)0,
@@ -219,10 +263,6 @@ namespace WebView2AppHost
                 AppLog.Log("ERROR", $"SidecarConnector[{Name}].CLI", ex.Message, ex);
             }
         }
-
-        // -------------------------------------------------------------------
-        // stdout 受信
-        // -------------------------------------------------------------------
 
         private void OnOutput(object sender, DataReceivedEventArgs e)
         {
@@ -239,6 +279,17 @@ namespace WebView2AppHost
                 }
             }
 
+            // 自分が発行したリクエスト（id があり、method がある）なら ID を記憶する
+            try
+            {
+                var msg = s_json.Deserialize<Dictionary<string, object>>(e.Data);
+                if (msg != null && msg.TryGetValue("id", out var idObj) && idObj != null && msg.ContainsKey("method"))
+                {
+                    _pendingRequestIds.TryAdd(idObj.ToString(), true);
+                }
+            }
+            catch { }
+
             // バスに流す
             _publish?.Invoke(e.Data);
         }
@@ -254,37 +305,6 @@ namespace WebView2AppHost
             if (!_disposed)
                 AppLog.Log("WARN", $"SidecarConnector[{Name}]",
                     $"プロセス終了: ExitCode={_process?.ExitCode}");
-        }
-
-        // -------------------------------------------------------------------
-        // ヘルパー
-        // -------------------------------------------------------------------
-
-        private bool IsForMe(string json)
-        {
-            try
-            {
-                var dict = s_json.Deserialize<System.Collections.Generic.Dictionary<string, object>>(json);
-                if (dict == null) return false;
-
-                if (dict.TryGetValue("jsonrpc", out var jv)
-                    && string.Equals(jv?.ToString(), "2.0", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (dict.TryGetValue("method", out var mv) && mv != null)
-                    {
-                        var idx = mv.ToString()!.IndexOf('.');
-                        if (idx > 0)
-                            return string.Equals(mv.ToString()!.Substring(0, idx),
-                                Name, StringComparison.OrdinalIgnoreCase);
-                    }
-                }
-                else if (dict.TryGetValue("source", out var sv))
-                {
-                    return string.Equals(sv?.ToString(), Name, StringComparison.OrdinalIgnoreCase);
-                }
-                return false;
-            }
-            catch { return false; }
         }
 
         private ProcessStartInfo BuildProcessStartInfo() => new ProcessStartInfo
@@ -313,10 +333,6 @@ namespace WebView2AppHost
             }
             catch { return new UTF8Encoding(false); }
         }
-
-        // -------------------------------------------------------------------
-        // IDisposable
-        // -------------------------------------------------------------------
 
         public void Dispose()
         {

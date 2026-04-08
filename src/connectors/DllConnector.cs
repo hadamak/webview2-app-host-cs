@@ -27,6 +27,8 @@ namespace WebView2AppHost
         // フィールド
         // -------------------------------------------------------------------
 
+        private readonly object _lock = new object();
+
         private readonly Dictionary<string, Assembly> _assemblies =
             new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
 
@@ -58,8 +60,12 @@ namespace WebView2AppHost
                 if (source == null) return;
 
                 // DLL エイリアス宛のメッセージ、または SourceName ("Host") 宛を処理
-                bool isDllAlias = !string.Equals(source, SourceName, StringComparison.OrdinalIgnoreCase)
-                    && _assemblies.ContainsKey(source);
+                bool isDllAlias;
+                lock (_lock)
+                {
+                    isDllAlias = !string.Equals(source, SourceName, StringComparison.OrdinalIgnoreCase)
+                        && _assemblies.ContainsKey(source);
+                }
 
                 if (isDllAlias || string.Equals(source, SourceName, StringComparison.OrdinalIgnoreCase))
                     HandleWebMessageCore(messageJson);
@@ -115,7 +121,13 @@ namespace WebView2AppHost
 
             if (string.IsNullOrEmpty(dllAlias)) return Task.FromResult<object?>(null);
 
-            if (!_assemblies.TryGetValue(dllAlias!, out var asm))
+            Assembly? asm;
+            lock (_lock)
+            {
+                _assemblies.TryGetValue(dllAlias!, out asm);
+            }
+
+            if (asm == null)
             {
                 AppLog.Log("WARN", "DllConnector.ResolveType", $"アセンブリが見つかりません: {dllAlias}");
                 return Task.FromResult<object?>(null);
@@ -179,7 +191,10 @@ namespace WebView2AppHost
             try
             {
                 var asm = Assembly.LoadFrom(dllPath);
-                _assemblies[alias!] = asm;
+                lock (_lock)
+                {
+                    _assemblies[alias!] = asm;
+                }
                 AppLog.Log("INFO", "DllConnector", $"DLL ロード: alias={alias}, path={dllPath}");
 
                 if (exposeEvents?.Length > 0)
@@ -231,7 +246,10 @@ namespace WebView2AppHost
                         if (handler == null) continue;
 
                         evtInfo.AddEventHandler(null, handler);
-                        _eventSubscriptions.Add((null, evtInfo, handler));
+                        lock (_lock)
+                        {
+                            _eventSubscriptions.Add((null, evtInfo, handler));
+                        }
 
                         AppLog.Log("INFO", "DllConnector",
                             $"イベント購読: {type.Name}.{eventName} (alias={alias})");
@@ -337,12 +355,15 @@ namespace WebView2AppHost
             if (_disposed) return;
             _disposed = true;
 
-            foreach (var (target, evt, handler) in _eventSubscriptions)
-                try { evt.RemoveEventHandler(target, handler); } catch { }
-            _eventSubscriptions.Clear();
+            lock (_lock)
+            {
+                foreach (var (target, evt, handler) in _eventSubscriptions)
+                    try { evt.RemoveEventHandler(target, handler); } catch { }
+                _eventSubscriptions.Clear();
 
-            DisposeHandles();
-            _assemblies.Clear();
+                DisposeHandles();
+                _assemblies.Clear();
+            }
         }
     }
 }

@@ -77,7 +77,7 @@ namespace WebView2AppHost
             lock (_sessionsLock) snapshot = new List<ClientSession>(_sessions);
 
             foreach (var s in snapshot)
-                s.Send(messageJson);
+                s.Send(messageJson, _shutdownToken);
         }
 
         // -------------------------------------------------------------------
@@ -140,7 +140,7 @@ namespace WebView2AppHost
             private readonly NamedPipeServerStream    _pipe;
             private readonly Action<string>           _onReceive;
             private readonly BlockingCollection<string> _sendQueue =
-                new BlockingCollection<string>(boundedCapacity: 256);
+                new BlockingCollection<string>(boundedCapacity: 1024);
 
             public ClientSession(NamedPipeServerStream pipe, Action<string> onReceive)
             {
@@ -191,17 +191,21 @@ namespace WebView2AppHost
                 }
             }
 
-            public void Send(string json)
+            public void Send(string json, CancellationToken ct)
             {
-                if (!_pipe.IsConnected) return;
+                if (!_pipe.IsConnected || _sendQueue.IsAddingCompleted) return;
                 try
                 {
-#if DEBUG
-                    AppLog.Log("INFO", "PipeServer.Send", $"メッセージをキューに追加: {json}");
-#endif
-                    _sendQueue.TryAdd(json);
+                    // TryAdd ではなく Add を使うことで、キューが一杯の場合は呼び出し元を待機させる（バックプレッシャ）。
+                    // これによりメッセージのドロップを防ぐ。
+                    _sendQueue.Add(json, ct);
                 }
-                catch { /* キュー満杯または切断済み */ }
+                catch (OperationCanceledException) { }
+                catch (InvalidOperationException) { } // CompleteAdding 済み
+                catch (Exception ex)
+                {
+                    AppLog.Log("WARN", "PipeServerConnector.Send", $"キュー追加失敗: {ex.Message}");
+                }
             }
         }
 

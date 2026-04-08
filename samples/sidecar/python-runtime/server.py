@@ -1,29 +1,102 @@
-# server.py — WebView2AppHost Python サイドカーサンプル
-#
-# 【概要】
-# 標準入出力 (StdIO) を介して JavaScript と JSON-RPC 2.0 形式で通信します。
-# 
-# 【通信プロトコル (NDJSON)】
-#   - 受信 (stdin): {"jsonrpc":"2.0", "id":1, "method":"Python.ClassName.MethodName", "params":[...]}
-#   - 送信 (stdout): {"jsonrpc":"2.0", "id":1, "result":...}
+"""
+server.py — WebView2AppHost Python サイドカー
+JSON-RPC 2.0 (NDJSON) を介してファイル操作・コマンド実行を提供します。
+"""
 
 import sys
-import json
 import os
-import platform
+import json
+import subprocess
+import traceback
+from pathlib import Path
+
+# UTF-8 での入出力を強制
+if hasattr(sys.stdin, 'reconfigure'):
+    sys.stdin.reconfigure(encoding='utf-8')
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
+ROOT_DIR = Path(os.getcwd()).resolve()
 
 # ---------------------------------------------------------------------------
-# ハンドラレジストリ
+# セキュリティ: パスバリデーション
 # ---------------------------------------------------------------------------
 
-_handlers = {}
-
-def register(class_name, methods):
-    """クラス名とメソッドのマップを登録します。"""
-    _handlers[class_name] = methods
+def secure_path(target_path):
+    """
+    指定されたパスがサンドボックス（ROOT_DIR）内にあることを保証する。
+    """
+    resolved = (ROOT_DIR / target_path).resolve()
+    if not str(resolved).startswith(str(ROOT_DIR)):
+        raise PermissionError(f"Access Denied: {target_path} is outside the sandbox.")
+    return resolved
 
 # ---------------------------------------------------------------------------
-# 送受信
+# ハンドラ実装
+# ---------------------------------------------------------------------------
+
+class Handlers:
+    @staticmethod
+    def python_version():
+        return sys.version
+
+    @staticmethod
+    def python_cwd():
+        return str(ROOT_DIR)
+
+    @staticmethod
+    def filesystem_listFiles(dirPath="."):
+        path = secure_path(dirPath)
+        items = []
+        for entry in path.iterdir():
+            items.append({
+                "name": entry.name,
+                "isDirectory": entry.is_dir()
+            })
+        return items
+
+    @staticmethod
+    def filesystem_readFile(filePath):
+        path = secure_path(filePath)
+        return path.read_text(encoding='utf-8')
+
+    @staticmethod
+    def filesystem_writeFile(filePath, content):
+        path = secure_path(filePath)
+        # 親ディレクトリがなければ作成
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding='utf-8')
+        return True
+
+    @staticmethod
+    def terminal_execute(command):
+        # Windows では chcp 65001 を付けて実行
+        full_command = f"chcp 65001 > nul && {command}"
+        try:
+            result = subprocess.run(
+                full_command, 
+                shell=True, 
+                capture_output=True, 
+                text=True, 
+                encoding='utf-8', 
+                timeout=30
+            )
+            return {
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "code": result.returncode,
+                "ok": result.returncode == 0
+            }
+        except Exception as e:
+            return {
+                "stdout": "",
+                "stderr": str(e),
+                "code": 1,
+                "ok": False
+            }
+
+# ---------------------------------------------------------------------------
+# 通信・ディスパッチ
 # ---------------------------------------------------------------------------
 
 def send(obj):
@@ -36,84 +109,53 @@ def resolve(request_id, result):
 def reject(request_id, message):
     send({"jsonrpc": "2.0", "id": request_id, "error": {"code": -32000, "message": str(message)}})
 
-# ---------------------------------------------------------------------------
-# メッセージディスパッチ
-# ---------------------------------------------------------------------------
-
 def dispatch(msg):
     if msg.get("jsonrpc") != "2.0" or "method" not in msg:
-        reject(msg.get("id", 0), "Invalid JSON-RPC 2.0 request")
+        reject(msg.get("id"), "Invalid JSON-RPC 2.0 request")
         return
 
-    method_parts = msg["method"].split('.')
-    if len(method_parts) < 3:
-        reject(msg["id"], f"Invalid method format: {msg['method']}")
+    method_name = msg["method"]
+    # "Node.FileSystem.readFile" 形式（サイドカー互換）を
+    # "filesystem_readFile" 形式に変換して Handlers から探す
+    parts = method_name.split('.')
+    if len(parts) < 3:
+        reject(msg.get("id"), f"Invalid method format: {method_name}")
         return
 
-    class_name = method_parts[1]
-    method_name = method_parts[2]
-    args = msg.get("params", [])
-    request_id = msg.get("id")
+    internal_method = f"{parts[1].lower()}_{parts[2]}"
+    handler = getattr(Handlers, internal_method, None)
 
+    if not handler:
+        reject(msg.get("id"), f"Method not found: {method_name}")
+        return
+
+    params = msg.get("params", [])
     try:
-        class_handlers = _handlers.get(class_name)
-        if not class_handlers:
-            reject(request_id, f"PythonPlugin: クラス '{class_name}' が登録されていません")
-            return
-
-        method = class_handlers.get(method_name)
-        if not method or not callable(method):
-            reject(request_id, f"PythonPlugin: {class_name}.{method_name} が見つかりません")
-            return
-
-        # メソッドの実行
-        if isinstance(args, list):
-            result = method(*args)
-        elif isinstance(args, dict):
-            result = method(**args)
+        if isinstance(params, dict):
+            result = handler(**params)
         else:
-            result = method()
-
-        resolve(request_id, result)
+            # 配列の場合はアンパックして渡す
+            result = handler(*params)
+        resolve(msg.get("id"), result)
     except Exception as e:
-        sys.stderr.write(f"[server.py] Error in {msg['method']}: {e}\n")
-        reject(request_id, str(e))
+        sys.stderr.write(f"[server.py] Error: {traceback.format_exc()}\n")
+        reject(msg.get("id"), str(e))
 
 # ---------------------------------------------------------------------------
-# ハンドラ登録
-# ---------------------------------------------------------------------------
-
-# 1. 基本情報
-register('Python', {
-    "version": lambda: sys.version,
-    "platform": lambda: platform.platform(),
-    "cwd": lambda: os.getcwd()
-})
-
-# 2. 計算の例
-def add(a, b): return a + b
-register('Math', {
-    "add": add
-})
-
-# ---------------------------------------------------------------------------
-# メインループ (stdin NDJSON リーダー)
+# メメインループ
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     sys.stderr.write(f"[server.py] Python サイドカー起動 (PID: {os.getpid()})\n")
-    sys.stderr.flush()
-
-    # ホストに起動完了（Ready）を通知
+    
+    # 起動完了を通知
     send({"ready": True})
 
     for line in sys.stdin:
-        line = line.strip()
-        if not line:
+        trimmed = line.strip()
+        if not trimmed:
             continue
         try:
-            msg = json.loads(line)
-            dispatch(msg)
+            dispatch(json.loads(trimmed))
         except json.JSONDecodeError:
-            sys.stderr.write(f"[server.py] JSON parse error: {line}\n")
-            sys.stderr.flush()
+            sys.stderr.write(f"[server.py] JSON Parse Error: {trimmed}\n")

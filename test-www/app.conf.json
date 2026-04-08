@@ -19,8 +19,24 @@
       "alias": "Node",
       "mode": "streaming",
       "executable": "node",
-      "workingDirectory": "node-runtime",
-      "args": ["server.js"],
+      "args": ["samples/sidecar/node-runtime/server.js"],
+      "workingDirectory": "C:\\Users\\btqwm\\Documents\\webview2-app-host-cs",
+      "waitForReady": true
+    },
+    {
+      "alias": "PythonRuntime",
+      "mode": "streaming",
+      "executable": "python",
+      "args": ["-u", "samples/sidecar/python-runtime/server.py"],
+      "workingDirectory": "C:\\Users\\btqwm\\Documents\\webview2-app-host-cs",
+      "waitForReady": true
+    },
+    {
+      "alias": "PowershellRuntime",
+      "mode": "streaming",
+      "executable": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", "samples/sidecar/powershell-runtime/server.ps1"],
+      "workingDirectory": "C:\\Users\\btqwm\\Documents\\webview2-app-host-cs",
       "waitForReady": true
     },
     {

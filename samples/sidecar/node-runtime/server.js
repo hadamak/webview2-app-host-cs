@@ -1,20 +1,13 @@
 /**
- * server.js — WebView2AppHost Node.js サイドカーサンプル
- *
- * 【概要】
- * C# (GenericSidecarPlugin.cs) から子プロセスとして起動され、
- * 標準入出力 (StdIO) を介して JavaScript と JSON-RPC 2.0 形式で通信します。
- * 
- * 【通信プロトコル (NDJSON)】
- *   - 受信 (stdin): {"jsonrpc":"2.0", "id":1, "method":"Node.ClassName.MethodName", "params":[...]}
- *   - 送信 (stdout): {"jsonrpc":"2.0", "id":1, "result":...}
- *   - ログ (stderr): ホストのログに出力されます
+ * server.js — WebView2AppHost Node.js サイドカー
+ * ターミナル実行機能追加版
  */
 
 'use strict';
 
 const fs = require('fs').promises;
 const path = require('path');
+const { exec } = require('child_process'); // 追加: 子プロセス実行用
 
 // ---------------------------------------------------------------------------
 // ハンドラレジストリ
@@ -22,11 +15,6 @@ const path = require('path');
 
 const _handlers = new Map();
 
-/**
- * クラス名とメソッドのマップを登録します。
- * @param {string} className JS からアクセスする際のクラス名
- * @param {Record<string, Function>} methods メソッドの定義
- */
 function register(className, methods) {
     _handlers.set(className, methods);
 }
@@ -81,7 +69,6 @@ async function dispatch(msg) {
             return;
         }
 
-        // メソッドの実行（async/await に対応）
         const result = await fn(...args);
         resolve(id, result ?? null);
     } catch (err) {
@@ -128,7 +115,7 @@ register('Node', {
     memory() { return process.memoryUsage(); }
 });
 
-// 2. ファイルシステム操作の例
+// 2. ファイルシステム操作
 register('FileSystem', {
     async listFiles(dirPath) {
         const entries = await fs.readdir(dirPath, { withFileTypes: true });
@@ -139,12 +126,34 @@ register('FileSystem', {
     }
 });
 
+// 3. ターミナル実行機能 (新規追加)
+register('Terminal', {
+    execute(command) {
+        return new Promise((res) => {
+            // コマンドの先頭に UTF-8 への切り替えを強制する
+            // & で繋ぐことで、chcp 成功後に本来のコマンドを実行
+            const utf8Command = `chcp 65001 > nul && ${command}`;
+
+            exec(utf8Command, { encoding: 'buffer', timeout: 30000 }, (error, stdout, stderr) => {
+                // デコーダーを utf-8 に固定
+                const decoder = new TextDecoder('utf-8');
+                
+                res({
+                    stdout: decoder.decode(stdout),
+                    stderr: decoder.decode(stderr),
+                    code: error ? error.code : 0,
+                    ok: !error
+                });
+            });
+        });
+    }
+});
+
 // ---------------------------------------------------------------------------
 // 起動処理
 // ---------------------------------------------------------------------------
 
 process.stderr.write(`[server.js] Node.js サイドカー起動 (PID: ${process.pid})\n`);
 
-// ホストに起動完了（Ready）を通知
-// app.conf.json で waitForReady: true の場合、この受信までメッセージがキューイングされます
+// 起動完了をホストに通知
 process.stdout.write(JSON.stringify({ ready: true }) + '\n');

@@ -44,6 +44,7 @@ namespace WebView2AppHost
 
         private Action<string>?      _publish;
         private IBrowserTools        _browser;   // デフォルトでバス経由のプロキシが入る
+        private bool                 _browserEnabled;
 
         private static readonly JavaScriptSerializer s_json =
             new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
@@ -75,7 +76,14 @@ namespace WebView2AppHost
         }
 
         /// <summary>ブラウザツールが直接利用可能な場合（同一プロセス内）に注入する。</summary>
-        public void SetBrowser(IBrowserTools browser) => _browser = browser;
+        public void SetBrowser(IBrowserTools browser)
+        {
+            _browser = browser;
+            _browserEnabled = true;
+        }
+
+        /// <summary>ブラウザ操作をプロキシ経由で許可する（プロキシモード用）。</summary>
+        public void EnableBrowserProxy() => _browserEnabled = true;
 
         // -------------------------------------------------------------------
         // IConnector
@@ -107,27 +115,49 @@ namespace WebView2AppHost
         {
             AppLog.Log("INFO", "McpConnector", "MCP サーバー起動（stdio NDJSON）");
 
-            while (!ct.IsCancellationRequested)
+            var tasks = new List<Task>();
+            var tasksLock = new object();
+
+            try
             {
-                string? line;
-                try
+                while (!ct.IsCancellationRequested)
                 {
-                    var readTask   = _in.ReadLineAsync();
-                    var cancelTask = Task.Delay(Timeout.Infinite, ct);
-                    if (await Task.WhenAny(readTask, cancelTask).ConfigureAwait(false) == cancelTask) break;
-                    line = await readTask.ConfigureAwait(false);
+                    string? line;
+                    try
+                    {
+                        var readTask = _in.ReadLineAsync();
+                        var cancelTask = Task.Delay(Timeout.Infinite, ct);
+                        if (await Task.WhenAny(readTask, cancelTask).ConfigureAwait(false) == cancelTask) break;
+                        line = await readTask.ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) { break; }
+                    catch (Exception ex)
+                    {
+                        AppLog.Log("ERROR", "McpConnector.Read", ex.Message, ex);
+                        break;
+                    }
+
+                    if (line == null) break;
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+
+                    var task = Task.Run(async () =>
+                    {
+                        try { await HandleLineAsync(line, ct).ConfigureAwait(false); }
+                        catch (Exception ex) { AppLog.Log("ERROR", "McpConnector.Handle", ex.Message, ex); }
+                    }, ct);
+
+                    lock (tasksLock) tasks.Add(task);
+                    _ = task.ContinueWith(t => { lock (tasksLock) tasks.Remove(t); }, TaskContinuationOptions.ExecuteSynchronously);
                 }
-                catch (OperationCanceledException) { break; }
-                catch (Exception ex)
+            }
+            finally
+            {
+                Task[] pending;
+                lock (tasksLock) pending = tasks.ToArray();
+                if (pending.Length > 0)
                 {
-                    AppLog.Log("ERROR", "McpConnector.Read", ex.Message, ex);
-                    break;
+                    await Task.WhenAll(pending).ConfigureAwait(false);
                 }
-
-                if (line == null) break;
-                if (string.IsNullOrWhiteSpace(line)) continue;
-
-                _ = Task.Run(() => HandleLineAsync(line, ct), ct);
             }
 
             AppLog.Log("INFO", "McpConnector", "MCP サーバー終了");
@@ -235,8 +265,11 @@ namespace WebView2AppHost
                     required: new[] { "method" }));
             }
 
-            // 3. ブラウザツールの追加 (既存)
-            AddBrowserTools(tools);
+            // 3. ブラウザツールの追加 (有効な場合のみ)
+            if (_browserEnabled)
+            {
+                AddBrowserTools(tools);
+            }
 
             WriteResult(id, new Dictionary<string, object> { ["tools"] = tools });
         }
@@ -322,6 +355,11 @@ namespace WebView2AppHost
             // ブラウザツール
             if (toolName2.StartsWith("browser_"))
             {
+                if (!_browserEnabled)
+                {
+                    WriteToolError(id, "ブラウザ操作ツールは現在無効です。WebView2 ありで本体を起動するか、--mcp を付けて起動してください。");
+                    return;
+                }
                 await HandleBrowserToolAsync(id, toolName2, args, ct).ConfigureAwait(false);
                 return;
             }
