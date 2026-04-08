@@ -376,7 +376,11 @@ namespace WebView2AppHost
                     return;
                 }
 
-                var fullMethod = $"{targetAlias}.{methodName}";
+                // すでにエイリアス名が含まれている場合は二重付与しない
+                var prefix = targetAlias + ".";
+                var fullMethod = methodName!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                    ? methodName : prefix + methodName;
+
                 var callArgs = args != null && args.TryGetValue("args", out var a) ? a : Array.Empty<object>();
 
                 await ExecutePluginCall(id, fullMethod, callArgs, ct).ConfigureAwait(false);
@@ -395,7 +399,11 @@ namespace WebView2AppHost
                     return;
                 }
 
-                var fullMethod = $"{targetAlias}.{methodName}";
+                // すでにエイリアス名が含まれている場合は二重付与しない
+                var prefix = targetAlias + ".";
+                var fullMethod = methodName!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                    ? methodName : prefix + methodName;
+
                 var callParams2 = args != null && args.TryGetValue("params", out var p) ? p : new Dictionary<string, object>();
 
                 await ExecutePluginCall(id, fullMethod, callParams2, ct).ConfigureAwait(false);

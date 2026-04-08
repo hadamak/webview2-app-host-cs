@@ -54,7 +54,12 @@ namespace WebView2AppHost
         {
             if (_disposed || string.IsNullOrWhiteSpace(messageJson)) return;
 
-            if (IsForMe(messageJson))
+            bool isForMe = IsForMe(messageJson);
+            bool isResponse = IsResponseForMe(messageJson);
+
+            AppLog.Log("DEBUG", $"SidecarConnector[{Name}]", $"Deliver: isForMe={isForMe}, isResponse={isResponse}, json={messageJson}");
+
+            if (isForMe)
             {
                 if (string.Equals(_entry.Mode, "streaming", StringComparison.OrdinalIgnoreCase))
                     _ = SendToProcessAsync(messageJson);
@@ -63,7 +68,7 @@ namespace WebView2AppHost
                 return;
             }
 
-            if (IsResponseForMe(messageJson))
+            if (isResponse)
             {
                 _ = SendToProcessAsync(messageJson);
             }

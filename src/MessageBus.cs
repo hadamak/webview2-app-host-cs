@@ -69,6 +69,8 @@ namespace WebView2AppHost
         {
             if (_disposed) return;
 
+            AppLog.Log("DEBUG", "MessageBus", $"Broadcast from {(sender?.Name ?? "N/A")}: {messageJson}");
+
             List<IConnector> snapshot;
             lock (_lock) snapshot = new List<IConnector>(_connectors);
 
