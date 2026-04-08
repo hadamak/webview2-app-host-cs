@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
@@ -12,11 +13,6 @@ namespace WebView2AppHost
 {
     /// <summary>
     /// ホスト本体の操作機能（WebView2 依存の低レイヤー処理など）をバスに公開するコネクター。
-    /// 
-    /// <para>
-    /// エイリアス: "Internal"
-    /// 公開クラス: "Host"
-    /// </para>
     /// </summary>
     public sealed class InternalConnector : ReflectionDispatcherBase, IConnector
     {
@@ -29,10 +25,6 @@ namespace WebView2AppHost
             _postMessage = msg => _publish?.Invoke(msg);
         }
 
-        // -------------------------------------------------------------------
-        // IConnector
-        // -------------------------------------------------------------------
-
         public string Name => "Internal";
 
         public Action<string> Publish
@@ -43,36 +35,19 @@ namespace WebView2AppHost
         public void Deliver(string messageJson)
         {
             if (_disposed || string.IsNullOrWhiteSpace(messageJson)) return;
-
-            // 自分宛のメッセージか判定
-            if (IsForMe(messageJson))
-            {
-                HandleWebMessageCore(messageJson);
-            }
+            if (IsForMe(messageJson)) HandleWebMessageCore(messageJson);
         }
 
-        // -------------------------------------------------------------------
-        // ReflectionDispatcherBase 実装
-        // -------------------------------------------------------------------
-
         protected override string SourceName => "Internal";
-
         protected override bool ShouldWrapAsHandle(object result) => false;
 
         protected override Task<object?> ResolveTypeAsync(
             string? source, Dictionary<string, object>? p, string className, string methodName,
             object?[] argsRaw, object? id)
         {
-            if (className == "Host")
-            {
-                return Task.FromResult<object?>(this);
-            }
+            if (className == "Host") return Task.FromResult<object?>(this);
             return Task.FromResult<object?>(null);
         }
-
-        // -------------------------------------------------------------------
-        // 公開メソッド (JS / MCP から Internal.Host.xxx として呼ばれる)
-        // -------------------------------------------------------------------
 
         /// <summary>
         /// WebView2 の画面をキャプチャし、RGB バイト配列とサイズ情報を返す。
@@ -97,7 +72,7 @@ namespace WebView2AppHost
                         var rgb = BitmapToRgb(bmp);
                         return (object)new
                         {
-                            rgb = rgb.Select(b => (int)b).ToArray(), // 数値配列に変換
+                            rgb = rgb, // byte[] で返す
                             width = bmp.Width,
                             height = bmp.Height
                         };
@@ -116,22 +91,23 @@ namespace WebView2AppHost
             try
             {
                 int stride = bmpData.Stride;
-                int rowBytes = Math.Abs(stride);
-                var bgra = new byte[rowBytes * height];
-                System.Runtime.InteropServices.Marshal.Copy(bmpData.Scan0, bgra, 0, bgra.Length);
+                int totalBytes = Math.Abs(stride) * height;
+                var bgra = new byte[totalBytes];
+                Marshal.Copy(bmpData.Scan0, bgra, 0, bgra.Length);
 
                 var rgb = new byte[width * height * 3];
                 for (int y = 0; y < height; y++)
                 {
-                    int srcRow = stride > 0 ? y * stride : (height - 1 - y) * rowBytes;
+                    int srcRow = y * stride;
                     int destRow = y * width * 3;
                     for (int x = 0; x < width; x++)
                     {
                         int src = srcRow + x * 4;
                         int dest = destRow + x * 3;
-                        rgb[dest + 0] = bgra[src + 2]; // R
-                        rgb[dest + 1] = bgra[src + 1]; // G
-                        rgb[dest + 2] = bgra[src + 0]; // B
+                        // BGRA -> RGB
+                        rgb[dest + 0] = bgra[src + 2];
+                        rgb[dest + 1] = bgra[src + 1];
+                        rgb[dest + 2] = bgra[src + 0];
                     }
                 }
                 return rgb;
@@ -139,16 +115,17 @@ namespace WebView2AppHost
             finally { bmp.UnlockBits(bmpData); }
         }
 
-        // -------------------------------------------------------------------
-        // ヘルパー
-        // -------------------------------------------------------------------
-
         private async Task<T> InvokeOnStaAsync<T>(Func<Task<T>> action)
         {
             var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
             _webView.BeginInvoke(new Action(async () =>
             {
-                try { tcs.TrySetResult(await action()); }
+                try
+                {
+                    if (_disposed || _webView.CoreWebView2 == null)
+                    { tcs.TrySetException(new InvalidOperationException("WebView2 が利用できません。")); return; }
+                    tcs.TrySetResult(await action());
+                }
                 catch (Exception ex) { tcs.TrySetException(ex); }
             }));
             return await tcs.Task;

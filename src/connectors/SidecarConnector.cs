@@ -14,18 +14,9 @@ namespace WebView2AppHost
 {
     /// <summary>
     /// 1 つのサイドカープロセスを管理するコネクター。
-    ///
-    /// <para>
-    /// サイドカーが発行したリクエスト ID を追跡し、バスから戻ってきたレスポンスを
-    /// 確実にそのサイドカーへルーティングする機能を備える。
-    /// </para>
     /// </summary>
     public sealed class SidecarConnector : IConnector
     {
-        // -------------------------------------------------------------------
-        // フィールド
-        // -------------------------------------------------------------------
-
         private readonly SidecarEntry    _entry;
         private readonly Encoding        _encoding;
         private readonly CancellationToken _shutdownToken;
@@ -45,20 +36,12 @@ namespace WebView2AppHost
         private static readonly JavaScriptSerializer s_json =
             new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
 
-        // -------------------------------------------------------------------
-        // コンストラクタ
-        // -------------------------------------------------------------------
-
         public SidecarConnector(SidecarEntry entry, CancellationToken shutdownToken = default)
         {
             _entry         = entry ?? throw new ArgumentNullException(nameof(entry));
             _encoding      = ResolveEncoding(entry.Encoding);
             _shutdownToken = shutdownToken;
         }
-
-        // -------------------------------------------------------------------
-        // IConnector
-        // -------------------------------------------------------------------
 
         public string Name => _entry.Alias;
 
@@ -71,7 +54,6 @@ namespace WebView2AppHost
         {
             if (_disposed || string.IsNullOrWhiteSpace(messageJson)) return;
 
-            // 1. 自分宛のリクエストかチェック (source / method prefix)
             if (IsForMe(messageJson))
             {
                 if (string.Equals(_entry.Mode, "streaming", StringComparison.OrdinalIgnoreCase))
@@ -81,16 +63,11 @@ namespace WebView2AppHost
                 return;
             }
 
-            // 2. 自分が発行したリクエストへのレスポンスかチェック
             if (IsResponseForMe(messageJson))
             {
                 _ = SendToProcessAsync(messageJson);
             }
         }
-
-        // -------------------------------------------------------------------
-        // ルーティングロジック
-        // -------------------------------------------------------------------
 
         private bool IsForMe(string json)
         {
@@ -99,15 +76,13 @@ namespace WebView2AppHost
                 var dict = s_json.Deserialize<Dictionary<string, object>>(json);
                 if (dict == null) return false;
 
-                if (dict.TryGetValue("jsonrpc", out var jv)
-                    && string.Equals(jv?.ToString(), "2.0", StringComparison.OrdinalIgnoreCase))
+                if (dict.TryGetValue("jsonrpc", out var jv) && string.Equals(jv?.ToString(), "2.0", StringComparison.OrdinalIgnoreCase))
                 {
                     if (dict.TryGetValue("method", out var mv) && mv != null)
                     {
                         var idx = mv.ToString()!.IndexOf('.');
                         if (idx > 0)
-                            return string.Equals(mv.ToString()!.Substring(0, idx),
-                                Name, StringComparison.OrdinalIgnoreCase);
+                            return string.Equals(mv.ToString()!.Substring(0, idx), Name, StringComparison.OrdinalIgnoreCase);
                     }
                 }
                 else if (dict.TryGetValue("source", out var sv))
@@ -119,9 +94,6 @@ namespace WebView2AppHost
             catch { return false; }
         }
 
-        /// <summary>
-        /// メッセージが、このサイドカーが以前発行したリクエストに対するレスポンスかどうかを判定する。
-        /// </summary>
         private bool IsResponseForMe(string json)
         {
             try
@@ -129,7 +101,6 @@ namespace WebView2AppHost
                 var dict = s_json.Deserialize<Dictionary<string, object>>(json);
                 if (dict == null) return false;
 
-                // レスポンスの条件: id があり、method がない
                 if (dict.TryGetValue("id", out var idObj) && idObj != null && !dict.ContainsKey("method"))
                 {
                     var id = idObj.ToString();
@@ -139,10 +110,6 @@ namespace WebView2AppHost
             catch { }
             return false;
         }
-
-        // -------------------------------------------------------------------
-        // 起動
-        // -------------------------------------------------------------------
 
         public void Start()
         {
@@ -167,8 +134,7 @@ namespace WebView2AppHost
 
             _stdin = new StreamWriter(_process.StandardInput.BaseStream, _encoding);
 
-            AppLog.Log("INFO", $"SidecarConnector[{Name}]",
-                $"プロセス起動: PID={_process.Id}");
+            AppLog.Log("INFO", $"SidecarConnector[{Name}]", $"プロセス起動: PID={_process.Id}");
 
             if (_entry.WaitForReady)
             {
@@ -180,15 +146,8 @@ namespace WebView2AppHost
                     AppLog.Log("WARN", $"SidecarConnector[{Name}]", "Ready タイムアウト。続行します。");
                 }
             }
-            else
-            {
-                _isReady = true;
-            }
+            else { _isReady = true; }
         }
-
-        // -------------------------------------------------------------------
-        // 通信
-        // -------------------------------------------------------------------
 
         private async Task SendToProcessAsync(string json)
         {
@@ -199,10 +158,7 @@ namespace WebView2AppHost
                 await _stdin.WriteLineAsync(json);
                 await _stdin.FlushAsync().ConfigureAwait(false);
             }
-            catch (Exception ex)
-            {
-                AppLog.Log("WARN", $"SidecarConnector[{Name}].Send", ex.Message);
-            }
+            catch (Exception ex) { AppLog.Log("WARN", $"SidecarConnector[{Name}].Send", ex.Message); }
             finally { _writeLock.Release(); }
         }
 
@@ -231,8 +187,7 @@ namespace WebView2AppHost
                         }
                     }
                     args.RemoveAll(a => a == "{args}");
-                    psi.Arguments = string.Join(" ",
-                        args.Select(a => a.Contains(" ") ? $"\"{a}\"" : a));
+                    psi.Arguments = string.Join(" ", args.Select(EscapeArgument));
                 }
 
                 using var proc = new Process { StartInfo = psi };
@@ -251,24 +206,26 @@ namespace WebView2AppHost
 
                 var response = s_json.Serialize(new Dictionary<string, object?>
                 {
-                    ["jsonrpc"] = "2.0",
-                    ["id"]      = id ?? (object)0,
-                    ["result"]  = result,
-                    ["source"]  = Name,
+                    ["jsonrpc"] = "2.0", ["id"] = id ?? (object)0, ["result"] = result, ["source"] = Name,
                 });
                 _publish?.Invoke(response);
             }
-            catch (Exception ex)
-            {
-                AppLog.Log("ERROR", $"SidecarConnector[{Name}].CLI", ex.Message, ex);
-            }
+            catch (Exception ex) { AppLog.Log("ERROR", $"SidecarConnector[{Name}].CLI", ex.Message, ex); }
+        }
+
+        private string EscapeArgument(string arg)
+        {
+            if (string.IsNullOrEmpty(arg)) return "\"\"";
+            // スペースや特殊文字が含まれる場合は引用符で囲み、内部の引用符をエスケープ
+            bool needsQuotes = arg.Any(c => char.IsWhiteSpace(c) || "&|<>^\"".Contains(c));
+            if (!needsQuotes) return arg;
+            return "\"" + arg.Replace("\"", "\\\"") + "\"";
         }
 
         private void OnOutput(object sender, DataReceivedEventArgs e)
         {
             if (string.IsNullOrWhiteSpace(e.Data)) return;
 
-            // Ready シグナル検出
             if (!_isReady && _entry.WaitForReady)
             {
                 if (e.Data.Contains("\"ready\"") && e.Data.Contains("true"))
@@ -279,18 +236,22 @@ namespace WebView2AppHost
                 }
             }
 
-            // 自分が発行したリクエスト（id があり、method がある）なら ID を記憶する
             try
             {
                 var msg = s_json.Deserialize<Dictionary<string, object>>(e.Data);
                 if (msg != null && msg.TryGetValue("id", out var idObj) && idObj != null && msg.ContainsKey("method"))
                 {
+                    // メモリリーク対策: 溜まりすぎたら古いものを掃除
+                    if (_pendingRequestIds.Count > 1000)
+                    {
+                        var keys = _pendingRequestIds.Keys.Take(500).ToList();
+                        foreach (var k in keys) _pendingRequestIds.TryRemove(k, out _);
+                    }
                     _pendingRequestIds.TryAdd(idObj.ToString(), true);
                 }
             }
             catch { }
 
-            // バスに流す
             _publish?.Invoke(e.Data);
         }
 
@@ -303,15 +264,13 @@ namespace WebView2AppHost
         private void OnExited(object sender, EventArgs e)
         {
             if (!_disposed)
-                AppLog.Log("WARN", $"SidecarConnector[{Name}]",
-                    $"プロセス終了: ExitCode={_process?.ExitCode}");
+                AppLog.Log("WARN", $"SidecarConnector[{Name}]", $"プロセス終了: ExitCode={_process?.ExitCode}");
         }
 
         private ProcessStartInfo BuildProcessStartInfo() => new ProcessStartInfo
         {
             FileName               = _entry.Executable,
-            Arguments              = string.Join(" ",
-                _entry.Args.Select(a => a.Contains(" ") ? $"\"{a}\"" : a)),
+            Arguments              = string.Join(" ", _entry.Args.Select(EscapeArgument)),
             WorkingDirectory       = _entry.WorkingDirectory,
             UseShellExecute        = false,
             RedirectStandardOutput = true,
@@ -338,28 +297,17 @@ namespace WebView2AppHost
         {
             if (_disposed) return;
             _disposed = true;
-
             try { _stdin?.Close(); } catch { }
-
             try
             {
                 if (_process != null && !_process.HasExited)
                 {
                     _process.Kill();
                     _process.WaitForExit(3000);
-                    AppLog.Log("INFO", $"SidecarConnector[{Name}]", "プロセス終了");
                 }
             }
-            catch (Exception ex)
-            {
-                AppLog.Log("WARN", $"SidecarConnector[{Name}].Dispose", ex.Message);
-            }
-            finally
-            {
-                _process?.Dispose();
-                _writeLock.Dispose();
-                _ready.Dispose();
-            }
+            catch (Exception ex) { AppLog.Log("WARN", $"SidecarConnector[{Name}].Dispose", ex.Message); }
+            finally { _process?.Dispose(); _writeLock.Dispose(); _ready.Dispose(); }
         }
     }
 }
