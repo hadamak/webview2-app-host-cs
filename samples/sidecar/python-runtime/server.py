@@ -70,20 +70,32 @@ class Handlers:
 
     @staticmethod
     def terminal_execute(command):
-        # Windows では chcp 65001 を付けて実行
-        full_command = f"chcp 65001 > nul && {command}"
         try:
+            # バイナリモード (text=False) で実行し、手動でデコードを試みる。
+            # これにより、UTF-8 と CP932 (Windows標準) が混在する環境に対応する。
             result = subprocess.run(
-                full_command, 
+                command, 
                 shell=True, 
                 capture_output=True, 
-                text=True, 
-                encoding='utf-8', 
+                text=False, 
                 timeout=30
             )
+
+            def decode_best_effort(b):
+                if not b:
+                    return ""
+                try:
+                    # まずは UTF-8 を試す (モダンなツールや PowerShell)
+                    return b.decode('utf-8')
+                except UnicodeDecodeError:
+                    if os.name == 'nt':
+                        # Windows なら CP932 を試す (標準の dir 等)
+                        return b.decode('cp932', errors='replace')
+                    return b.decode('utf-8', errors='replace')
+
             return {
-                "stdout": result.stdout,
-                "stderr": result.stderr,
+                "stdout": decode_best_effort(result.stdout),
+                "stderr": decode_best_effort(result.stderr),
                 "code": result.returncode,
                 "ok": result.returncode == 0
             }

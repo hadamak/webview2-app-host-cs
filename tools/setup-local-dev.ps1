@@ -100,21 +100,21 @@ try {
     }
 
     # ---------------------------------------------------------------------------
-    # 3. Nodeサイドカーをコピー
+    # 3. Pythonサイドカーをコピー
     # ---------------------------------------------------------------------------
-    Write-Host "==> Nodeサイドカーを配置中..." -ForegroundColor Cyan
+    Write-Host "==> Pythonサイドカーを配置中..." -ForegroundColor Cyan
 
-    $nodeRuntimeDest = Join-Path $outDir "node-runtime"
-    if (!(Test-Path $nodeRuntimeDest)) {
-        New-Item -ItemType Directory -Force -Path $nodeRuntimeDest | Out-Null
+    $pythonRuntimeDest = Join-Path $outDir "python-runtime"
+    if (!(Test-Path $pythonRuntimeDest)) {
+        New-Item -ItemType Directory -Force -Path $pythonRuntimeDest | Out-Null
     }
 
-    if (Test-Path "samples\sidecar\node-runtime\server.js") {
-        Copy-Item "samples\sidecar\node-runtime\server.js" $nodeRuntimeDest -Force
-        Write-Host "    samples\sidecar\node-runtime\server.js -> $nodeRuntimeDest" -ForegroundColor Gray
+    if (Test-Path "samples\sidecar\python-runtime\server.py") {
+        Copy-Item "samples\sidecar\python-runtime\server.py" $pythonRuntimeDest -Force
+        Write-Host "    samples\sidecar\python-runtime\server.py -> $pythonRuntimeDest" -ForegroundColor Gray
     }
     else {
-        Write-Warning "Nodeサイドカーが見つかりません: samples\sidecar\node-runtime\server.js"
+        Write-Warning "Pythonサイドカーが見つかりません: samples\sidecar\python-runtime\server.py"
     }
 
     # ---------------------------------------------------------------------------

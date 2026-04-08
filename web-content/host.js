@@ -133,29 +133,3 @@ const Host = (() => {
 
     return _rootProxy;
 })();
-
-/**
- * 後方互換 Steam プロキシ。
- * triggerScreenshot は Host.Internal と Host.Steam を組み合わせて JS 側で実現する。
- */
-const Steam = new Proxy(Object.create(null), {
-    get(_, prop) {
-        if (typeof prop !== 'string') return undefined;
-        if (prop === 'on' || prop === 'off') return Host[prop];
-        
-        if (prop === 'SteamScreenshots') {
-            return new Proxy(Object.create(null), {
-                get(_, method) {
-                    if (method === 'TriggerScreenshot') {
-                        return async () => {
-                            const preview = await Host.Internal.Host.CapturePreviewAsync();
-                            return await Host.Steam.SteamScreenshots.WriteScreenshot(preview.rgb, preview.width, preview.height);
-                        };
-                    }
-                    return Host.Steam.SteamScreenshots[method];
-                }
-            });
-        }
-        return Host.Steam[prop];
-    },
-});
