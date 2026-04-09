@@ -32,15 +32,11 @@ namespace WebView2AppHost
         {
             var bus = new MessageBus();
 
-            // 1. BrowserConnector（WebView2 操作）
+            // 1. BrowserConnector（WebView2 操作 / ホスト本体ネイティブ機能）
             var browser = new BrowserConnector(webView);
             bus.Register(browser);
 
-            // 2. InternalConnector（ホスト本体のネイティブ機能）
-            var @internal = new InternalConnector(webView);
-            bus.Register(@internal);
-
-            // 3. DllConnector（loadDlls に定義された外部 DLL）
+            // 2. DllConnector（loadDlls に定義された外部 DLL）
             var dll = new DllConnector();
             dll.Initialize(config.RawJson);
             bus.Register(dll);

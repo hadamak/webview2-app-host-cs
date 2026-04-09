@@ -75,7 +75,7 @@ namespace WebView2AppHost
             string? source, Dictionary<string, object>? p, string className, string methodName,
             object?[] argsRaw, object? id)
         {
-            if (className == "WebView") return Task.FromResult<object?>(this);
+            if (className == "WebView" || className == "Host") return Task.FromResult<object?>(this);
             return Task.FromResult<object?>(null);
         }
 
