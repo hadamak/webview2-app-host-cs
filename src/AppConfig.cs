@@ -173,7 +173,7 @@ namespace WebView2AppHost
                     Window.Fullscreen = Fullscreen;
                 }
 
-                AppLog.Log("INFO", "AppConfig.ApplyUserConfig", $"user.conf.json を適用: {path}");
+                AppLog.Log("INFO", "AppConfig.ApplyUserConfig", $"user.conf.json を適用: {AppLog.DescribePath(path)}");
             }
             catch (Exception ex)
             {

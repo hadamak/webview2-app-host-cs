@@ -447,7 +447,7 @@ namespace WebView2AppHost
             catch (Exception ex)
             {
                 AppLog.Log("ERROR", "App.HandleProxyRequestAsync",
-                    $"プロキシ転送失敗: {targetUri.AbsoluteUri}", ex);
+                    $"プロキシ転送失敗: {AppLog.DescribeUri(targetUri.AbsoluteUri)}", ex);
                 e.Response = _webView.CoreWebView2.Environment
                     .CreateWebResourceResponse(null, 502, "Bad Gateway",
                         "Content-Type: text/plain");
@@ -492,7 +492,7 @@ namespace WebView2AppHost
             {
                 var wv = _webView.CoreWebView2;
 
-                AppLog.Log("INFO", "App.SetupFaviconTracking", $"FaviconChanged 発生, URI='{wv.FaviconUri}'");
+                AppLog.Log("INFO", "App.SetupFaviconTracking", $"FaviconChanged 発生, URI='{AppLog.DescribeUri(wv.FaviconUri)}'");
 
                 if (string.IsNullOrEmpty(wv.FaviconUri))
                 {
@@ -562,7 +562,7 @@ namespace WebView2AppHost
                     UseShellExecute = true
                 });
             }
-            catch (Exception ex) { AppLog.Log("ERROR", "App.OpenInDefaultBrowser", $"ブラウザで開けませんでした: {uri}", ex); }
+            catch (Exception ex) { AppLog.Log("ERROR", "App.OpenInDefaultBrowser", $"ブラウザで開けませんでした: {AppLog.DescribeUri(uri)}", ex); }
         }
 
         private void OpenHostPopup(string uri, PopupWindowOptions popupOptions)
@@ -590,7 +590,7 @@ namespace WebView2AppHost
             catch (Exception ex)
             {
                 popupZip?.Dispose();
-                AppLog.Log("ERROR", "App.OpenHostPopup", $"ホスト内ポップアップを開けませんでした: {uri}", ex);
+                AppLog.Log("ERROR", "App.OpenHostPopup", $"ホスト内ポップアップを開けませんでした: {AppLog.DescribeUri(uri)}", ex);
                 OpenInDefaultBrowser(uri);
             }
         }

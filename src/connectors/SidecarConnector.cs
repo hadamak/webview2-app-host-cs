@@ -60,7 +60,11 @@ namespace WebView2AppHost
             bool isForMe = IsForMe(messageJson);
             bool isResponse = IsResponseForMe(messageJson);
 
-            AppLog.Log("DEBUG", $"SidecarConnector[{Name}]", $"Deliver: isForMe={isForMe}, isResponse={isResponse}, json={messageJson}");
+            AppLog.Log(
+                AppLog.LogLevel.Debug,
+                $"SidecarConnector[{Name}]",
+                $"Deliver: isForMe={isForMe}, isResponse={isResponse}, {AppLog.DescribeMessageJson(messageJson)}",
+                dataKind: AppLog.LogDataKind.Sensitive);
 
             if (isForMe)
             {
@@ -214,7 +218,7 @@ namespace WebView2AppHost
                 proc.WaitForExit();
 
                 if (!string.IsNullOrWhiteSpace(stderr))
-                    AppLog.Log("WARN", $"SidecarConnector[{Name}].CLI.Stderr", stderr);
+                    AppLog.Log("WARN", $"SidecarConnector[{Name}].CLI.Stderr", $"stderr len={stderr.Length}");
 
                 object result;
                 try { result = s_json.DeserializeObject(stdout); }
@@ -274,7 +278,7 @@ namespace WebView2AppHost
         private void OnError(object sender, DataReceivedEventArgs e)
         {
             if (!string.IsNullOrWhiteSpace(e.Data))
-                AppLog.Log("WARN", $"SidecarConnector[{Name}].Stderr", e.Data);
+                AppLog.Log("WARN", $"SidecarConnector[{Name}].Stderr", $"stderr len={e.Data.Length}");
         }
 
         private void OnExited(object sender, EventArgs e)

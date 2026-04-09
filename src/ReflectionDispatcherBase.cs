@@ -134,7 +134,11 @@ namespace WebView2AppHost
         /// </summary>
         protected void HandleWebMessageCore(string webMessageJson)
         {
-            AppLog.Log("INFO", $"{GetType().Name}.HandleWebMessageCore", $"Received: {webMessageJson}");
+            AppLog.Log(
+                AppLog.LogLevel.Debug,
+                $"{GetType().Name}.HandleWebMessageCore",
+                $"Received: {AppLog.DescribeMessageJson(webMessageJson)}",
+                dataKind: AppLog.LogDataKind.Sensitive);
             if (_disposed || string.IsNullOrWhiteSpace(webMessageJson)) return;
 
             try
@@ -692,7 +696,11 @@ namespace WebView2AppHost
         /// <summary>JSON-RPC 2.0 正常応答またはエラー応答を送信する。</summary>
         protected void SendJsonRpcResult(object? id, object? result, string? errorMessage)
         {
-            AppLog.Log("INFO", $"{GetType().Name}.SendJsonRpcResult", $"id={id}, result={result}, error={errorMessage}");
+            AppLog.Log(
+                AppLog.LogLevel.Debug,
+                $"{GetType().Name}.SendJsonRpcResult",
+                $"id={id}, result={AppLog.DescribeResultSummary(result)}, error={errorMessage}",
+                dataKind: AppLog.LogDataKind.Sensitive);
             if (_disposed) return;
 
             try

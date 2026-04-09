@@ -218,14 +218,14 @@ namespace WebView2AppHost
                     var config = AppConfig.Load(stream);
                     if (config != null)
                     {
-                        AppLog.Log("INFO", "Program", $"設定を読み込みました: {path}");
+                        AppLog.Log("INFO", "Program", $"設定を読み込みました: {AppLog.DescribePath(path)}");
                         config.ApplyUserConfig(exeDir);
                         return config;
                     }
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Log("WARN", "Program", $"設定の読み込みに失敗（スキップ）: {path}", ex);
+                    AppLog.Log("WARN", "Program", $"設定の読み込みに失敗（スキップ）: {AppLog.DescribePath(path)}", ex);
                 }
             }
 

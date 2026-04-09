@@ -1,6 +1,10 @@
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
+using System.Web.Script.Serialization;
 
 namespace WebView2AppHost
 {
@@ -11,6 +15,20 @@ namespace WebView2AppHost
     /// </summary>
     internal static class AppLog
     {
+        internal enum LogLevel
+        {
+            Debug = 0,
+            Info = 1,
+            Warn = 2,
+            Error = 3,
+        }
+
+        internal enum LogDataKind
+        {
+            General,
+            Sensitive,
+        }
+
         private static readonly object _lock = new object();
 
         /// <summary>
@@ -35,8 +53,41 @@ namespace WebView2AppHost
         /// </summary>
         internal static TextWriter? Override { get; set; }
 
-        public static void Log(string level, string source, string message, Exception? ex = null)
+        private static readonly JavaScriptSerializer s_json = new JavaScriptSerializer();
+
+        internal static bool EnableFileOutput
         {
+            get
+            {
+#if SECURE_OFFLINE
+                return false;
+#else
+                return true;
+#endif
+            }
+        }
+
+        internal static LogLevel MinimumLevel
+        {
+            get
+            {
+#if DEBUG
+                return LogLevel.Debug;
+#elif SECURE_OFFLINE
+                return LogLevel.Warn;
+#else
+                return LogLevel.Info;
+#endif
+            }
+        }
+
+        public static void Log(string level, string source, string message, Exception? ex = null)
+            => Log(ParseLevel(level), source, message, ex, LogDataKind.General);
+
+        internal static void Log(LogLevel level, string source, string message, Exception? ex = null, LogDataKind dataKind = LogDataKind.General)
+        {
+            if (!ShouldWrite(level, dataKind)) return;
+
             var line = $"[{level}] [{source}] {message}";
             if (ex != null)
             {
@@ -48,6 +99,74 @@ namespace WebView2AppHost
             {
                 LogExceptionDetails(ex);
             }
+        }
+
+        internal static bool ShouldWrite(LogLevel level, LogDataKind dataKind = LogDataKind.General)
+        {
+            if (level < MinimumLevel) return false;
+            if (dataKind == LogDataKind.Sensitive && !IsSensitiveLoggingEnabled()) return false;
+            return true;
+        }
+
+        internal static string DescribeMessageJson(string? json)
+        {
+            if (string.IsNullOrWhiteSpace(json)) return "empty";
+            var safeJson = json!;
+
+            try
+            {
+                var dict = s_json.Deserialize<Dictionary<string, object>>(safeJson);
+                if (dict == null) return $"text(len={safeJson.Length})";
+
+                var parts = new List<string>();
+
+                if (dict.TryGetValue("source", out var source) && source != null)
+                    parts.Add($"source={source}");
+
+                if (dict.TryGetValue("method", out var method) && method != null)
+                    parts.Add($"method={method}");
+
+                if (dict.TryGetValue("id", out var id) && id != null)
+                    parts.Add($"id={id}");
+
+                if (dict.TryGetValue("messageId", out var messageId) && messageId != null)
+                    parts.Add($"messageId={messageId}");
+
+                if (dict.ContainsKey("result"))
+                    parts.Add($"result={DescribeValue(dict["result"])}");
+
+                if (dict.TryGetValue("error", out var error) && error != null)
+                    parts.Add($"error={DescribeError(error)}");
+
+                if (dict.TryGetValue("params", out var parameters))
+                    parts.Add($"params={DescribeValue(parameters)}");
+
+                return parts.Count == 0 ? $"json(keys={dict.Count})" : string.Join(", ", parts);
+            }
+            catch
+            {
+                return $"text(len={safeJson.Length})";
+            }
+        }
+
+        internal static string DescribeResultSummary(object? value)
+            => DescribeValue(value);
+
+        internal static string DescribePath(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return "(empty)";
+            var safePath = path!;
+            return Path.GetFileName(safePath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        }
+
+        internal static string DescribeUri(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return "(empty)";
+            if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri) || uri == null) return "invalid-uri";
+
+            var target = uri.GetLeftPart(UriPartial.Path);
+            if (!string.IsNullOrEmpty(uri.Query)) target += "?...";
+            return target;
         }
 
         private static void LogExceptionDetails(Exception ex)
@@ -86,6 +205,9 @@ namespace WebView2AppHost
                     }
                     return;
                 }
+
+                if (!EnableFileOutput)
+                    return;
 
                 var path = GetLogPath();
                 if (path == null) return;
@@ -154,6 +276,64 @@ namespace WebView2AppHost
                     return null;
                 }
             }
+        }
+
+        private static LogLevel ParseLevel(string level)
+        {
+            switch ((level ?? string.Empty).Trim().ToUpperInvariant())
+            {
+                case "DEBUG":
+                case "TRACE":
+                case "VERBOSE":
+                    return LogLevel.Debug;
+                case "INFO":
+                case "INFORMATION":
+                    return LogLevel.Info;
+                case "WARN":
+                case "WARNING":
+                    return LogLevel.Warn;
+                case "ERROR":
+                case "FATAL":
+                    return LogLevel.Error;
+                default:
+                    return LogLevel.Info;
+            }
+        }
+
+        private static bool IsSensitiveLoggingEnabled()
+        {
+#if DEBUG && !SECURE_OFFLINE
+            return true;
+#else
+            return false;
+#endif
+        }
+
+        private static string DescribeValue(object? value)
+        {
+            if (value == null) return "null";
+            if (value is string s) return $"string(len={s.Length})";
+            if (value is IDictionary dict) return $"object(keys={dict.Count})";
+            if (value is ICollection collection) return $"list(count={collection.Count})";
+            if (value is Array array) return $"array(len={array.Length})";
+
+            var type = value.GetType();
+            if (type.IsPrimitive || value is decimal)
+                return Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? type.Name;
+
+            return type.Name;
+        }
+
+        private static string DescribeError(object error)
+        {
+            if (error is Dictionary<string, object> errorDict)
+            {
+                var code = errorDict.TryGetValue("code", out var codeObj) ? codeObj?.ToString() : "?";
+                var message = errorDict.TryGetValue("message", out var messageObj) ? messageObj?.ToString() : "?";
+                return $"code={code}, message={message}";
+            }
+
+            return DescribeValue(error);
         }
     }
 }

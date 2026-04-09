@@ -64,6 +64,7 @@ namespace HostTests
             RunNavigationPolicyTests();
             RunMimeTypesTests();
             RunAppLogTests();
+            RunAppLogPolicyTests();
             RunStreamDisposalTests();
             RunAppConfigTests(workDir);
             RunAppConfigSanitizeTests();
@@ -386,9 +387,13 @@ namespace HostTests
               }
             }");
             Assert(systemBrowserCfg != null, "NavPolicy: system config loaded");
+#if SECURE_OFFLINE
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://example.com", systemBrowserCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: secure build blocks external");
+#else
             Assert(WebView2AppHost.NavigationPolicy.Classify("https://example.com", systemBrowserCfg) == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: system browser external");
             Assert(WebView2AppHost.NavigationPolicy.Classify("https://blocked.example.com", systemBrowserCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: blocked host");
             Assert(WebView2AppHost.NavigationPolicy.Classify("mailto:test@example.com", systemBrowserCfg) == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: allowed mailto");
+#endif
 
             var whitelistCfg = LoadConfig(@"{
               ""navigation_policy"": {
@@ -398,7 +403,11 @@ namespace HostTests
               }
             }");
             Assert(whitelistCfg != null, "NavPolicy: whitelist config loaded");
+#if SECURE_OFFLINE
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://api.github.com", whitelistCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: secure build overrides whitelist");
+#else
             Assert(WebView2AppHost.NavigationPolicy.Classify("https://api.github.com", whitelistCfg) == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: whitelist allow");
+#endif
             Assert(WebView2AppHost.NavigationPolicy.Classify("https://example.com", whitelistCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: whitelist deny");
 
             var blockCfg = LoadConfig(@"{ ""navigation_policy"": { ""external_navigation_mode"": ""block"" } }");
@@ -416,9 +425,41 @@ namespace HostTests
             using var sw = new StringWriter();
             var old = WebView2AppHost.AppLog.Override;
             WebView2AppHost.AppLog.Override = sw;
-            WebView2AppHost.AppLog.Log("INFO", "Test", "Msg");
+            var level = WebView2AppHost.AppLog.MinimumLevel == WebView2AppHost.AppLog.LogLevel.Warn
+                ? "WARN"
+                : "INFO";
+            WebView2AppHost.AppLog.Log(level, "Test", "Msg");
             WebView2AppHost.AppLog.Override = old;
             Assert(sw.ToString().Contains("Msg"), "AppLog: ok");
+        }
+
+        private static void RunAppLogPolicyTests()
+        {
+            var summary = WebView2AppHost.AppLog.DescribeMessageJson(
+                "{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"Host.Storage.Set\",\"params\":{\"key\":\"token\",\"value\":\"secret-value\"},\"result\":{\"content\":\"payload\"}}");
+
+            Assert(summary.Contains("method=Host.Storage.Set"), "AppLogPolicy: method kept");
+            Assert(summary.Contains("id=7"), "AppLogPolicy: id kept");
+            Assert(summary.Contains("params=object(keys=2)"), "AppLogPolicy: params summarized");
+            Assert(summary.Contains("result=object(keys=1)"), "AppLogPolicy: result summarized");
+            Assert(!summary.Contains("secret-value"), "AppLogPolicy: sensitive payload removed");
+            Assert(!summary.Contains("payload"), "AppLogPolicy: result payload removed");
+
+#if DEBUG && !SECURE_OFFLINE
+            Assert(WebView2AppHost.AppLog.ShouldWrite(WebView2AppHost.AppLog.LogLevel.Debug, WebView2AppHost.AppLog.LogDataKind.Sensitive),
+                "AppLogPolicy: debug build allows sensitive debug logs");
+#else
+            Assert(!WebView2AppHost.AppLog.ShouldWrite(WebView2AppHost.AppLog.LogLevel.Debug, WebView2AppHost.AppLog.LogDataKind.Sensitive),
+                "AppLogPolicy: non-debug builds suppress sensitive debug logs");
+#endif
+
+#if SECURE_OFFLINE
+            Assert(!WebView2AppHost.AppLog.EnableFileOutput, "AppLogPolicy: secure build disables file output");
+            Assert(WebView2AppHost.AppLog.MinimumLevel == WebView2AppHost.AppLog.LogLevel.Warn,
+                "AppLogPolicy: secure build minimum level is warn");
+#else
+            Assert(WebView2AppHost.AppLog.EnableFileOutput, "AppLogPolicy: standard build keeps file output");
+#endif
         }
 
         private static void RunStreamDisposalTests()
@@ -470,7 +511,11 @@ namespace HostTests
 
         private static void RunNavigationPolicyEdgeCaseTests()
         {
+#if SECURE_OFFLINE
+            Assert(WebView2AppHost.NavigationPolicy.Classify("http://app.local/") == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: secure build blocks insecure app.local");
+#else
             Assert(WebView2AppHost.NavigationPolicy.Classify("http://app.local/") == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: insecure local external");
+#endif
             Assert(WebView2AppHost.NavigationPolicy.Classify("customscheme://test") == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: unsupported scheme blocked");
         }
 
