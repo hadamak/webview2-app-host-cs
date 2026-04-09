@@ -24,11 +24,20 @@ namespace WebView2AppHost
         {
             var names = new List<string>();
 
+#if SECURE_OFFLINE
+            // In SECURE_OFFLINE mode, BuildWithBrowser always registers a BrowserConnector
+            // unconditionally, regardless of the connectors list.
+            names.Add("Browser");
+
+            if (ShouldRegisterDll(config))
+                names.Add("Host");
+#else
             if (ShouldRegisterBrowser(config))
                 names.Add("Browser");
 
             if (ShouldRegisterDll(config))
                 names.Add("Host");
+#endif
 
 #if !SECURE_OFFLINE
             if (ShouldRegisterSidecars(config) && config?.Sidecars != null)

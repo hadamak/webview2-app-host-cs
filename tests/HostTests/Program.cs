@@ -322,13 +322,16 @@ namespace HostTests
             Assert(cfg.ProxyOrigins.Length == 1 && cfg.ProxyOrigins[0] == "https://api.github.com", "StructuredConfig: proxy origins applied");
             Assert(cfg.SteamAppId == "480" && cfg.SteamDevMode, "StructuredConfig: steam applied");
             Assert(cfg.LoadDlls.Length == 1 && cfg.LoadDlls[0].Alias == "Steam", "StructuredConfig: dll normalized");
+#if !SECURE_OFFLINE
             Assert(cfg.Sidecars.Length == 1 && cfg.Sidecars[0].Alias == "Node", "StructuredConfig: sidecar normalized");
+#endif
             Assert(cfg.ShouldOpenInBrowser("api.github.com"), "StructuredConfig: browser wildcard");
             Assert(cfg.IsRequestBlocked("https://cdn.example.com/ads/banner.js"), "StructuredConfig: request wildcard");
 
             var directNames = WebView2AppHost.ConnectorFactory.GetAvailableConnectorNames(cfg, enableMcp: false);
             Assert(directNames.Contains("Browser"), "StructuredConfig: browser connector visible");
             Assert(directNames.Contains("Host"), "StructuredConfig: dll connector visible");
+#if !SECURE_OFFLINE
             Assert(directNames.Contains("Node"), "StructuredConfig: sidecar connector visible");
 
             var directCfg = LoadConfig(@"{
@@ -350,6 +353,7 @@ namespace HostTests
             Assert(directConnectorNames.Contains("PythonRuntime"), "StructuredConfig: direct sidecar type");
             Assert(directConnectorNames.Contains("PipeServer"), "StructuredConfig: direct pipe type");
             Assert(directConnectorNames.Contains("Mcp"), "StructuredConfig: direct mcp type");
+#endif
         }
 
         private static void RunUintOverflowFixTests()
