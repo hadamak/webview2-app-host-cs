@@ -25,10 +25,32 @@ Initial browser URL. Defaults to `https://app.local/index.html`.
 
 ```json
 {
+  "external_navigation_mode": "system_browser",
   "allow_external_hosts": ["*.github.com"],
+  "block_external_hosts": ["ads.example.com"],
+  "allowed_external_schemes": ["https", "mailto"],
   "block_request_patterns": ["*ads*"]
 }
 ```
+
+Current runtime status:
+
+- external navigation routing now uses the configured mode and lists
+- `block_request_patterns` remains independent from top-level navigation routing
+- design rationale is documented in [../maintainer/navigation-policy-redesign.md](../maintainer/navigation-policy-redesign.md)
+
+Planned meanings:
+
+- `external_navigation_mode`
+  - `system_browser`, `whitelist`, or `block`
+- `allow_external_hosts`
+  - host whitelist used by `whitelist`
+- `block_external_hosts`
+  - host deny list used by `system_browser`
+- `allowed_external_schemes`
+  - explicit scheme allow list enforced before host matching
+- `block_request_patterns`
+  - request-level filtering, independent from top-level navigation routing
 
 ### `sub_streams`
 

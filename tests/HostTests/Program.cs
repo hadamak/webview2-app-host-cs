@@ -377,6 +377,33 @@ namespace HostTests
         private static void RunNavigationPolicyTests()
         {
             Assert(WebView2AppHost.NavigationPolicy.Classify("https://app.local/index.html") == WebView2AppHost.NavigationPolicy.Action.Allow, "NavPolicy: local ok");
+
+            var systemBrowserCfg = LoadConfig(@"{
+              ""navigation_policy"": {
+                ""external_navigation_mode"": ""system_browser"",
+                ""block_external_hosts"": [""blocked.example.com""],
+                ""allowed_external_schemes"": [""https"", ""mailto""]
+              }
+            }");
+            Assert(systemBrowserCfg != null, "NavPolicy: system config loaded");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://example.com", systemBrowserCfg) == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: system browser external");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://blocked.example.com", systemBrowserCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: blocked host");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("mailto:test@example.com", systemBrowserCfg) == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: allowed mailto");
+
+            var whitelistCfg = LoadConfig(@"{
+              ""navigation_policy"": {
+                ""external_navigation_mode"": ""whitelist"",
+                ""allow_external_hosts"": [""*.github.com""],
+                ""allowed_external_schemes"": [""https""]
+              }
+            }");
+            Assert(whitelistCfg != null, "NavPolicy: whitelist config loaded");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://api.github.com", whitelistCfg) == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: whitelist allow");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://example.com", whitelistCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: whitelist deny");
+
+            var blockCfg = LoadConfig(@"{ ""navigation_policy"": { ""external_navigation_mode"": ""block"" } }");
+            Assert(blockCfg != null, "NavPolicy: block config loaded");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://example.com", blockCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: block mode");
         }
 
         private static void RunMimeTypesTests()
@@ -444,6 +471,7 @@ namespace HostTests
         private static void RunNavigationPolicyEdgeCaseTests()
         {
             Assert(WebView2AppHost.NavigationPolicy.Classify("http://app.local/") == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: insecure local external");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("customscheme://test") == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: unsupported scheme blocked");
         }
 
         private static void RunParseRangeEdgeCaseTests()

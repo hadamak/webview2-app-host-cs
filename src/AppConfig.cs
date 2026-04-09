@@ -85,6 +85,14 @@ namespace WebView2AppHost
 
         public string[] AllowExternalHosts => NavigationPolicy?.AllowExternalHosts ?? Array.Empty<string>();
 
+        public string[] BlockExternalHosts => NavigationPolicy?.BlockExternalHosts ?? Array.Empty<string>();
+
+        public string[] AllowedExternalSchemes => NavigationPolicy?.AllowedExternalSchemes ?? Array.Empty<string>();
+
+        public string ExternalNavigationMode => string.IsNullOrWhiteSpace(NavigationPolicy?.ExternalNavigationMode)
+            ? ""
+            : NavigationPolicy!.ExternalNavigationMode.Trim();
+
         public string[] BlockRequestPatterns => NavigationPolicy?.BlockRequestPatterns ?? Array.Empty<string>();
 
         public bool SubStreamsEnabled => SubStreams?.Enabled ?? false;
@@ -102,6 +110,12 @@ namespace WebView2AppHost
 
         public bool IsExternalHostAllowed(string host)
             => MatchesAnyWildcard(host, AllowExternalHosts);
+
+        public bool IsExternalHostBlocked(string host)
+            => MatchesAnyWildcard(host, BlockExternalHosts);
+
+        public bool IsExternalSchemeAllowed(string scheme)
+            => MatchesAnyWildcard(scheme, AllowedExternalSchemes);
 
         public bool IsRequestBlocked(string target)
             => MatchesAnyWildcard(target, BlockRequestPatterns);
@@ -221,7 +235,12 @@ namespace WebView2AppHost
 
             NavigationPolicy ??= new NavigationPolicyConfig();
             NavigationPolicy.AllowExternalHosts ??= Array.Empty<string>();
+            NavigationPolicy.BlockExternalHosts ??= Array.Empty<string>();
+            NavigationPolicy.AllowedExternalSchemes ??= Array.Empty<string>();
             NavigationPolicy.BlockRequestPatterns ??= Array.Empty<string>();
+            NavigationPolicy.ExternalNavigationMode = string.IsNullOrWhiteSpace(NavigationPolicy.ExternalNavigationMode)
+                ? ""
+                : NavigationPolicy.ExternalNavigationMode.Trim().ToLowerInvariant();
 
             SubStreams ??= new SubStreamsConfig();
             if (SubStreams.MaxConcurrentStreams < 1)
@@ -396,8 +415,17 @@ namespace WebView2AppHost
     [DataContract]
     public sealed class NavigationPolicyConfig
     {
+        [DataMember(Name = "external_navigation_mode")]
+        public string ExternalNavigationMode { get; set; } = "";
+
         [DataMember(Name = "allow_external_hosts")]
         public string[] AllowExternalHosts { get; set; } = Array.Empty<string>();
+
+        [DataMember(Name = "block_external_hosts")]
+        public string[] BlockExternalHosts { get; set; } = Array.Empty<string>();
+
+        [DataMember(Name = "allowed_external_schemes")]
+        public string[] AllowedExternalSchemes { get; set; } = Array.Empty<string>();
 
         [DataMember(Name = "block_request_patterns")]
         public string[] BlockRequestPatterns { get; set; } = Array.Empty<string>();

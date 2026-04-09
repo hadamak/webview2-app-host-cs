@@ -599,11 +599,14 @@ namespace WebView2AppHost
                 fallbackWidth: _config.Width,
                 fallbackHeight: _config.Height);
 
-            switch (NavigationPolicy.Classify(uri))
+            switch (NavigationPolicy.Classify(uri, _config))
             {
                 case NavigationPolicy.Action.OpenExternal:
                     e.Handled = true;
                     OpenInDefaultBrowser(uri);
+                    break;
+                case NavigationPolicy.Action.Block:
+                    e.Handled = true;
                     break;
                 case NavigationPolicy.Action.Allow:
                     if (NavigationPolicy.ShouldOpenHostPopup(uri))
@@ -619,11 +622,14 @@ namespace WebView2AppHost
 
         private void HandleNavigation(string uri, Action cancelAction)
         {
-            switch (NavigationPolicy.Classify(uri))
+            switch (NavigationPolicy.Classify(uri, _config))
             {
                 case NavigationPolicy.Action.OpenExternal:
                     cancelAction();
                     OpenInDefaultBrowser(uri);
+                    break;
+                case NavigationPolicy.Action.Block:
+                    cancelAction();
                     break;
                 case NavigationPolicy.Action.Allow:
                 default:

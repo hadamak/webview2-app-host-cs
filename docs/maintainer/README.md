@@ -19,6 +19,7 @@ This section is for people changing the host itself rather than simply shipping 
 ## Compatibility and roadmap
 
 - [api-compatibility.md](api-compatibility.md)
+- [navigation-policy-redesign.md](navigation-policy-redesign.md)
 - [revision-proposal.md](revision-proposal.md)
 - [future-considerations.md](future-considerations.md)
 
