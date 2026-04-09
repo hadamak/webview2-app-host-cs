@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -54,7 +55,10 @@ namespace HostTests
                 {
                     // 頻繁に初期化（内部辞書のクリアと構築）を試みる
                     // ※本来は一回限りだが、スレッド安全性の隙を突くために繰り返す
-                    dll.Initialize("{\"loadDlls\": [{\"dll\":\"dummy.dll\", \"alias\":\"Test" + (count++) + "\"}]}");
+                    using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(
+                        "{\"connectors\": [{\"type\":\"dll\", \"path\":\"dummy.dll\", \"alias\":\"Test" + (count++) + "\"}]}"));
+                    var config = AppConfig.Load(stream) ?? new AppConfig();
+                    dll.Initialize(config);
                     Thread.Sleep(10);
                 }
             }));

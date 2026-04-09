@@ -31,8 +31,12 @@ namespace WebView2AppHost
         /// <summary>
         /// NewWindowRequested をホスト内の新規 WebView ウィンドウで受けるべき URI かどうかを返す。
         /// </summary>
-        public static bool ShouldOpenHostPopup(string uri)
-            => IsAppLocalUri(uri);
+        public static bool ShouldOpenHostPopup(string uri, AppConfig? config)
+            => Classify(uri, config) == Action.Allow
+            && Uri.TryCreate(uri, UriKind.Absolute, out var parsed)
+            && (IsAppLocalUri(uri)
+                || string.Equals(parsed.Scheme, "http", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(parsed.Scheme, "https", StringComparison.OrdinalIgnoreCase));
 
         public static Action Classify(string uri)
             => Classify(uri, config: null);
@@ -69,16 +73,21 @@ namespace WebView2AppHost
                 return Action.OpenExternal;
 
             var host = parsed.Host ?? "";
+            if (config != null && config.IsExternalHostBlocked(host))
+                return Action.Block;
 
             switch (mode)
             {
-                case ExternalNavigationMode.SystemBrowser:
-                    if (config != null && config.IsExternalHostBlocked(host))
-                        return Action.Block;
+                case ExternalNavigationMode.Host:
+                    return Action.Allow;
+
+                case ExternalNavigationMode.Browser:
                     return Action.OpenExternal;
 
-                case ExternalNavigationMode.Whitelist:
-                    if (config != null && config.IsExternalHostAllowed(host))
+                case ExternalNavigationMode.Rules:
+                    if (config != null && config.ShouldOpenInHost(host))
+                        return Action.Allow;
+                    if (config != null && config.ShouldOpenInBrowser(host))
                         return Action.OpenExternal;
                     return Action.Block;
 
@@ -108,22 +117,25 @@ namespace WebView2AppHost
         {
             var raw = config?.ExternalNavigationMode ?? "";
             if (string.IsNullOrWhiteSpace(raw))
-                return AppConfig.IsSecureMode ? ExternalNavigationMode.Block : ExternalNavigationMode.SystemBrowser;
+                return AppConfig.IsSecureMode ? ExternalNavigationMode.Block : ExternalNavigationMode.Browser;
 
-            if (string.Equals(raw, "system_browser", StringComparison.OrdinalIgnoreCase))
-                return ExternalNavigationMode.SystemBrowser;
-            if (string.Equals(raw, "whitelist", StringComparison.OrdinalIgnoreCase))
-                return ExternalNavigationMode.Whitelist;
+            if (string.Equals(raw, "host", StringComparison.OrdinalIgnoreCase))
+                return ExternalNavigationMode.Host;
+            if (string.Equals(raw, "browser", StringComparison.OrdinalIgnoreCase))
+                return ExternalNavigationMode.Browser;
+            if (string.Equals(raw, "rules", StringComparison.OrdinalIgnoreCase))
+                return ExternalNavigationMode.Rules;
             if (string.Equals(raw, "block", StringComparison.OrdinalIgnoreCase))
                 return ExternalNavigationMode.Block;
 
-            return AppConfig.IsSecureMode ? ExternalNavigationMode.Block : ExternalNavigationMode.SystemBrowser;
+            return AppConfig.IsSecureMode ? ExternalNavigationMode.Block : ExternalNavigationMode.Browser;
         }
 
         private enum ExternalNavigationMode
         {
-            SystemBrowser,
-            Whitelist,
+            Host,
+            Browser,
+            Rules,
             Block,
         }
     }

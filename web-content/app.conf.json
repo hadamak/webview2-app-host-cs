@@ -7,9 +7,10 @@
   },
   "url": "https://app.local/index.html",
   "navigation_policy": {
-    "external_navigation_mode": "system_browser",
-    "allow_external_hosts": ["*.github.com", "*.microsoft.com"],
-    "block_external_hosts": ["ads.example.com"],
+    "external_navigation_mode": "rules",
+    "open_in_host": ["*.github.com", "*.microsoft.com"],
+    "open_in_browser": ["example.com"],
+    "block": ["ads.example.com"],
     "allowed_external_schemes": ["https", "mailto"],
     "block_request_patterns": ["*ads*", "*tracker*"]
   },

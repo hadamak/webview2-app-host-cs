@@ -195,15 +195,18 @@ msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=Release /
 
 ## 設定
 
-`app.conf.json` はシンプルな構造化形式で書けます。旧形式も引き続き受け付けます。
+`app.conf.json` は構造化形式のみを受け付けます。
 
 ```json
 {
   "title": "My App",
   "window": { "width": 1280, "height": 720, "frame": true },
   "url": "https://app.local/index.html",
+  "proxy_origins": ["https://api.github.com"],
+  "steam": { "app_id": "480", "dev_mode": true },
   "navigation_policy": {
-    "allow_external_hosts": ["*.github.com"],
+    "external_navigation_mode": "rules",
+    "open_in_host": ["*.github.com"],
     "block_request_patterns": ["*ads*"]
   }
 }

@@ -9,7 +9,7 @@ Use `DllConnector` when you need the lowest-latency path from JavaScript into .N
 - existing .NET business logic
 - direct access to libraries such as Steamworks
 
-## Structured config
+## Config
 
 ```json
 {
@@ -18,8 +18,6 @@ Use `DllConnector` when you need the lowest-latency path from JavaScript into .N
   ]
 }
 ```
-
-Legacy `loadDlls` is still supported.
 
 ## JS usage
 

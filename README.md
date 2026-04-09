@@ -185,15 +185,18 @@ Guides:
 
 ## Configuration
 
-`app.conf.json` supports a simple structured format and still accepts legacy fields.
+`app.conf.json` is structured-only.
 
 ```json
 {
   "title": "My App",
   "window": { "width": 1280, "height": 720, "frame": true },
   "url": "https://app.local/index.html",
+  "proxy_origins": ["https://api.github.com"],
+  "steam": { "app_id": "480", "dev_mode": true },
   "navigation_policy": {
-    "allow_external_hosts": ["*.github.com"],
+    "external_navigation_mode": "rules",
+    "open_in_host": ["*.github.com"],
     "block_request_patterns": ["*ads*"]
   }
 }

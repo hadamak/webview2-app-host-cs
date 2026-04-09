@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
@@ -10,7 +11,7 @@ namespace WebView2AppHost
 {
     /// <summary>
     /// app.conf.json の設定値。
-    /// 新旧フォーマットの両方を受け付け、ロード後に既存ランタイムで扱える形へ正規化する。
+    /// Structured app.conf.json を読み込み、ランタイムで扱える形へ正規化する。
     /// </summary>
     [DataContract]
     public sealed class AppConfig
@@ -37,13 +38,10 @@ namespace WebView2AppHost
         [DataMember(Name = "title")]
         public string Title { get; private set; } = "WebView2 App Host";
 
-        [DataMember(Name = "width")]
         public int Width { get; set; } = 1280;
 
-        [DataMember(Name = "height")]
         public int Height { get; set; } = 720;
 
-        [DataMember(Name = "fullscreen")]
         public bool Fullscreen { get; set; } = false;
 
         [DataMember(Name = "url")]
@@ -61,31 +59,29 @@ namespace WebView2AppHost
         [DataMember(Name = "connectors")]
         public ConnectorEntry[] Connectors { get; private set; } = Array.Empty<ConnectorEntry>();
 
-        [DataMember(Name = "proxyOrigins")]
+        [DataMember(Name = "proxy_origins")]
         public string[] ProxyOrigins { get; private set; } = Array.Empty<string>();
-
-        [DataMember(Name = "plugins")]
-        public string[] Plugins { get; private set; } = Array.Empty<string>();
 
         public string RawJson { get; private set; } = "{}";
 
-        [DataMember(Name = "steamAppId")]
-        public string SteamAppId { get; private set; } = "";
+        [DataMember(Name = "steam")]
+        public SteamConfig? Steam { get; private set; }
 
-        [DataMember(Name = "steamDevMode")]
-        public bool SteamDevMode { get; private set; } = true;
+        public string SteamAppId => Steam?.AppId ?? "";
 
-        [DataMember(Name = "loadDlls")]
+        public bool SteamDevMode => Steam?.DevMode ?? true;
+
         public LoadDllEntry[] LoadDlls { get; private set; } = Array.Empty<LoadDllEntry>();
 
-        [DataMember(Name = "sidecars")]
         public SidecarEntry[] Sidecars { get; private set; } = Array.Empty<SidecarEntry>();
 
         public bool Frame => Window?.Frame ?? true;
 
-        public string[] AllowExternalHosts => NavigationPolicy?.AllowExternalHosts ?? Array.Empty<string>();
+        public string[] OpenInHost => NavigationPolicy?.OpenInHost ?? Array.Empty<string>();
 
-        public string[] BlockExternalHosts => NavigationPolicy?.BlockExternalHosts ?? Array.Empty<string>();
+        public string[] OpenInBrowser => NavigationPolicy?.OpenInBrowser ?? Array.Empty<string>();
+
+        public string[] BlockExternalHosts => NavigationPolicy?.Block ?? Array.Empty<string>();
 
         public string[] AllowedExternalSchemes => NavigationPolicy?.AllowedExternalSchemes ?? Array.Empty<string>();
 
@@ -108,8 +104,11 @@ namespace WebView2AppHost
                 string.Equals(o.TrimEnd('/'), origin, StringComparison.OrdinalIgnoreCase));
         }
 
-        public bool IsExternalHostAllowed(string host)
-            => MatchesAnyWildcard(host, AllowExternalHosts);
+        public bool ShouldOpenInHost(string host)
+            => MatchesAnyWildcard(host, OpenInHost);
+
+        public bool ShouldOpenInBrowser(string host)
+            => MatchesAnyWildcard(host, OpenInBrowser);
 
         public bool IsExternalHostBlocked(string host)
             => MatchesAnyWildcard(host, BlockExternalHosts);
@@ -193,49 +192,26 @@ namespace WebView2AppHost
                 if (Title.Length == 0) Title = "WebView2 App Host";
             }
 
-            if (Window == null)
-            {
-                Window = new WindowConfig
-                {
-                    Width = Width,
-                    Height = Height,
-                    Fullscreen = Fullscreen,
-                    Frame = true
-                };
-            }
-            else
-            {
-                Window.Width = NormalizeDimension(Window.Width ?? Width, MaxWidth);
-                Window.Height = NormalizeDimension(Window.Height ?? Height, MaxHeight);
-                Window.Fullscreen = Window.Fullscreen ?? Fullscreen;
-                Window.Frame = Window.Frame ?? true;
-
-                Width = Window.Width.Value;
-                Height = Window.Height.Value;
-                Fullscreen = Window.Fullscreen.Value;
-            }
-
-            Width = NormalizeDimension(Width, MaxWidth);
-            Height = NormalizeDimension(Height, MaxHeight);
-            Fullscreen = Window.Fullscreen ?? Fullscreen;
-
-            Window.Width = Width;
-            Window.Height = Height;
-            Window.Fullscreen = Fullscreen;
+            Window ??= new WindowConfig();
+            Window.Width = NormalizeDimension(Window.Width ?? Width, MaxWidth);
+            Window.Height = NormalizeDimension(Window.Height ?? Height, MaxHeight);
+            Window.Fullscreen = Window.Fullscreen ?? Fullscreen;
             Window.Frame = Window.Frame ?? true;
+
+            Width = Window.Width.Value;
+            Height = Window.Height.Value;
+            Fullscreen = Window.Fullscreen.Value;
 
             Url = string.IsNullOrWhiteSpace(Url) ? "https://app.local/index.html" : Url.Trim();
 
             ProxyOrigins ??= Array.Empty<string>();
-            Plugins ??= Array.Empty<string>();
-            SteamAppId ??= "";
-            LoadDlls ??= Array.Empty<LoadDllEntry>();
-            Sidecars ??= Array.Empty<SidecarEntry>();
+            Steam ??= new SteamConfig();
             Connectors ??= Array.Empty<ConnectorEntry>();
 
             NavigationPolicy ??= new NavigationPolicyConfig();
-            NavigationPolicy.AllowExternalHosts ??= Array.Empty<string>();
-            NavigationPolicy.BlockExternalHosts ??= Array.Empty<string>();
+            NavigationPolicy.OpenInHost ??= Array.Empty<string>();
+            NavigationPolicy.OpenInBrowser ??= Array.Empty<string>();
+            NavigationPolicy.Block ??= Array.Empty<string>();
             NavigationPolicy.AllowedExternalSchemes ??= Array.Empty<string>();
             NavigationPolicy.BlockRequestPatterns ??= Array.Empty<string>();
             NavigationPolicy.ExternalNavigationMode = string.IsNullOrWhiteSpace(NavigationPolicy.ExternalNavigationMode)
@@ -247,16 +223,12 @@ namespace WebView2AppHost
                 SubStreams.MaxConcurrentStreams = 1;
 
             NormalizeConnectors();
-            NormalizeLoadDlls();
-            NormalizeSidecars();
         }
 
         private void NormalizeConnectors()
         {
-            if (Connectors.Length == 0) return;
-
-            var dlls = LoadDlls.ToList();
-            var sidecars = Sidecars.ToList();
+            var dlls = new List<LoadDllEntry>();
+            var sidecars = new List<SidecarEntry>();
 
             foreach (var connector in Connectors)
             {
@@ -319,32 +291,6 @@ namespace WebView2AppHost
 
             LoadDlls = dlls.ToArray();
             Sidecars = sidecars.ToArray();
-        }
-
-        private void NormalizeLoadDlls()
-        {
-            foreach (var entry in LoadDlls)
-            {
-                entry.Alias ??= "";
-                entry.Dll ??= "";
-                entry.ExposeEvents ??= Array.Empty<string>();
-
-                if (string.IsNullOrWhiteSpace(entry.Alias) && !string.IsNullOrWhiteSpace(entry.Dll))
-                    entry.Alias = Path.GetFileNameWithoutExtension(entry.Dll);
-            }
-        }
-
-        private void NormalizeSidecars()
-        {
-            foreach (var entry in Sidecars)
-            {
-                entry.Alias ??= "";
-                entry.Mode = string.IsNullOrWhiteSpace(entry.Mode) ? "streaming" : entry.Mode;
-                entry.Executable ??= "";
-                entry.WorkingDirectory ??= "";
-                entry.Args ??= Array.Empty<string>();
-                entry.Encoding = string.IsNullOrWhiteSpace(entry.Encoding) ? "utf-8" : entry.Encoding;
-            }
         }
 
         private static int NormalizeDimension(int value, int maxValue)
@@ -418,11 +364,14 @@ namespace WebView2AppHost
         [DataMember(Name = "external_navigation_mode")]
         public string ExternalNavigationMode { get; set; } = "";
 
-        [DataMember(Name = "allow_external_hosts")]
-        public string[] AllowExternalHosts { get; set; } = Array.Empty<string>();
+        [DataMember(Name = "open_in_host")]
+        public string[] OpenInHost { get; set; } = Array.Empty<string>();
 
-        [DataMember(Name = "block_external_hosts")]
-        public string[] BlockExternalHosts { get; set; } = Array.Empty<string>();
+        [DataMember(Name = "open_in_browser")]
+        public string[] OpenInBrowser { get; set; } = Array.Empty<string>();
+
+        [DataMember(Name = "block")]
+        public string[] Block { get; set; } = Array.Empty<string>();
 
         [DataMember(Name = "allowed_external_schemes")]
         public string[] AllowedExternalSchemes { get; set; } = Array.Empty<string>();
@@ -439,6 +388,16 @@ namespace WebView2AppHost
 
         [DataMember(Name = "max_concurrent_streams")]
         public int MaxConcurrentStreams { get; set; } = 1;
+    }
+
+    [DataContract]
+    public sealed class SteamConfig
+    {
+        [DataMember(Name = "app_id")]
+        public string AppId { get; set; } = "";
+
+        [DataMember(Name = "dev_mode")]
+        public bool DevMode { get; set; } = true;
     }
 
     [DataContract]

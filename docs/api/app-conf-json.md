@@ -1,127 +1,126 @@
 # app.conf.json
 
-## Supported styles
+`app.conf.json` is a structured schema. Legacy flat connector arrays and camelCase aliases are no longer accepted.
 
-The loader accepts both:
-
-- legacy flat fields such as `title`, `width`, `height`, `fullscreen`, `proxyOrigins`, `loadDlls`, and `sidecars`
-- structured fields such as `window`, `url`, `navigation_policy`, `sub_streams`, and `connectors`
-
-Structured entries are normalized into the current runtime model, so older connector initialization code keeps working.
-
-## Structured fields
-
-### `window`
-
-```json
-{ "width": 1280, "height": 720, "frame": true, "fullscreen": false }
-```
-
-### `url`
-
-Initial browser URL. Defaults to `https://app.local/index.html`.
-
-### `navigation_policy`
+## Full example
 
 ```json
 {
-  "external_navigation_mode": "system_browser",
-  "allow_external_hosts": ["*.github.com"],
-  "block_external_hosts": ["ads.example.com"],
+  "title": "My App",
+  "window": {
+    "width": 1280,
+    "height": 720,
+    "frame": true,
+    "fullscreen": false
+  },
+  "url": "https://app.local/index.html",
+  "proxy_origins": ["https://api.github.com"],
+  "steam": {
+    "app_id": "480",
+    "dev_mode": true
+  },
+  "navigation_policy": {
+    "external_navigation_mode": "rules",
+    "open_in_host": ["*.github.com"],
+    "open_in_browser": ["login.microsoftonline.com"],
+    "block": ["ads.example.com"],
+    "allowed_external_schemes": ["https", "mailto"],
+    "block_request_patterns": ["*ads*"]
+  },
+  "sub_streams": {
+    "enabled": true,
+    "max_concurrent_streams": 5
+  },
+  "connectors": [
+    {
+      "type": "browser",
+      "alias": "Browser"
+    },
+    {
+      "type": "dll",
+      "alias": "SystemMonitor",
+      "path": "plugins/SystemMonitor.dll",
+      "expose_events": ["OnStatusChanged"]
+    },
+    {
+      "type": "sidecar",
+      "alias": "PythonRuntime",
+      "runtime": "python",
+      "script": "python-runtime/server.py",
+      "working_directory": "python-runtime",
+      "wait_for_ready": true,
+      "encoding": "utf-8"
+    },
+    {
+      "type": "pipe_server"
+    },
+    {
+      "type": "mcp"
+    }
+  ]
+}
+```
+
+## Top-level fields
+
+- `title`
+  - Window title used before the page updates `document.title`.
+- `window`
+  - `width`, `height`, `frame`, `fullscreen`
+- `url`
+  - Initial browser URL. Default is `https://app.local/index.html`.
+- `proxy_origins`
+  - Origins that CDP proxying may intercept in standard builds.
+- `steam`
+  - `app_id`, `dev_mode`
+- `navigation_policy`
+  - External navigation routing and request blocking.
+- `sub_streams`
+  - `enabled`, `max_concurrent_streams`
+- `connectors`
+  - List of enabled bridge surfaces.
+
+## Connector types
+
+- `browser`
+  - Registers `BrowserConnector`.
+- `dll`
+  - Fields: `type`, `path`, optional `alias`, optional `expose_events`
+- `sidecar`
+  - Fields: `type`, `runtime` or `executable`, optional `script`, optional `alias`, optional `working_directory`, optional `mode`, optional `args`, optional `encoding`, optional `wait_for_ready`
+- `pipe` / `pipe_server`
+  - Registers `PipeServerConnector`.
+- `mcp`
+  - Enables `McpConnector` in supported builds.
+
+## Navigation policy
+
+```json
+{
+  "external_navigation_mode": "rules",
+  "open_in_host": ["*.github.com"],
+  "open_in_browser": ["example.com"],
+  "block": ["blocked.example.com"],
   "allowed_external_schemes": ["https", "mailto"],
   "block_request_patterns": ["*ads*"]
 }
 ```
 
-Current runtime status:
-
-- external navigation routing now uses the configured mode and lists
-- `block_request_patterns` remains independent from top-level navigation routing
-- design rationale is documented in [../maintainer/navigation-policy-redesign.md](../maintainer/navigation-policy-redesign.md)
-
-Planned meanings:
-
 - `external_navigation_mode`
-  - `system_browser`, `whitelist`, or `block`
-- `allow_external_hosts`
-  - host whitelist used by `whitelist`
-- `block_external_hosts`
-  - host deny list used by `system_browser`
+  - `host`, `browser`, `rules`, or `block`
+- `open_in_host`
+  - Used by `rules` to keep matching `http(s)` URLs inside the host
+- `open_in_browser`
+  - Used by `rules` to send matching `http(s)` URLs to the default browser
+- `block`
+  - Host deny list applied before other `http(s)` routing rules
 - `allowed_external_schemes`
-  - explicit scheme allow list enforced before host matching
+  - Scheme allow-list checked before host rules
 - `block_request_patterns`
-  - request-level filtering, independent from top-level navigation routing
+  - Request-level filter separate from top-level navigation routing
 
-### `sub_streams`
+## Notes
 
-```json
-{ "enabled": true, "max_concurrent_streams": 5 }
-```
-
-### `connectors`
-
-```json
-[
-  { "type": "dll", "path": "plugins/SystemMonitor.dll" },
-  { "type": "sidecar", "runtime": "python", "script": "agent.py" }
-]
-```
-
-Supported connector shapes:
-
-- DLL
-  - `type`, `path`, optional `alias`, optional `expose_events`
-- sidecar
-  - `type`, `runtime` or `executable`, optional `script`, `working_directory`, `mode`, `args`, `encoding`, `wait_for_ready`
-
-## Legacy fields still supported
-
-### Window and title
-
-- `title`
-- `width`
-- `height`
-- `fullscreen`
-
-### Browser proxy
-
-- `proxyOrigins`
-
-### Steam
-
-- `steamAppId`
-- `steamDevMode`
-
-### DLL loading
-
-```json
-"loadDlls": [
-  { "alias": "Steam", "dll": "Facepunch.Steamworks.Win64.dll", "exposeEvents": ["OnGameOverlayActivated"] }
-]
-```
-
-### Sidecars
-
-```json
-"sidecars": [
-  {
-    "alias": "Python",
-    "mode": "streaming",
-    "executable": "python",
-    "workingDirectory": "python-runtime",
-    "args": ["server.py"],
-    "encoding": "utf-8",
-    "waitForReady": true
-  }
-]
-```
-
-## User overrides
-
-If `user.conf.json` exists next to the EXE, it can override:
-
-- `width`
-- `height`
-- `fullscreen`
-
-This applies after `app.conf.json` is loaded.
+- `connectors` is now the only supported way to declare DLLs and sidecars.
+- Use snake_case field names in `app.conf.json`.
+- `user.conf.json` may still override `width`, `height`, and `fullscreen` at runtime.

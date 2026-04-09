@@ -80,7 +80,6 @@ namespace WebView2AppHost
         /// <summary>app.conf.json の JSON 文字列から loadDlls を読み込む。</summary>
         public void Initialize(string configJson)
         {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
             try
             {
                 var conf = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(configJson);
@@ -90,12 +89,25 @@ namespace WebView2AppHost
                     AppLog.Log("INFO", "DllConnector", "loadDlls が空です");
                     return;
                 }
-                foreach (var item in list) TryLoadDllEntry(baseDir, item);
+                LoadDllEntries(list.Cast<object>());
             }
             catch (Exception ex)
             {
                 AppLog.Log("ERROR", "DllConnector.Initialize", ex.Message, ex);
             }
+        }
+
+        /// <summary>正規化済み AppConfig から loadDlls を読み込む。</summary>
+        public void Initialize(AppConfig config)
+        {
+            if (config == null) throw new ArgumentNullException(nameof(config));
+            if (config.LoadDlls == null || config.LoadDlls.Length == 0)
+            {
+                AppLog.Log("INFO", "DllConnector", "loadDlls が空です");
+                return;
+            }
+
+            LoadDllEntries(config.LoadDlls.Cast<object>());
         }
 
         // -------------------------------------------------------------------
@@ -147,6 +159,13 @@ namespace WebView2AppHost
         // DLL ロード
         // -------------------------------------------------------------------
 
+        private void LoadDllEntries(IEnumerable<object> entries)
+        {
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            foreach (var item in entries)
+                TryLoadDllEntry(baseDir, item);
+        }
+
         private void TryLoadDllEntry(string baseDir, object? item)
         {
             string? dllFileName = null;
@@ -175,6 +194,14 @@ namespace WebView2AppHost
                 }
                 if (dllFileName != null && alias == null)
                     alias = Path.GetFileNameWithoutExtension(dllFileName);
+            }
+            else if (item is LoadDllEntry entry)
+            {
+                dllFileName = entry.Dll;
+                alias = string.IsNullOrWhiteSpace(entry.Alias)
+                    ? Path.GetFileNameWithoutExtension(entry.Dll)
+                    : entry.Alias;
+                exposeEvents = entry.ExposeEvents;
             }
 
             if (string.IsNullOrEmpty(dllFileName) || string.IsNullOrEmpty(alias)) return;

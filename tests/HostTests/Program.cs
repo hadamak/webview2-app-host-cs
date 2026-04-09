@@ -71,7 +71,6 @@ namespace HostTests
             RunAppConfigUserConfigTests(workDir);
             RunAppConfigProxyTests();
             RunAppConfigProxyParsingTests();
-            RunAppConfigPluginsTests();
             RunAppConfigStructuredTests();
             RunWebMessageHelperTests();
             RunPluginManagerLogicTests();
@@ -295,24 +294,22 @@ namespace HostTests
             public void HandleWebMessage(string json) => LastMessage = json;
         }
 
-        private static void RunAppConfigPluginsTests()
-        {
-            var cfg = LoadConfig("{\"plugins\":[\"Steam\",\"Node\"]}");
-            Assert(cfg != null && cfg.Plugins.Length == 2, "Plugins: 2要素がパースされる");
-        }
-
         private static void RunAppConfigStructuredTests()
         {
             var json = @"
             {
               ""window"": { ""width"": 1440, ""height"": 900, ""frame"": false },
               ""url"": ""https://app.local/dashboard.html"",
+              ""proxy_origins"": [""https://api.github.com""],
+              ""steam"": { ""app_id"": ""480"", ""dev_mode"": true },
               ""navigation_policy"": {
-                ""allow_external_hosts"": [""*.github.com""],
+                ""external_navigation_mode"": ""rules"",
+                ""open_in_browser"": [""*.github.com""],
                 ""block_request_patterns"": [""*ads*""]
               },
               ""sub_streams"": { ""enabled"": true, ""max_concurrent_streams"": 5 },
               ""connectors"": [
+                { ""type"": ""browser"" },
                 { ""type"": ""dll"", ""alias"": ""Steam"", ""path"": ""Facepunch.Steamworks.Win64.dll"" },
                 { ""type"": ""sidecar"", ""runtime"": ""node"", ""script"": ""agent.js"" }
               ]
@@ -324,10 +321,37 @@ namespace HostTests
             Assert(cfg.Frame == false, "StructuredConfig: frame applied");
             Assert(cfg.Url == "https://app.local/dashboard.html", "StructuredConfig: url applied");
             Assert(cfg.SubStreamsEnabled && cfg.MaxConcurrentSubStreams == 5, "StructuredConfig: substreams applied");
+            Assert(cfg.ProxyOrigins.Length == 1 && cfg.ProxyOrigins[0] == "https://api.github.com", "StructuredConfig: proxy origins applied");
+            Assert(cfg.SteamAppId == "480" && cfg.SteamDevMode, "StructuredConfig: steam applied");
             Assert(cfg.LoadDlls.Length == 1 && cfg.LoadDlls[0].Alias == "Steam", "StructuredConfig: dll normalized");
             Assert(cfg.Sidecars.Length == 1 && cfg.Sidecars[0].Alias == "Node", "StructuredConfig: sidecar normalized");
-            Assert(cfg.IsExternalHostAllowed("api.github.com"), "StructuredConfig: host wildcard");
+            Assert(cfg.ShouldOpenInBrowser("api.github.com"), "StructuredConfig: browser wildcard");
             Assert(cfg.IsRequestBlocked("https://cdn.example.com/ads/banner.js"), "StructuredConfig: request wildcard");
+
+            var directNames = WebView2AppHost.ConnectorFactory.GetAvailableConnectorNames(cfg, enableMcp: false);
+            Assert(directNames.Contains("Browser"), "StructuredConfig: browser connector visible");
+            Assert(directNames.Contains("Host"), "StructuredConfig: dll connector visible");
+            Assert(directNames.Contains("Node"), "StructuredConfig: sidecar connector visible");
+
+            var directCfg = LoadConfig(@"{
+              ""connectors"": [
+                { ""type"": ""browser"" },
+                { ""type"": ""pipe_server"" },
+                { ""type"": ""mcp"" },
+                { ""type"": ""dll"", ""alias"": ""Steam"", ""path"": ""Facepunch.Steamworks.Win64.dll"", ""expose_events"": [""OnGameOverlayActivated""] },
+                { ""type"": ""sidecar"", ""alias"": ""PythonRuntime"", ""executable"": ""python"", ""working_directory"": ""python-runtime"", ""wait_for_ready"": true }
+              ]
+            }");
+            Assert(directCfg != null, "StructuredConfig: direct config loaded");
+            Assert(directCfg.LoadDlls.Length == 1 && directCfg.LoadDlls[0].Dll == "Facepunch.Steamworks.Win64.dll", "StructuredConfig: dll connector normalized");
+            Assert(directCfg.Sidecars.Length == 1 && directCfg.Sidecars[0].WorkingDirectory == "python-runtime", "StructuredConfig: sidecar connector normalized");
+
+            var directConnectorNames = WebView2AppHost.ConnectorFactory.GetAvailableConnectorNames(directCfg, enableMcp: false);
+            Assert(directConnectorNames.Contains("Browser"), "StructuredConfig: direct browser type");
+            Assert(directConnectorNames.Contains("Host"), "StructuredConfig: direct dll type");
+            Assert(directConnectorNames.Contains("PythonRuntime"), "StructuredConfig: direct sidecar type");
+            Assert(directConnectorNames.Contains("PipeServer"), "StructuredConfig: direct pipe type");
+            Assert(directConnectorNames.Contains("Mcp"), "StructuredConfig: direct mcp type");
         }
 
         private static void RunUintOverflowFixTests()
@@ -379,36 +403,52 @@ namespace HostTests
         {
             Assert(WebView2AppHost.NavigationPolicy.Classify("https://app.local/index.html") == WebView2AppHost.NavigationPolicy.Action.Allow, "NavPolicy: local ok");
 
-            var systemBrowserCfg = LoadConfig(@"{
+            var browserCfg = LoadConfig(@"{
               ""navigation_policy"": {
-                ""external_navigation_mode"": ""system_browser"",
-                ""block_external_hosts"": [""blocked.example.com""],
+                ""external_navigation_mode"": ""browser"",
+                ""block"": [""blocked.example.com""],
                 ""allowed_external_schemes"": [""https"", ""mailto""]
               }
             }");
-            Assert(systemBrowserCfg != null, "NavPolicy: system config loaded");
+            Assert(browserCfg != null, "NavPolicy: browser config loaded");
 #if SECURE_OFFLINE
-            Assert(WebView2AppHost.NavigationPolicy.Classify("https://example.com", systemBrowserCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: secure build blocks external");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://example.com", browserCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: secure build blocks external");
 #else
-            Assert(WebView2AppHost.NavigationPolicy.Classify("https://example.com", systemBrowserCfg) == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: system browser external");
-            Assert(WebView2AppHost.NavigationPolicy.Classify("https://blocked.example.com", systemBrowserCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: blocked host");
-            Assert(WebView2AppHost.NavigationPolicy.Classify("mailto:test@example.com", systemBrowserCfg) == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: allowed mailto");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://example.com", browserCfg) == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: browser mode external");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://blocked.example.com", browserCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: blocked host");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("mailto:test@example.com", browserCfg) == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: allowed mailto");
 #endif
 
-            var whitelistCfg = LoadConfig(@"{
+            var hostCfg = LoadConfig(@"{
               ""navigation_policy"": {
-                ""external_navigation_mode"": ""whitelist"",
-                ""allow_external_hosts"": [""*.github.com""],
+                ""external_navigation_mode"": ""host"",
                 ""allowed_external_schemes"": [""https""]
               }
             }");
-            Assert(whitelistCfg != null, "NavPolicy: whitelist config loaded");
+            Assert(hostCfg != null, "NavPolicy: host config loaded");
 #if SECURE_OFFLINE
-            Assert(WebView2AppHost.NavigationPolicy.Classify("https://api.github.com", whitelistCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: secure build overrides whitelist");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://api.github.com", hostCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: secure build overrides host mode");
 #else
-            Assert(WebView2AppHost.NavigationPolicy.Classify("https://api.github.com", whitelistCfg) == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: whitelist allow");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://api.github.com", hostCfg) == WebView2AppHost.NavigationPolicy.Action.Allow, "NavPolicy: host mode allow");
 #endif
-            Assert(WebView2AppHost.NavigationPolicy.Classify("https://example.com", whitelistCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: whitelist deny");
+
+            var rulesCfg = LoadConfig(@"{
+              ""navigation_policy"": {
+                ""external_navigation_mode"": ""rules"",
+                ""open_in_host"": [""*.github.com""],
+                ""open_in_browser"": [""example.com""],
+                ""block"": [""blocked.example.com""],
+                ""allowed_external_schemes"": [""https"", ""mailto""]
+              }
+            }");
+            Assert(rulesCfg != null, "NavPolicy: rules config loaded");
+#if SECURE_OFFLINE
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://api.github.com", rulesCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: secure build overrides rules");
+#else
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://api.github.com", rulesCfg) == WebView2AppHost.NavigationPolicy.Action.Allow, "NavPolicy: rules host allow");
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://example.com", rulesCfg) == WebView2AppHost.NavigationPolicy.Action.OpenExternal, "NavPolicy: rules browser allow");
+#endif
+            Assert(WebView2AppHost.NavigationPolicy.Classify("https://blocked.example.com", rulesCfg) == WebView2AppHost.NavigationPolicy.Action.Block, "NavPolicy: rules block");
 
             var blockCfg = LoadConfig(@"{ ""navigation_policy"": { ""external_navigation_mode"": ""block"" } }");
             Assert(blockCfg != null, "NavPolicy: block config loaded");
@@ -480,7 +520,7 @@ namespace HostTests
 
         private static void RunAppConfigSanitizeTests()
         {
-            using var ms = new MemoryStream(Encoding.UTF8.GetBytes("{\"width\":10}"));
+            using var ms = new MemoryStream(Encoding.UTF8.GetBytes("{\"window\":{\"width\":10}}"));
             var cfg = WebView2AppHost.AppConfig.Load(ms);
             Assert(cfg?.Width >= 160, "AppConfig: Sanitize ok");
         }
@@ -497,14 +537,14 @@ namespace HostTests
 
         private static void RunAppConfigProxyTests()
         {
-            using var ms = new MemoryStream(Encoding.UTF8.GetBytes("{\"proxyOrigins\":[\"https://api.test\"]}"));
+            using var ms = new MemoryStream(Encoding.UTF8.GetBytes("{\"proxy_origins\":[\"https://api.test\"]}"));
             var cfg = WebView2AppHost.AppConfig.Load(ms);
             Assert(cfg != null && cfg.IsProxyAllowed(new Uri("https://api.test/v1")), "Proxy: Allowed ok");
         }
 
         private static void RunAppConfigProxyParsingTests()
         {
-            using var ms = new MemoryStream(Encoding.UTF8.GetBytes("{\"proxyOrigins\":[\"https://a\",\"https://b\"]}"));
+            using var ms = new MemoryStream(Encoding.UTF8.GetBytes("{\"proxy_origins\":[\"https://a\",\"https://b\"]}"));
             var cfg = WebView2AppHost.AppConfig.Load(ms);
             Assert(cfg?.ProxyOrigins.Length == 2, "Proxy: Parse ok");
         }

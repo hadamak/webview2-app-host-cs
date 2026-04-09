@@ -9,7 +9,7 @@ Use `SidecarConnector` when you want runtime isolation or need a language outsid
 - PowerShell automation
 - crash containment for risky integrations
 
-## Structured config
+## Config
 
 ```json
 {
@@ -18,8 +18,6 @@ Use `SidecarConnector` when you want runtime isolation or need a language outsid
   ]
 }
 ```
-
-Legacy `sidecars` remains supported.
 
 ## Protocol
 

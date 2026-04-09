@@ -3,7 +3,7 @@
   "window": { "width": 1280, "height": 800, "frame": true },
   "url": "https://app.local/index.html",
   "navigation_policy": {
-    "allow_external_hosts": [],
+    "external_navigation_mode": "browser",
     "block_request_patterns": []
   },
   "sub_streams": {

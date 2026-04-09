@@ -25,7 +25,7 @@ namespace HostTests
         private static void RunConnectorFactoryTests()
         {
             var config = LoadConfig(
-                @"{""sidecars"":[{""alias"":""BlockedSidecar"",""executable"":""node""}],""loadDlls"":[{""alias"":""AllowedDll"",""dll"":""dummy.dll""}]}");
+                @"{""connectors"":[{""type"":""sidecar"",""alias"":""BlockedSidecar"",""executable"":""node""},{""type"":""dll"",""alias"":""AllowedDll"",""path"":""dummy.dll""}]}");
             var names = ConnectorFactory.GetAvailableConnectorNames(config, enableMcp: true);
 
             Assert(names.Contains("Browser"), "ConnectorFactory: Browser should remain available");

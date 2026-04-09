@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 #if !SECURE_OFFLINE
 using System.Net.Http;
 #endif
@@ -145,7 +146,7 @@ namespace WebView2AppHost
             if (_config.ProxyOrigins?.Length > 0)
             {
                 AppLog.Log("WARN", "App.InitWebViewAsync",
-                    "Secure offline build では proxyOrigins は無効です。");
+                    "Secure offline build では proxy_origins は無効です。");
             }
 #endif
 
@@ -285,7 +286,8 @@ namespace WebView2AppHost
                 _bus = ConnectorFactory.BuildWithBrowser(
                     _webView, _config, _shutdownCts.Token);
 #else
-                var enableMcp = Array.IndexOf(System.Environment.GetCommandLineArgs(), "--mcp") >= 0;
+                var enableMcp = Array.IndexOf(System.Environment.GetCommandLineArgs(), "--mcp") >= 0
+                    || (_config.Connectors?.Any(c => c != null && string.Equals(c.Type, "mcp", StringComparison.OrdinalIgnoreCase)) ?? false);
                 (_bus, _mcpConnector) = ConnectorFactory.BuildWithBrowser(
                     _webView, _config, enableMcp, _shutdownCts.Token);
 
@@ -622,7 +624,7 @@ namespace WebView2AppHost
                     e.Handled = true;
                     break;
                 case NavigationPolicy.Action.Allow:
-                    if (NavigationPolicy.ShouldOpenHostPopup(uri))
+                    if (NavigationPolicy.ShouldOpenHostPopup(uri, _config))
                     {
                         e.Handled = true;
                         OpenHostPopup(uri, popupOptions);

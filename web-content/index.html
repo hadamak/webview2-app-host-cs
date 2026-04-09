@@ -495,7 +495,7 @@
             if (!connectors.length) {
                 items.push(connectorCard(
                     'Configured connectors',
-                    'No explicit connectors array. Legacy loadDlls/sidecars may still be active.',
+                    'No explicit connectors array. Only structured connectors are loaded.',
                     'Configuration-only view',
                     'status-warn'
                 ));
@@ -515,14 +515,22 @@
         }
 
         function renderPolicyDiagnostics(hostResult = null, requestResult = null) {
-            const allowHosts = loadedConfig?.navigation_policy?.allow_external_hosts ?? [];
+            const openInHost = loadedConfig?.navigation_policy?.open_in_host ?? [];
+            const openInBrowser = loadedConfig?.navigation_policy?.open_in_browser ?? [];
+            const blockedHosts = loadedConfig?.navigation_policy?.block ?? [];
             const blockPatterns = loadedConfig?.navigation_policy?.block_request_patterns ?? [];
             const items = [
                 connectorCard(
-                    'Allow External Hosts',
-                    allowHosts.length ? allowHosts.join(', ') : 'No explicit allow list',
+                    'Open In Host',
+                    openInHost.length ? openInHost.join(', ') : 'No host rules',
                     hostResult ?? 'Awaiting host check',
                     hostResult?.includes('MATCH') ? 'status-ok' : 'status-warn'
+                ),
+                connectorCard(
+                    'Open In Browser',
+                    openInBrowser.length ? openInBrowser.join(', ') : 'No browser rules',
+                    blockedHosts.length ? `Blocked: ${blockedHosts.join(', ')}` : 'No blocked hosts',
+                    blockedHosts.length ? 'status-bad' : 'status-warn'
                 ),
                 connectorCard(
                     'Block Request Patterns',
@@ -584,10 +592,20 @@
         });
         document.getElementById('checkHostBtn').addEventListener('click', () => {
             const host = document.getElementById('hostInput').value.trim();
-            const patterns = loadedConfig?.navigation_policy?.allow_external_hosts ?? [];
-            const matched = patterns.some(pattern => wildcardMatch(host, pattern));
+            const hostPatterns = loadedConfig?.navigation_policy?.open_in_host ?? [];
+            const browserPatterns = loadedConfig?.navigation_policy?.open_in_browser ?? [];
+            const blockPatterns = loadedConfig?.navigation_policy?.block ?? [];
+            const matchedHost = hostPatterns.some(pattern => wildcardMatch(host, pattern));
+            const matchedBrowser = browserPatterns.some(pattern => wildcardMatch(host, pattern));
+            const matchedBlock = blockPatterns.some(pattern => wildcardMatch(host, pattern));
             renderPolicyDiagnostics(
-                matched ? `MATCH: ${host}` : `NO MATCH: ${host}`,
+                matchedBlock
+                    ? `BLOCK: ${host}`
+                    : matchedHost
+                        ? `MATCH host: ${host}`
+                        : matchedBrowser
+                            ? `MATCH browser: ${host}`
+                            : `NO MATCH: ${host}`,
                 null
             );
         });

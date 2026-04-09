@@ -7,15 +7,17 @@
   },
   "url": "https://app.local/index.html",
   "navigation_policy": {
-    "allow_external_hosts": [],
+    "external_navigation_mode": "browser",
     "block_request_patterns": []
   },
   "sub_streams": {
     "enabled": true,
     "max_concurrent_streams": 4
   },
-  "steamAppId": "480",
-  "steamDevMode": true,
+  "steam": {
+    "app_id": "480",
+    "dev_mode": true
+  },
   "connectors": [
     {
       "type": "dll",
