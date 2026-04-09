@@ -3,281 +3,616 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>System Standby - WebView2 App Host</title>
+    <title>WebView2AppHost Bridge Dashboard</title>
     <style>
-        /* Base & Reset */
-        body, html {
-            margin: 0; padding: 0; width: 100%; height: 100%;
-            background-color: #030305; color: #ffffff;
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            overflow: hidden; /* スクロールバーを隠す */
-            user-select: none; /* ネイティブアプリのような操作感 */
-        }
-        
-        /* Canvas Background */
-        #bg-canvas {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0;
-        }
-
-        /* UI Layer Container */
-        .ui-layer {
-            position: relative; z-index: 1;
-            width: 100%; height: 100%;
-            display: flex; flex-direction: column;
-            justify-content: center; align-items: center;
+        :root {
+            --bg: #07111f;
+            --bg-soft: #0c1b31;
+            --panel: rgba(9, 20, 39, 0.78);
+            --panel-strong: rgba(15, 29, 55, 0.95);
+            --line: rgba(151, 177, 216, 0.18);
+            --text: #eaf1ff;
+            --muted: #93a6c7;
+            --accent: #53d1b6;
+            --accent-2: #7aa2ff;
+            --warn: #ffb454;
+            --danger: #ff7f7f;
+            --code: #06101e;
+            --shadow: 0 28px 60px rgba(0, 0, 0, 0.35);
+            --radius: 20px;
+            --mono: "Cascadia Code", "Consolas", monospace;
+            --sans: "Bahnschrift", "Segoe UI", sans-serif;
         }
 
-        /* Glassmorphism Dashboard */
-        .dashboard {
-            background: rgba(20, 20, 30, 0.5);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 12px;
-            padding: 40px;
-            width: 85%; max-width: 640px;
-            box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255,255,255,0.1);
-            animation: bootSequence 1.5s cubic-bezier(0.16, 1, 0.3, 1);
+        * { box-sizing: border-box; }
+        html, body { margin: 0; min-height: 100%; }
+        body {
+            font-family: var(--sans);
+            color: var(--text);
+            background:
+                radial-gradient(circle at top left, rgba(83, 209, 182, 0.18), transparent 30%),
+                radial-gradient(circle at top right, rgba(122, 162, 255, 0.24), transparent 35%),
+                linear-gradient(160deg, var(--bg) 0%, #040913 100%);
         }
 
-        @keyframes bootSequence {
-            0% { opacity: 0; transform: scale(0.95) translateY(20px); filter: blur(10px); }
-            100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 32px 32px;
+            mask-image: linear-gradient(to bottom, rgba(0,0,0,0.55), transparent 85%);
+            pointer-events: none;
         }
 
-        /* Typography */
-        h1 {
-            margin: 0 0 5px 0; font-size: 24px; font-weight: 400; letter-spacing: 4px;
-            background: linear-gradient(90deg, #0078D4, #00C6FF);
-            background-clip: text; -webkit-text-fill-color: transparent;
+        main {
+            width: min(1380px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 28px 0 40px;
         }
 
-        .subtitle {
-            font-size: 13px; color: #888; margin-bottom: 35px; letter-spacing: 2px;
+        .hero {
+            display: grid;
+            grid-template-columns: 1.35fr 0.95fr;
+            gap: 18px;
+            margin-bottom: 18px;
+        }
+
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(18px);
+        }
+
+        .hero-card {
+            padding: 28px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-card::after {
+            content: "";
+            position: absolute;
+            inset: auto -10% -40% 35%;
+            height: 240px;
+            background: radial-gradient(circle, rgba(83, 209, 182, 0.18), transparent 65%);
+            pointer-events: none;
+        }
+
+        .eyebrow {
+            font-size: 12px;
+            letter-spacing: 0.16em;
             text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 10px;
         }
 
-        /* System Info Grid */
-        .info-grid {
-            display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 35px;
+        h1 {
+            margin: 0 0 12px;
+            font-size: clamp(30px, 4vw, 52px);
+            line-height: 0.94;
+            letter-spacing: -0.04em;
         }
 
-        .info-box {
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            padding: 16px; border-radius: 8px;
-            transition: 0.3s;
-        }
-        .info-box:hover { background: rgba(255, 255, 255, 0.03); }
-        
-        .info-label { 
-            font-size: 10px; color: #666; text-transform: uppercase; 
-            letter-spacing: 1px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
-        }
-        .info-label::before {
-            content: ''; display: inline-block; width: 6px; height: 6px; 
-            background: #0078D4; border-radius: 50%;
-        }
-        .info-value { 
-            font-size: 14px; font-family: 'Consolas', monospace; color: #d4d4d4; 
-            word-break: break-all; line-height: 1.4;
+        .lead {
+            margin: 0;
+            color: var(--muted);
+            max-width: 58ch;
+            line-height: 1.65;
         }
 
-        /* Buttons */
-        .controls { display: flex; gap: 15px; justify-content: flex-end; }
+        .hero-meta {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 22px;
+        }
+
+        .metric {
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .metric .label {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            margin-bottom: 8px;
+        }
+
+        .metric .value {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .hero-side {
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .stack {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 14px 0 20px;
+        }
+
+        .chip {
+            border-radius: 999px;
+            padding: 8px 12px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.03);
+            font-size: 12px;
+            color: var(--text);
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        button, input {
+            font: inherit;
+        }
 
         button {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            color: #fff; padding: 10px 24px; border-radius: 6px;
-            font-size: 13px; cursor: pointer; transition: all 0.2s;
-            font-family: inherit; letter-spacing: 1px;
-            outline: none;
+            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255,255,255,0.04);
+            color: var(--text);
+            padding: 11px 14px;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
         }
 
-        button:hover { background: rgba(255, 255, 255, 0.1); transform: translateY(-1px); }
-        button:active { transform: translateY(1px); }
-        
-        .btn-primary { border-color: rgba(0, 120, 212, 0.5); color: #00C6FF; }
-        .btn-primary:hover { background: rgba(0, 120, 212, 0.15); box-shadow: 0 0 15px rgba(0, 120, 212, 0.3); }
-        
-        .btn-danger { border-color: rgba(212, 0, 0, 0.4); color: #ff6b6b; }
-        .btn-danger:hover { background: rgba(212, 0, 0, 0.15); box-shadow: 0 0 15px rgba(212, 0, 0, 0.3); }
+        button:hover {
+            transform: translateY(-1px);
+            background: rgba(255,255,255,0.08);
+        }
 
-        /* Clock Widget */
-        #clock { 
-            position: absolute; top: 25px; right: 35px; 
-            font-family: 'Consolas', monospace; font-size: 18px; color: #666; 
-            letter-spacing: 2px;
+        button.primary {
+            border-color: rgba(83, 209, 182, 0.45);
+            background: rgba(83, 209, 182, 0.12);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1.1fr 0.9fr;
+            gap: 18px;
+        }
+
+        .column {
+            display: grid;
+            gap: 18px;
+        }
+
+        .section {
+            padding: 22px;
+        }
+
+        .section h2 {
+            margin: 0 0 6px;
+            font-size: 18px;
+        }
+
+        .section p {
+            margin: 0 0 18px;
+            color: var(--muted);
+            line-height: 1.6;
+        }
+
+        .list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .item {
+            padding: 14px 16px;
+            border-radius: 16px;
+            background: rgba(255,255,255,0.025);
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .item strong {
+            display: block;
+            margin-bottom: 4px;
+        }
+
+        .item span, .item code {
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .status-ok { color: var(--accent); }
+        .status-warn { color: var(--warn); }
+        .status-bad { color: var(--danger); }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+        }
+
+        .toolbar input {
+            flex: 1;
+            min-width: 200px;
+            padding: 11px 14px;
+            border-radius: 14px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.04);
+            color: var(--text);
+        }
+
+        .codebox, pre {
+            margin: 0;
+            border-radius: 16px;
+            background: var(--code);
+            border: 1px solid rgba(122, 162, 255, 0.14);
+            color: #dce7ff;
+            font-family: var(--mono);
+            font-size: 12px;
+            line-height: 1.55;
+            overflow: auto;
+        }
+
+        .codebox {
+            padding: 16px;
+            max-height: 360px;
+        }
+
+        .monitor {
+            max-height: 420px;
+            padding: 0;
+        }
+
+        .monitor-entry {
+            padding: 14px 16px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+
+        .monitor-entry:last-child {
+            border-bottom: none;
+        }
+
+        .monitor-meta {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--muted);
+            margin-bottom: 8px;
+        }
+
+        .monitor-entry pre {
+            background: transparent;
+            border: none;
+            padding: 0;
+            max-height: none;
+            white-space: pre-wrap;
+        }
+
+        .footer-note {
+            margin-top: 18px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        @media (max-width: 980px) {
+            .hero, .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .hero-meta {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
 <body>
-    <!-- インタラクティブ背景 -->
-    <canvas id="bg-canvas"></canvas>
-    
-    <!-- UIレイヤー -->
-    <div class="ui-layer">
-        <div id="clock">00:00:00</div>
-        
-        <div class="dashboard">
-            <h1>NO CONTENT MOUNTED</h1>
-            <div class="subtitle">System Standby - Waiting for Web Application</div>
-            
-            <div class="info-grid">
-                <div class="info-box">
-                    <div class="info-label">Environment</div>
-                    <div class="info-value" id="env-info">Analyzing...</div>
+    <main>
+        <section class="hero">
+            <article class="panel hero-card">
+                <div class="eyebrow">Next-Generation Bridge Platform</div>
+                <h1>MessageBus-Centric Diagnostics Surface</h1>
+                <p class="lead">
+                    WebView2AppHost は Web、ネイティブ、外部プロセス、AI プロトコルを単一のブリッジで束ねます。
+                    このダッシュボードは起動直後に設定、コネクタ状態、ブリッジトラフィックを確認するための既定 UI です。
+                </p>
+                <div class="hero-meta">
+                    <div class="metric">
+                        <div class="label">Runtime</div>
+                        <div class="value" id="runtimeValue">Detecting</div>
+                    </div>
+                    <div class="metric">
+                        <div class="label">Initial URL</div>
+                        <div class="value" id="urlValue">Loading</div>
+                    </div>
+                    <div class="metric">
+                        <div class="label">Viewport</div>
+                        <div class="value" id="viewportValue">0 x 0</div>
+                    </div>
                 </div>
-                <div class="info-box">
-                    <div class="info-label">Viewport</div>
-                    <div class="info-value" id="res-info">0 x 0</div>
+            </article>
+
+            <aside class="panel hero-side">
+                <div>
+                    <div class="eyebrow">Bridge Stack</div>
+                    <h2 style="margin:0">Multi-Connector Architecture</h2>
+                    <div class="stack">
+                        <span class="chip">Native DLL</span>
+                        <span class="chip">Sidecar Process</span>
+                        <span class="chip">MCP</span>
+                        <span class="chip">Pipe IPC</span>
+                        <span class="chip">CDP Proxy</span>
+                    </div>
                 </div>
-                <div class="info-box" style="grid-column: span 2;">
-                    <div class="info-label">Engine Core</div>
-                    <div class="info-value" id="ua-info">Analyzing...</div>
+                <div class="actions">
+                    <button class="primary" id="probeBrowserBtn">Probe Browser Connector</button>
+                    <button id="toggleFullscreenBtn">Toggle Fullscreen</button>
+                    <button id="closeBtn">Close Window</button>
                 </div>
+            </aside>
+        </section>
+
+        <section class="grid">
+            <div class="column">
+                <article class="panel section">
+                    <h2>Connector Health Check</h2>
+                    <p>設定済みコネクタと、共通プローブ可能なブラウザコネクタの応答時間を表示します。</p>
+                    <div id="connectorList" class="list"></div>
+                </article>
+
+                <article class="panel section">
+                    <h2>Message Bus Live Monitor</h2>
+                    <p>`host.js` が観測した JSON-RPC の送受信を時系列で表示します。</p>
+                    <div class="toolbar">
+                        <button id="clearMonitorBtn">Clear</button>
+                    </div>
+                    <div id="monitor" class="codebox monitor"></div>
+                </article>
             </div>
 
-            <div class="controls">
-                <!-- READMEに記載された標準Web APIによるネイティブ制御のデモ -->
-                <button class="btn-primary" onclick="toggleFullscreen()" id="fs-btn">FULLSCREEN</button>
-                <button class="btn-danger" onclick="window.close()">SHUTDOWN</button>
+            <div class="column">
+                <article class="panel section">
+                    <h2>Navigation Policy Debugger</h2>
+                    <p>`navigation_policy` に対してホスト名とリクエストパターンの一致を確認します。</p>
+                    <div class="toolbar">
+                        <input id="hostInput" value="api.github.com" spellcheck="false">
+                        <button id="checkHostBtn">Check Host</button>
+                    </div>
+                    <div class="toolbar">
+                        <input id="requestInput" value="https://cdn.example.com/ads/banner.js" spellcheck="false">
+                        <button id="checkRequestBtn">Check Request</button>
+                    </div>
+                    <div id="policyResult" class="list"></div>
+                </article>
+
+                <article class="panel section">
+                    <h2>Resolved app.conf.json</h2>
+                    <p>現在の既定コンテンツに同梱された設定を表示します。</p>
+                    <pre id="configView" class="codebox"></pre>
+                </article>
             </div>
+        </section>
+
+        <div class="footer-note">
+            詳細なアーキテクチャは `README.md` と `docs/architecture/` を参照してください。
         </div>
-    </div>
+    </main>
 
+    <script src="host.js"></script>
     <script>
-        // --- System UI Logic ---
-        function updateSystemInfo() {
-            const isWebView2 = navigator.userAgent.includes('Edg/');
-            document.getElementById('env-info').innerText = isWebView2 ? 'WebView2 Runtime (Native Mode)' : 'Standard Web Browser';
-            document.getElementById('res-info').innerText = `${window.innerWidth}px × ${window.innerHeight}px`;
-            document.getElementById('ua-info').innerText = navigator.userAgent;
+        const monitorEl = document.getElementById('monitor');
+        const connectorListEl = document.getElementById('connectorList');
+        const configViewEl = document.getElementById('configView');
+        const policyResultEl = document.getElementById('policyResult');
+        const runtimeValueEl = document.getElementById('runtimeValue');
+        const urlValueEl = document.getElementById('urlValue');
+        const viewportValueEl = document.getElementById('viewportValue');
+
+        let loadedConfig = null;
+        let monitorEntries = [];
+
+        function formatJson(value) {
+            return JSON.stringify(value, null, 2);
         }
 
-        function updateClock() {
-            const now = new Date();
-            document.getElementById('clock').innerText = now.toLocaleTimeString('en-US', { hour12: false });
+        function escapeHtml(value) {
+            return String(value)
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;');
         }
 
-        function toggleFullscreen() {
+        function wildcardMatch(value, pattern) {
+            const regex = new RegExp('^' + pattern
+                .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+                .replaceAll('*', '.*')
+                .replaceAll('?', '.') + '$', 'i');
+            return regex.test(value);
+        }
+
+        function addMonitorEntry(direction, payload) {
+            monitorEntries.unshift({
+                direction,
+                payload,
+                timestamp: new Date().toLocaleTimeString(),
+            });
+            monitorEntries = monitorEntries.slice(0, 40);
+            renderMonitor();
+        }
+
+        function renderMonitor() {
+            if (!monitorEntries.length) {
+                monitorEl.innerHTML = '<div class="monitor-entry"><div class="monitor-meta"><span>idle</span><span>no traffic yet</span></div><pre>Bridge messages will appear here when the UI or connectors exchange JSON-RPC payloads.</pre></div>';
+                return;
+            }
+
+            monitorEl.innerHTML = monitorEntries.map((entry) => `
+                <div class="monitor-entry">
+                    <div class="monitor-meta">
+                        <span>${escapeHtml(entry.direction)}</span>
+                        <span>${escapeHtml(entry.timestamp)}</span>
+                    </div>
+                    <pre>${escapeHtml(formatJson(entry.payload))}</pre>
+                </div>
+            `).join('');
+        }
+
+        function connectorCard(title, description, statusText, statusClass) {
+            return `
+                <div class="item">
+                    <strong>${escapeHtml(title)}</strong>
+                    <span>${escapeHtml(description)}</span><br>
+                    <span class="${statusClass}">${escapeHtml(statusText)}</span>
+                </div>
+            `;
+        }
+
+        function renderConnectors(browserProbe) {
+            const items = [];
+            items.push(connectorCard(
+                'Browser',
+                'WebView2 bridge exposed through ReflectionDispatcherBase.',
+                browserProbe,
+                browserProbe.includes('OK') ? 'status-ok' : 'status-warn'
+            ));
+
+            const connectors = loadedConfig?.connectors ?? [];
+            if (!connectors.length) {
+                items.push(connectorCard(
+                    'Configured connectors',
+                    'No explicit connectors array. Legacy loadDlls/sidecars may still be active.',
+                    'Configuration-only view',
+                    'status-warn'
+                ));
+            }
+
+            connectors.forEach((connector, index) => {
+                const label = connector.alias || connector.runtime || connector.path || `${connector.type}-${index + 1}`;
+                const description = connector.type === 'dll'
+                    ? `DLL: ${connector.path}`
+                    : connector.type === 'sidecar'
+                        ? `Sidecar: ${(connector.runtime || connector.executable || 'unknown')} ${(connector.script || '')}`.trim()
+                        : `${connector.type} connector`;
+                items.push(connectorCard(label, description, 'Loaded from app.conf.json', 'status-ok'));
+            });
+
+            connectorListEl.innerHTML = items.join('');
+        }
+
+        function renderPolicyDiagnostics(hostResult = null, requestResult = null) {
+            const allowHosts = loadedConfig?.navigation_policy?.allow_external_hosts ?? [];
+            const blockPatterns = loadedConfig?.navigation_policy?.block_request_patterns ?? [];
+            const items = [
+                connectorCard(
+                    'Allow External Hosts',
+                    allowHosts.length ? allowHosts.join(', ') : 'No explicit allow list',
+                    hostResult ?? 'Awaiting host check',
+                    hostResult?.includes('MATCH') ? 'status-ok' : 'status-warn'
+                ),
+                connectorCard(
+                    'Block Request Patterns',
+                    blockPatterns.length ? blockPatterns.join(', ') : 'No block patterns',
+                    requestResult ?? 'Awaiting request check',
+                    requestResult?.includes('BLOCK') ? 'status-bad' : 'status-warn'
+                )
+            ];
+            policyResultEl.innerHTML = items.join('');
+        }
+
+        async function loadConfig() {
+            try {
+                const response = await fetch('app.conf.json', { cache: 'no-store' });
+                loadedConfig = await response.json();
+                configViewEl.textContent = formatJson(loadedConfig);
+                urlValueEl.textContent = loadedConfig.url || 'https://app.local/index.html';
+            } catch (err) {
+                loadedConfig = null;
+                configViewEl.textContent = `Failed to load app.conf.json\n${String(err)}`;
+                urlValueEl.textContent = 'Unavailable';
+            }
+        }
+
+        async function probeBrowserConnector() {
+            if (!window.Host?.diagnostics?.isHost()) {
+                renderConnectors('Mock mode / Browser connector unavailable');
+                return;
+            }
+
+            const started = performance.now();
+            try {
+                const rawUrl = await Host.Browser.Host.GetUrlAsync();
+                const elapsed = Math.round(performance.now() - started);
+                renderConnectors(`OK ${elapsed} ms, url=${String(rawUrl).replaceAll('"', '')}`);
+            } catch (err) {
+                renderConnectors(`Probe failed: ${err.message}`);
+            }
+        }
+
+        function updateRuntimeInfo() {
+            const isHost = window.Host?.diagnostics?.isHost();
+            runtimeValueEl.textContent = isHost ? 'WebView2 Host' : 'Browser Mock';
+            viewportValueEl.textContent = `${window.innerWidth} x ${window.innerHeight}`;
+        }
+
+        document.getElementById('probeBrowserBtn').addEventListener('click', probeBrowserConnector);
+        document.getElementById('toggleFullscreenBtn').addEventListener('click', () => {
             if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen().catch(err => console.error(err));
+                document.documentElement.requestFullscreen().catch(console.error);
             } else {
-                if (document.exitFullscreen) document.exitFullscreen();
+                document.exitFullscreen?.();
             }
-        }
-
-        window.addEventListener('resize', () => {
-            updateSystemInfo();
-            resizeCanvas();
+        });
+        document.getElementById('closeBtn').addEventListener('click', () => window.close());
+        document.getElementById('clearMonitorBtn').addEventListener('click', () => {
+            monitorEntries = [];
+            renderMonitor();
+        });
+        document.getElementById('checkHostBtn').addEventListener('click', () => {
+            const host = document.getElementById('hostInput').value.trim();
+            const patterns = loadedConfig?.navigation_policy?.allow_external_hosts ?? [];
+            const matched = patterns.some(pattern => wildcardMatch(host, pattern));
+            renderPolicyDiagnostics(
+                matched ? `MATCH: ${host}` : `NO MATCH: ${host}`,
+                null
+            );
+        });
+        document.getElementById('checkRequestBtn').addEventListener('click', () => {
+            const request = document.getElementById('requestInput').value.trim();
+            const patterns = loadedConfig?.navigation_policy?.block_request_patterns ?? [];
+            const blocked = patterns.some(pattern => wildcardMatch(request, pattern));
+            renderPolicyDiagnostics(
+                null,
+                blocked ? `BLOCK: ${request}` : `ALLOW: ${request}`
+            );
         });
 
-        document.addEventListener('fullscreenchange', () => {
-            const btn = document.getElementById('fs-btn');
-            btn.innerText = document.fullscreenElement ? 'EXIT FULLSCREEN' : 'FULLSCREEN';
-        });
+        window.addEventListener('resize', updateRuntimeInfo);
+        Host.diagnostics.onMessage((event) => addMonitorEntry(event.direction, event.payload));
 
-        setInterval(updateClock, 1000);
-        updateClock();
-        updateSystemInfo();
-
-
-        // --- Canvas Particle Network Background ---
-        // 外部ライブラリ無しでリッチな視覚効果を生み出す軽量スクリプト
-        const canvas = document.getElementById('bg-canvas');
-        const ctx = canvas.getContext('2d');
-        let particles =[];
-        let mouse = { x: null, y: null, radius: 120 };
-
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            initParticles();
-        }
-        
-        // マウスインタラクション
-        window.addEventListener('mousemove', (e) => { mouse.x = e.x; mouse.y = e.y; });
-        window.addEventListener('mouseout', () => { mouse.x = null; mouse.y = null; });
-
-        class Particle {
-            constructor(x, y, dx, dy, size) {
-                this.x = x; this.y = y; this.dx = dx; this.dy = dy; this.size = size;
-            }
-            draw() {
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2, false);
-                ctx.fillStyle = 'rgba(0, 120, 212, 0.4)';
-                ctx.fill();
-            }
-            update() {
-                if (this.x > canvas.width || this.x < 0) this.dx = -this.dx;
-                if (this.y > canvas.height || this.y < 0) this.dy = -this.dy;
-
-                // マウスカーソルから逃げる・引き寄せられる効果
-                if (mouse.x != null) {
-                    let dx = mouse.x - this.x;
-                    let dy = mouse.y - this.y;
-                    let distance = Math.sqrt(dx * dx + dy * dy);
-                    if (distance < mouse.radius) {
-                        const force = (mouse.radius - distance) / mouse.radius;
-                        this.x -= (dx / distance) * force * 1.5;
-                        this.y -= (dy / distance) * force * 1.5;
-                    }
-                }
-                this.x += this.dx;
-                this.y += this.dy;
-                this.draw();
-            }
-        }
-
-        function initParticles() {
-            particles =[];
-            let numberOfParticles = (canvas.width * canvas.height) / 12000;
-            for (let i = 0; i < numberOfParticles; i++) {
-                let size = (Math.random() * 1.5) + 0.5;
-                let x = (Math.random() * ((innerWidth - size * 2) - (size * 2)) + size * 2);
-                let y = (Math.random() * ((innerHeight - size * 2) - (size * 2)) + size * 2);
-                let dx = (Math.random() - 0.5) * 0.8;
-                let dy = (Math.random() - 0.5) * 0.8;
-                particles.push(new Particle(x, y, dx, dy, size));
-            }
-        }
-
-        function animate() {
-            requestAnimationFrame(animate);
-            ctx.clearRect(0, 0, innerWidth, innerHeight);
-            
-            for (let i = 0; i < particles.length; i++) {
-                particles[i].update();
-            }
-            connectNodes();
-        }
-
-        // 近いノード同士を線で結ぶ
-        function connectNodes() {
-            for (let a = 0; a < particles.length; a++) {
-                for (let b = a; b < particles.length; b++) {
-                    let dx = particles[a].x - particles[b].x;
-                    let dy = particles[a].y - particles[b].y;
-                    let distance = dx * dx + dy * dy;
-                    
-                    if (distance < 15000) {
-                        let opacityValue = 1 - (distance / 15000);
-                        ctx.strokeStyle = `rgba(0, 198, 255, ${opacityValue * 0.3})`;
-                        ctx.lineWidth = 1;
-                        ctx.beginPath();
-                        ctx.moveTo(particles[a].x, particles[a].y);
-                        ctx.lineTo(particles[b].x, particles[b].y);
-                        ctx.stroke();
-                    }
-                }
-            }
-        }
-
-        resizeCanvas();
-        animate();
+        (async () => {
+            updateRuntimeInfo();
+            renderMonitor();
+            renderPolicyDiagnostics();
+            await loadConfig();
+            renderPolicyDiagnostics();
+            await probeBrowserConnector();
+            addMonitorEntry('local', { event: 'dashboard.ready', url: location.href });
+        })();
     </script>
 </body>
 </html>

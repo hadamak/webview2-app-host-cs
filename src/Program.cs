@@ -65,7 +65,7 @@ namespace WebView2AppHost
                     }
 
                     var config = LoadConfig(zip);
-                    Application.Run(new App(zip, config));
+                    Application.Run(new App(zip, config, config.Url));
                 }
             }
             catch (Exception ex)

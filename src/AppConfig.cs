@@ -10,7 +10,7 @@ namespace WebView2AppHost
 {
     /// <summary>
     /// app.conf.json の設定値。
-    /// DataContract を使用して JSON とマッピングする。
+    /// 新旧フォーマットの両方を受け付け、ロード後に既存ランタイムで扱える形へ正規化する。
     /// </summary>
     [DataContract]
     public sealed class AppConfig
@@ -27,13 +27,10 @@ namespace WebView2AppHost
             }
         }
 
-        // ウィンドウサイズの許容範囲
-        private const int MinSize   =  160;
-        private const int MaxWidth  = 7680;
+        private const int MinSize = 160;
+        private const int MaxWidth = 7680;
         private const int MaxHeight = 4320;
 
-        // ⑤ 修正: Sanitize で毎回インスタンス化していた Regex を static readonly に昇格する。
-        // Compiled を付与することで初回以降の呼び出しコストを削減する。
         private static readonly Regex s_controlCharRegex =
             new Regex(@"[\p{C}]", RegexOptions.Compiled);
 
@@ -49,69 +46,51 @@ namespace WebView2AppHost
         [DataMember(Name = "fullscreen")]
         public bool Fullscreen { get; set; } = false;
 
-        /// <summary>
-        /// CORS プロキシを許可する外部オリジンのリスト。
-        /// 例: ["https://api.example.com", "https://other.example.com"]
-        /// 空の場合はプロキシ機能を無効とする。
-        /// </summary>
+        [DataMember(Name = "url")]
+        public string Url { get; private set; } = "https://app.local/index.html";
+
+        [DataMember(Name = "window")]
+        public WindowConfig? Window { get; private set; }
+
+        [DataMember(Name = "navigation_policy")]
+        public NavigationPolicyConfig? NavigationPolicy { get; private set; }
+
+        [DataMember(Name = "sub_streams")]
+        public SubStreamsConfig? SubStreams { get; private set; }
+
+        [DataMember(Name = "connectors")]
+        public ConnectorEntry[] Connectors { get; private set; } = Array.Empty<ConnectorEntry>();
+
         [DataMember(Name = "proxyOrigins")]
         public string[] ProxyOrigins { get; private set; } = Array.Empty<string>();
 
-        /// <summary>
-        /// 読み込むプラグイン名のリスト。
-        /// 例: ["Steam", "Node"]
-        /// 省略した場合は EXE 隣接の WebView2AppHost.*.dll を自動検出する。
-        /// </summary>
         [DataMember(Name = "plugins")]
         public string[] Plugins { get; private set; } = Array.Empty<string>();
 
-        /// <summary>
-        /// app.conf.json の生の JSON 文字列。
-        /// プラグインの Initialize(string) にそのまま渡すために保持する。
-        /// DataContract のシリアライズ対象外。
-        /// </summary>
         public string RawJson { get; private set; } = "{}";
 
-        /// <summary>
-        /// Steam AppID。Steamworks 機能を使う場合に設定する。
-        /// 空または未設定の場合は steam_appid.txt または Steam 起動時の自動検出に委ねる。
-        /// </summary>
         [DataMember(Name = "steamAppId")]
         public string SteamAppId { get; private set; } = "";
 
-        /// <summary>
-        /// Steam 開発モードフラグ。
-        /// true の場合、SteamAppId を環境変数経由で Steam に渡す（steam_appid.txt 不要）。
-        /// false の場合、SteamAPI_RestartAppIfNecessary() を呼んで Steam から起動されているか確認する。
-        /// リリースビルドでは false に設定すること。
-        /// </summary>
         [DataMember(Name = "steamDevMode")]
         public bool SteamDevMode { get; private set; } = true;
 
-        /// <summary>
-        /// GenericDllPlugin がロードする DLL の一覧。
-        /// plugins に "GenericDllPlugin" を含める場合に有効。
-        ///
-        /// 形式 A: ファイル名文字列（エイリアス = 拡張子なしファイル名）
-        ///   "loadDlls": ["SQLite.dll", "MyLogic.dll"]
-        ///
-        /// 形式 B: エイリアスを明示したオブジェクト
-        ///   "loadDlls": [{ "alias": "DB", "dll": "SQLite.dll", "exposeEvents": ["OnResult"] }]
-        ///
-        /// DLL のパスは絶対パス、または app.conf.json と同じディレクトリからの相対パス。
-        /// </summary>
         [DataMember(Name = "loadDlls")]
         public LoadDllEntry[] LoadDlls { get; private set; } = Array.Empty<LoadDllEntry>();
 
-        /// <summary>
-        /// サイドカープロセスの定義。
-        /// </summary>
         [DataMember(Name = "sidecars")]
         public SidecarEntry[] Sidecars { get; private set; } = Array.Empty<SidecarEntry>();
 
-        /// <summary>
-        /// 指定した URI がプロキシ許可オリジンに含まれるかを返す。
-        /// </summary>
+        public bool Frame => Window?.Frame ?? true;
+
+        public string[] AllowExternalHosts => NavigationPolicy?.AllowExternalHosts ?? Array.Empty<string>();
+
+        public string[] BlockRequestPatterns => NavigationPolicy?.BlockRequestPatterns ?? Array.Empty<string>();
+
+        public bool SubStreamsEnabled => SubStreams?.Enabled ?? false;
+
+        public int MaxConcurrentSubStreams => Math.Max(1, SubStreams?.MaxConcurrentStreams ?? 1);
+
         public bool IsProxyAllowed(Uri uri)
         {
             if (ProxyOrigins == null || ProxyOrigins.Length == 0) return false;
@@ -121,24 +100,22 @@ namespace WebView2AppHost
                 string.Equals(o.TrimEnd('/'), origin, StringComparison.OrdinalIgnoreCase));
         }
 
-        /// <summary>
-        /// ストリームから JSON を読み込み、AppConfig インスタンスを生成する。
-        /// フォーマットエラーなどで失敗した場合は null を返す（フォールバック用）。
-        /// 生の JSON 文字列は <see cref="RawJson"/> に保持され、
-        /// プラグインの Initialize(string) にそのまま渡される。
-        /// </summary>
+        public bool IsExternalHostAllowed(string host)
+            => MatchesAnyWildcard(host, AllowExternalHosts);
+
+        public bool IsRequestBlocked(string target)
+            => MatchesAnyWildcard(target, BlockRequestPatterns);
+
         public static AppConfig? Load(Stream stream)
         {
             try
             {
-                // ストリームを文字列として読み取り、raw JSON を保持する
                 string rawJson;
                 using (var reader = new StreamReader(stream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, bufferSize: 1024, leaveOpen: true))
                 {
                     rawJson = reader.ReadToEnd();
                 }
 
-                // 読み取った文字列を再度ストリーム化してデシリアライズする
                 using var ms = new MemoryStream(Encoding.UTF8.GetBytes(rawJson));
                 var serializer = new DataContractJsonSerializer(typeof(AppConfig));
                 var config = (AppConfig?)serializer.ReadObject(ms);
@@ -156,11 +133,6 @@ namespace WebView2AppHost
             }
         }
 
-        /// <summary>
-        /// EXE 隣接の user.conf.json を読み込み、ユーザーが上書き可能なフィールド
-        /// （Width・Height・Fullscreen）を上書きする。
-        /// ファイルが存在しない場合・パースに失敗した場合は何もしない。
-        /// </summary>
         public void ApplyUserConfig(string exeDir)
         {
             var path = Path.Combine(exeDir, "user.conf.json");
@@ -180,6 +152,13 @@ namespace WebView2AppHost
                 if (user.Fullscreen.HasValue)
                     Fullscreen = user.Fullscreen.Value;
 
+                if (Window != null)
+                {
+                    Window.Width = Width;
+                    Window.Height = Height;
+                    Window.Fullscreen = Fullscreen;
+                }
+
                 AppLog.Log("INFO", "AppConfig.ApplyUserConfig", $"user.conf.json を適用: {path}");
             }
             catch (Exception ex)
@@ -188,49 +167,203 @@ namespace WebView2AppHost
             }
         }
 
-        /// <summary>
-        /// 読み込んだ値を安全な範囲に補正する。
-        /// </summary>
         private void Sanitize()
         {
-            // Title: null・空文字・制御文字をデフォルトに戻す
             if (string.IsNullOrWhiteSpace(Title))
             {
                 Title = "WebView2 App Host";
             }
             else
             {
-                // ⑤ static readonly の Regex を使用する（毎回インスタンス化を回避）
                 Title = s_controlCharRegex.Replace(Title, "").Trim();
                 if (Title.Length == 0) Title = "WebView2 App Host";
             }
 
-            // Width / Height: 範囲外はデフォルト値にクランプ
-            Width  = Math.Max(MinSize, Math.Min(Width,  MaxWidth));
-            Height = Math.Max(MinSize, Math.Min(Height, MaxHeight));
+            if (Window == null)
+            {
+                Window = new WindowConfig
+                {
+                    Width = Width,
+                    Height = Height,
+                    Fullscreen = Fullscreen,
+                    Frame = true
+                };
+            }
+            else
+            {
+                Window.Width = NormalizeDimension(Window.Width ?? Width, MaxWidth);
+                Window.Height = NormalizeDimension(Window.Height ?? Height, MaxHeight);
+                Window.Fullscreen = Window.Fullscreen ?? Fullscreen;
+                Window.Frame = Window.Frame ?? true;
 
-            // ProxyOrigins: デシリアライズ時に null になる場合があるため正規化する
-            if (ProxyOrigins == null) ProxyOrigins = Array.Empty<string>();
+                Width = Window.Width.Value;
+                Height = Window.Height.Value;
+                Fullscreen = Window.Fullscreen.Value;
+            }
 
-            // Plugins: null を空配列に正規化する
-            if (Plugins == null) Plugins = Array.Empty<string>();
+            Width = NormalizeDimension(Width, MaxWidth);
+            Height = NormalizeDimension(Height, MaxHeight);
+            Fullscreen = Window.Fullscreen ?? Fullscreen;
 
-            // SteamAppId: null は空文字に正規化
-            if (SteamAppId == null) SteamAppId = "";
+            Window.Width = Width;
+            Window.Height = Height;
+            Window.Fullscreen = Fullscreen;
+            Window.Frame = Window.Frame ?? true;
 
-            // LoadDlls: null を空配列に正規化
-            if (LoadDlls == null) LoadDlls = Array.Empty<LoadDllEntry>();
+            Url = string.IsNullOrWhiteSpace(Url) ? "https://app.local/index.html" : Url.Trim();
 
-            // Sidecars: null を空配列に正規化
-            if (Sidecars == null) Sidecars = Array.Empty<SidecarEntry>();
+            ProxyOrigins ??= Array.Empty<string>();
+            Plugins ??= Array.Empty<string>();
+            SteamAppId ??= "";
+            LoadDlls ??= Array.Empty<LoadDllEntry>();
+            Sidecars ??= Array.Empty<SidecarEntry>();
+            Connectors ??= Array.Empty<ConnectorEntry>();
+
+            NavigationPolicy ??= new NavigationPolicyConfig();
+            NavigationPolicy.AllowExternalHosts ??= Array.Empty<string>();
+            NavigationPolicy.BlockRequestPatterns ??= Array.Empty<string>();
+
+            SubStreams ??= new SubStreamsConfig();
+            if (SubStreams.MaxConcurrentStreams < 1)
+                SubStreams.MaxConcurrentStreams = 1;
+
+            NormalizeConnectors();
+            NormalizeLoadDlls();
+            NormalizeSidecars();
+        }
+
+        private void NormalizeConnectors()
+        {
+            if (Connectors.Length == 0) return;
+
+            var dlls = LoadDlls.ToList();
+            var sidecars = Sidecars.ToList();
+
+            foreach (var connector in Connectors)
+            {
+                if (connector == null || string.IsNullOrWhiteSpace(connector.Type)) continue;
+
+                if (string.Equals(connector.Type, "dll", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(connector.Path)) continue;
+
+                    var alias = !string.IsNullOrWhiteSpace(connector.Alias)
+                        ? connector.Alias
+                        : Path.GetFileNameWithoutExtension(connector.Path);
+
+                    if (!dlls.Any(d => string.Equals(d.Alias, alias, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(d.Dll, connector.Path, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        dlls.Add(new LoadDllEntry
+                        {
+                            Alias = alias,
+                            Dll = connector.Path,
+                            ExposeEvents = connector.ExposeEvents ?? Array.Empty<string>()
+                        });
+                    }
+                    continue;
+                }
+
+                if (string.Equals(connector.Type, "sidecar", StringComparison.OrdinalIgnoreCase))
+                {
+                    var executable = connector.Executable;
+                    var args = connector.Args ?? Array.Empty<string>();
+
+                    if (!string.IsNullOrWhiteSpace(connector.Runtime))
+                    {
+                        executable = connector.Runtime;
+                        if (!string.IsNullOrWhiteSpace(connector.Script))
+                            args = (new[] { connector.Script }).Concat(args).ToArray();
+                    }
+
+                    if (string.IsNullOrWhiteSpace(executable)) continue;
+
+                    var alias = !string.IsNullOrWhiteSpace(connector.Alias)
+                        ? connector.Alias
+                        : InferSidecarAlias(connector.Runtime, connector.Script, executable);
+
+                    if (!sidecars.Any(s => string.Equals(s.Alias, alias, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        sidecars.Add(new SidecarEntry
+                        {
+                            Alias = alias,
+                            Mode = string.IsNullOrWhiteSpace(connector.Mode) ? "streaming" : connector.Mode,
+                            Executable = executable,
+                            WorkingDirectory = connector.WorkingDirectory ?? "",
+                            Args = args,
+                            Encoding = string.IsNullOrWhiteSpace(connector.Encoding) ? "utf-8" : connector.Encoding,
+                            WaitForReady = connector.WaitForReady ?? true
+                        });
+                    }
+                }
+            }
+
+            LoadDlls = dlls.ToArray();
+            Sidecars = sidecars.ToArray();
+        }
+
+        private void NormalizeLoadDlls()
+        {
+            foreach (var entry in LoadDlls)
+            {
+                entry.Alias ??= "";
+                entry.Dll ??= "";
+                entry.ExposeEvents ??= Array.Empty<string>();
+
+                if (string.IsNullOrWhiteSpace(entry.Alias) && !string.IsNullOrWhiteSpace(entry.Dll))
+                    entry.Alias = Path.GetFileNameWithoutExtension(entry.Dll);
+            }
+        }
+
+        private void NormalizeSidecars()
+        {
+            foreach (var entry in Sidecars)
+            {
+                entry.Alias ??= "";
+                entry.Mode = string.IsNullOrWhiteSpace(entry.Mode) ? "streaming" : entry.Mode;
+                entry.Executable ??= "";
+                entry.WorkingDirectory ??= "";
+                entry.Args ??= Array.Empty<string>();
+                entry.Encoding = string.IsNullOrWhiteSpace(entry.Encoding) ? "utf-8" : entry.Encoding;
+            }
+        }
+
+        private static int NormalizeDimension(int value, int maxValue)
+            => Math.Max(MinSize, Math.Min(value, maxValue));
+
+        private static string InferSidecarAlias(string? runtime, string? script, string executable)
+        {
+            if (!string.IsNullOrWhiteSpace(runtime))
+            {
+                var normalized = runtime!.Trim().ToLowerInvariant();
+                if (normalized == "node") return "Node";
+                if (normalized == "python") return "Python";
+                if (normalized == "powershell" || normalized == "pwsh") return "PowerShell";
+                return char.ToUpperInvariant(normalized[0]) + normalized.Substring(1);
+            }
+
+            if (!string.IsNullOrWhiteSpace(script))
+                return Path.GetFileNameWithoutExtension(script);
+
+            return Path.GetFileNameWithoutExtension(executable);
+        }
+
+        private static bool MatchesAnyWildcard(string value, string[] patterns)
+        {
+            if (patterns == null || patterns.Length == 0 || string.IsNullOrWhiteSpace(value))
+                return false;
+
+            return patterns.Any(pattern =>
+            {
+                if (string.IsNullOrWhiteSpace(pattern)) return false;
+                var regex = "^" + Regex.Escape(pattern.Trim())
+                    .Replace(@"\*", ".*")
+                    .Replace(@"\?", ".") + "$";
+                return Regex.IsMatch(value, regex, RegexOptions.IgnoreCase);
+            });
         }
     }
 
-    /// <summary>
-    /// user.conf.json の設定値。
-    /// エンドユーザーが上書き可能なフィールドのみ定義する。
-    /// null は「指定なし（app.conf.json の値を使う）」を意味する。
-    /// </summary>
     [DataContract]
     internal sealed class UserConfig
     {
@@ -244,9 +377,82 @@ namespace WebView2AppHost
         public bool? Fullscreen { get; private set; }
     }
 
-    /// <summary>
-    /// loadDlls 配列のエントリ。
-    /// </summary>
+    [DataContract]
+    public sealed class WindowConfig
+    {
+        [DataMember(Name = "width")]
+        public int? Width { get; set; }
+
+        [DataMember(Name = "height")]
+        public int? Height { get; set; }
+
+        [DataMember(Name = "frame")]
+        public bool? Frame { get; set; }
+
+        [DataMember(Name = "fullscreen")]
+        public bool? Fullscreen { get; set; }
+    }
+
+    [DataContract]
+    public sealed class NavigationPolicyConfig
+    {
+        [DataMember(Name = "allow_external_hosts")]
+        public string[] AllowExternalHosts { get; set; } = Array.Empty<string>();
+
+        [DataMember(Name = "block_request_patterns")]
+        public string[] BlockRequestPatterns { get; set; } = Array.Empty<string>();
+    }
+
+    [DataContract]
+    public sealed class SubStreamsConfig
+    {
+        [DataMember(Name = "enabled")]
+        public bool Enabled { get; set; } = false;
+
+        [DataMember(Name = "max_concurrent_streams")]
+        public int MaxConcurrentStreams { get; set; } = 1;
+    }
+
+    [DataContract]
+    public sealed class ConnectorEntry
+    {
+        [DataMember(Name = "type")]
+        public string Type { get; set; } = "";
+
+        [DataMember(Name = "alias")]
+        public string Alias { get; set; } = "";
+
+        [DataMember(Name = "path")]
+        public string Path { get; set; } = "";
+
+        [DataMember(Name = "runtime")]
+        public string Runtime { get; set; } = "";
+
+        [DataMember(Name = "script")]
+        public string Script { get; set; } = "";
+
+        [DataMember(Name = "executable")]
+        public string Executable { get; set; } = "";
+
+        [DataMember(Name = "working_directory")]
+        public string WorkingDirectory { get; set; } = "";
+
+        [DataMember(Name = "mode")]
+        public string Mode { get; set; } = "";
+
+        [DataMember(Name = "args")]
+        public string[] Args { get; set; } = Array.Empty<string>();
+
+        [DataMember(Name = "encoding")]
+        public string Encoding { get; set; } = "";
+
+        [DataMember(Name = "wait_for_ready")]
+        public bool? WaitForReady { get; set; }
+
+        [DataMember(Name = "expose_events")]
+        public string[] ExposeEvents { get; set; } = Array.Empty<string>();
+    }
+
     [DataContract]
     public sealed class LoadDllEntry
     {
@@ -260,9 +466,6 @@ namespace WebView2AppHost
         public string[] ExposeEvents { get; set; } = Array.Empty<string>();
     }
 
-    /// <summary>
-    /// sidecars 配列のエントリ。
-    /// </summary>
     [DataContract]
     public sealed class SidecarEntry
     {

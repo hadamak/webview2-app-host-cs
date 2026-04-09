@@ -78,6 +78,13 @@ namespace WebView2AppHost
             if (_popupWindowOptions?.HasPosition == true)
                 Location = new Point(_popupWindowOptions.Left, _popupWindowOptions.Top);
 
+            if (!config.Frame && _popupWindowOptions == null)
+            {
+                FormBorderStyle = FormBorderStyle.None;
+                MaximizeBox = false;
+                MinimizeBox = false;
+            }
+
             Icon = IconUtils.GetAppIcon();
 
             _webView.Dock = DockStyle.Fill;

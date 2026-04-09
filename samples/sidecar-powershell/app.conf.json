@@ -1,0 +1,23 @@
+{
+  "title": "Sidecar PowerShell Sample",
+  "window": { "width": 1280, "height": 800, "frame": true },
+  "url": "https://app.local/index.html",
+  "navigation_policy": {
+    "allow_external_hosts": [],
+    "block_request_patterns": []
+  },
+  "sub_streams": {
+    "enabled": true,
+    "max_concurrent_streams": 3
+  },
+  "connectors": [
+    {
+      "type": "sidecar",
+      "alias": "PowerShell",
+      "runtime": "powershell",
+      "script": "powershell-runtime/server.ps1",
+      "working_directory": "powershell-runtime",
+      "wait_for_ready": true
+    }
+  ]
+}

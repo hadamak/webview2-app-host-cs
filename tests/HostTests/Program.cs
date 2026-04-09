@@ -71,6 +71,7 @@ namespace HostTests
             RunAppConfigProxyTests();
             RunAppConfigProxyParsingTests();
             RunAppConfigPluginsTests();
+            RunAppConfigStructuredTests();
             RunWebMessageHelperTests();
             RunPluginManagerLogicTests();
             RunJsonRpcProtocolTests();
@@ -297,6 +298,35 @@ namespace HostTests
         {
             var cfg = LoadConfig("{\"plugins\":[\"Steam\",\"Node\"]}");
             Assert(cfg != null && cfg.Plugins.Length == 2, "Plugins: 2要素がパースされる");
+        }
+
+        private static void RunAppConfigStructuredTests()
+        {
+            var json = @"
+            {
+              ""window"": { ""width"": 1440, ""height"": 900, ""frame"": false },
+              ""url"": ""https://app.local/dashboard.html"",
+              ""navigation_policy"": {
+                ""allow_external_hosts"": [""*.github.com""],
+                ""block_request_patterns"": [""*ads*""]
+              },
+              ""sub_streams"": { ""enabled"": true, ""max_concurrent_streams"": 5 },
+              ""connectors"": [
+                { ""type"": ""dll"", ""alias"": ""Steam"", ""path"": ""Facepunch.Steamworks.Win64.dll"" },
+                { ""type"": ""sidecar"", ""runtime"": ""node"", ""script"": ""agent.js"" }
+              ]
+            }";
+
+            var cfg = LoadConfig(json);
+            Assert(cfg != null, "StructuredConfig: loaded");
+            Assert(cfg!.Width == 1440 && cfg.Height == 900, "StructuredConfig: window applied");
+            Assert(cfg.Frame == false, "StructuredConfig: frame applied");
+            Assert(cfg.Url == "https://app.local/dashboard.html", "StructuredConfig: url applied");
+            Assert(cfg.SubStreamsEnabled && cfg.MaxConcurrentSubStreams == 5, "StructuredConfig: substreams applied");
+            Assert(cfg.LoadDlls.Length == 1 && cfg.LoadDlls[0].Alias == "Steam", "StructuredConfig: dll normalized");
+            Assert(cfg.Sidecars.Length == 1 && cfg.Sidecars[0].Alias == "Node", "StructuredConfig: sidecar normalized");
+            Assert(cfg.IsExternalHostAllowed("api.github.com"), "StructuredConfig: host wildcard");
+            Assert(cfg.IsRequestBlocked("https://cdn.example.com/ads/banner.js"), "StructuredConfig: request wildcard");
         }
 
         private static void RunUintOverflowFixTests()
