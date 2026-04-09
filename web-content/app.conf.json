@@ -14,10 +14,6 @@
     "allowed_external_schemes": ["https", "mailto"],
     "block_request_patterns": ["*ads*", "*tracker*"]
   },
-  "sub_streams": {
-    "enabled": true,
-    "max_concurrent_streams": 5
-  },
   "connectors": [
     {
       "type": "browser",

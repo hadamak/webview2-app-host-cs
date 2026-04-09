@@ -12,7 +12,7 @@
     "https://jsonplaceholder.typicode.com"
   ],
   "navigation_policy": {
-    "external_navigation_mode": "browser",
+    "external_navigation_mode": "host",
     "block_request_patterns": []
   },
   "connectors": [
@@ -38,6 +38,12 @@
       "working_directory": "../../../../../",
       "args": ["-u", "src/bin/x64/Debug/net48/python-runtime/server.py"],
       "wait_for_ready": true
+    },
+    {
+      "type": "pipe_server"
+    },
+    {
+      "type": "mcp"
     }
   ]
 }

@@ -307,7 +307,6 @@ namespace HostTests
                 ""open_in_browser"": [""*.github.com""],
                 ""block_request_patterns"": [""*ads*""]
               },
-              ""sub_streams"": { ""enabled"": true, ""max_concurrent_streams"": 5 },
               ""connectors"": [
                 { ""type"": ""browser"" },
                 { ""type"": ""dll"", ""alias"": ""Steam"", ""path"": ""Facepunch.Steamworks.Win64.dll"" },
@@ -320,7 +319,6 @@ namespace HostTests
             Assert(cfg!.Width == 1440 && cfg.Height == 900, "StructuredConfig: window applied");
             Assert(cfg.Frame == false, "StructuredConfig: frame applied");
             Assert(cfg.Url == "https://app.local/dashboard.html", "StructuredConfig: url applied");
-            Assert(cfg.SubStreamsEnabled && cfg.MaxConcurrentSubStreams == 5, "StructuredConfig: substreams applied");
             Assert(cfg.ProxyOrigins.Length == 1 && cfg.ProxyOrigins[0] == "https://api.github.com", "StructuredConfig: proxy origins applied");
             Assert(cfg.SteamAppId == "480" && cfg.SteamDevMode, "StructuredConfig: steam applied");
             Assert(cfg.LoadDlls.Length == 1 && cfg.LoadDlls[0].Alias == "Steam", "StructuredConfig: dll normalized");

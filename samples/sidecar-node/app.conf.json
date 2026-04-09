@@ -6,10 +6,6 @@
     "external_navigation_mode": "browser",
     "block_request_patterns": []
   },
-  "sub_streams": {
-    "enabled": true,
-    "max_concurrent_streams": 3
-  },
   "connectors": [
     {
       "type": "sidecar",

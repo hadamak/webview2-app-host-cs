@@ -53,9 +53,6 @@ namespace WebView2AppHost
         [DataMember(Name = "navigation_policy")]
         public NavigationPolicyConfig? NavigationPolicy { get; private set; }
 
-        [DataMember(Name = "sub_streams")]
-        public SubStreamsConfig? SubStreams { get; private set; }
-
         [DataMember(Name = "connectors")]
         public ConnectorEntry[] Connectors { get; private set; } = Array.Empty<ConnectorEntry>();
 
@@ -90,10 +87,6 @@ namespace WebView2AppHost
             : NavigationPolicy!.ExternalNavigationMode.Trim();
 
         public string[] BlockRequestPatterns => NavigationPolicy?.BlockRequestPatterns ?? Array.Empty<string>();
-
-        public bool SubStreamsEnabled => SubStreams?.Enabled ?? false;
-
-        public int MaxConcurrentSubStreams => Math.Max(1, SubStreams?.MaxConcurrentStreams ?? 1);
 
         public bool IsProxyAllowed(Uri uri)
         {
@@ -217,10 +210,6 @@ namespace WebView2AppHost
             NavigationPolicy.ExternalNavigationMode = string.IsNullOrWhiteSpace(NavigationPolicy.ExternalNavigationMode)
                 ? ""
                 : NavigationPolicy.ExternalNavigationMode.Trim().ToLowerInvariant();
-
-            SubStreams ??= new SubStreamsConfig();
-            if (SubStreams.MaxConcurrentStreams < 1)
-                SubStreams.MaxConcurrentStreams = 1;
 
             NormalizeConnectors();
         }
@@ -378,16 +367,6 @@ namespace WebView2AppHost
 
         [DataMember(Name = "block_request_patterns")]
         public string[] BlockRequestPatterns { get; set; } = Array.Empty<string>();
-    }
-
-    [DataContract]
-    public sealed class SubStreamsConfig
-    {
-        [DataMember(Name = "enabled")]
-        public bool Enabled { get; set; } = false;
-
-        [DataMember(Name = "max_concurrent_streams")]
-        public int MaxConcurrentStreams { get; set; } = 1;
     }
 
     [DataContract]

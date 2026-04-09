@@ -27,10 +27,6 @@
     "allowed_external_schemes": ["https", "mailto"],
     "block_request_patterns": ["*ads*"]
   },
-  "sub_streams": {
-    "enabled": true,
-    "max_concurrent_streams": 5
-  },
   "connectors": [
     {
       "type": "browser",
@@ -75,8 +71,6 @@
   - `app_id`, `dev_mode`
 - `navigation_policy`
   - External navigation routing and request blocking.
-- `sub_streams`
-  - `enabled`, `max_concurrent_streams`
 - `connectors`
   - List of enabled bridge surfaces.
 

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace WebView2AppHost
 {
@@ -78,18 +80,18 @@ namespace WebView2AppHost
             List<IConnector> snapshot;
             lock (_lock) snapshot = new List<IConnector>(_connectors);
 
-            foreach (var c in snapshot)
-            {
-                if (c == sender) continue;
-                try
+            var tasks = snapshot
+                .Where(c => c != sender)
+                .Select(c => Task.Run(() =>
                 {
-                    c.Deliver(messageJson);
-                }
-                catch (Exception ex)
-                {
-                    AppLog.Log("ERROR", $"MessageBus → [{c.Name}]", ex.Message, ex);
-                }
-            }
+                    try { c.Deliver(messageJson); }
+                    catch (Exception ex)
+                    {
+                        AppLog.Log("ERROR", $"MessageBus → [{c.Name}]", ex.Message, ex);
+                    }
+                }));
+
+            Task.WhenAll(tasks).GetAwaiter().GetResult();
         }
 
         // -------------------------------------------------------------------
