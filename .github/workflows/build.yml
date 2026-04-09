@@ -24,11 +24,6 @@ jobs:
     - name: Build SecureRelease
       run: msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=SecureRelease /p:Platform=x64
 
-    - name: Build Generic Plugins
-      run: |
-        msbuild src-generic\WebView2AppHost.GenericDllPlugin.csproj "/t:Restore;Build"/p:Configuration=Release /p:Platform=x64
-        msbuild src-generic\WebView2AppHost.GenericSidecarPlugin.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64
-
     - name: Build HostTests
       run: msbuild tests\HostTests\HostTests.csproj "/t:Restore;Build" /p:Configuration=Debug /p:Platform=x64
 
