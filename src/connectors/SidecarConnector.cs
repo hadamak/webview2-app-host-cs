@@ -20,6 +20,7 @@ namespace WebView2AppHost
         private readonly SidecarEntry    _entry;
         private readonly Encoding        _encoding;
         private readonly CancellationToken _shutdownToken;
+        private readonly object _processSync = new object();
 
         private Action<string>?    _publish;
         private Process?           _process;
@@ -28,6 +29,8 @@ namespace WebView2AppHost
         private readonly ManualResetEventSlim _ready = new ManualResetEventSlim(false);
         private bool _isReady;
         private bool _disposed;
+        private bool _restartScheduled;
+        private int _restartCount;
 
         // 自分が発行したリクエスト ID を保持する（応答を自分に戻すため）
         private readonly ConcurrentDictionary<string, bool> _pendingRequestIds =
@@ -125,6 +128,14 @@ namespace WebView2AppHost
 
         private void StartStreamingProcess()
         {
+            lock (_processSync)
+            {
+                if (_disposed) return;
+                _restartScheduled = false;
+                _isReady = false;
+                _ready.Reset();
+            }
+
             var psi = BuildProcessStartInfo();
             psi.RedirectStandardInput = true;
 
@@ -268,8 +279,57 @@ namespace WebView2AppHost
 
         private void OnExited(object sender, EventArgs e)
         {
-            if (!_disposed)
-                AppLog.Log("WARN", $"SidecarConnector[{Name}]", $"プロセス終了: ExitCode={_process?.ExitCode}");
+            Process? exitedProcess;
+            int? exitCode = null;
+            int restartAttempt;
+
+            lock (_processSync)
+            {
+                if (_disposed) return;
+
+                exitedProcess = sender as Process;
+                if (ReferenceEquals(_process, exitedProcess))
+                {
+                    try { _stdin?.Dispose(); } catch { }
+                    _stdin = null;
+                    _process = null;
+                }
+
+                try { exitCode = exitedProcess?.ExitCode; } catch { }
+                AppLog.Log("WARN", $"SidecarConnector[{Name}]", $"プロセス終了: ExitCode={exitCode}");
+
+                if (_restartScheduled) return;
+
+                if (_restartCount >= 5)
+                {
+                    AppLog.Log("ERROR", $"SidecarConnector[{Name}]", "再起動上限に達しました");
+                    return;
+                }
+
+                _restartScheduled = true;
+                restartAttempt = _restartCount++;
+            }
+
+            try { exitedProcess?.Dispose(); } catch { }
+
+            var delay = TimeSpan.FromSeconds(Math.Pow(2, restartAttempt));
+            _ = RestartStreamingProcessAsync(delay);
+        }
+
+        private async Task RestartStreamingProcessAsync(TimeSpan delay)
+        {
+            try
+            {
+                await Task.Delay(delay, _shutdownToken).ConfigureAwait(false);
+                if (_shutdownToken.IsCancellationRequested) return;
+                StartStreamingProcess();
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                lock (_processSync) { _restartScheduled = false; }
+                AppLog.Log("ERROR", $"SidecarConnector[{Name}].Restart", ex.Message, ex);
+            }
         }
 
         private ProcessStartInfo BuildProcessStartInfo() => new ProcessStartInfo

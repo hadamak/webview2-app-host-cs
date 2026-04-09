@@ -32,6 +32,8 @@ process.stdin.on('data', (chunk) => {
                 send({ jsonrpc: '2.0', id, result: params });
             } else if (method.endsWith('Test.Error.Throw')) {
                 send({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Intentional Error' } });
+            } else if (method.endsWith('Test.Process.Exit')) {
+                process.exit(0);
             }
         } catch (e) {
             process.stderr.write('JSON Parse Error: ' + trimmed + '\n');

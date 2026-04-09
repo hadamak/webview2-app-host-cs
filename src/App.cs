@@ -321,12 +321,25 @@ namespace WebView2AppHost
         {
             var uri  = new Uri(e.Request.Uri);
             var path = Uri.UnescapeDataString(uri.AbsolutePath);
+            var resolvedPath = path;
 
             var rangeHeader = e.Request.Headers.Contains("Range")
                 ? e.Request.Headers.GetHeader("Range")
                 : null;
 
             var stream = _zip.OpenEntry(path);
+            if (stream == null && (path == "/" || path.EndsWith("/")))
+            {
+                resolvedPath = path == "/" ? "/index.html" : path + "index.html";
+                stream = _zip.OpenEntry(resolvedPath);
+            }
+
+            if (stream == null && !Path.HasExtension(path))
+            {
+                resolvedPath = "/index.html";
+                stream = _zip.OpenEntry(resolvedPath);
+            }
+
             if (stream == null)
             {
                 e.Response = _webView.CoreWebView2.Environment
@@ -337,7 +350,7 @@ namespace WebView2AppHost
 
             try
             {
-                var mime  = MimeTypes.FromPath(path);
+                var mime  = MimeTypes.FromPath(resolvedPath);
                 var total = stream.Length;
 
                 if (!string.IsNullOrEmpty(rangeHeader) && stream.CanSeek)

@@ -18,7 +18,7 @@ Push-Location $repoRoot
 try {
     # --- 1. ビルド ---
     Write-Host "ビルド中..." -ForegroundColor Cyan
-    msbuild src\WebView2AppHost.csproj /t:Restore;Build /p:Configuration=Release /p:Platform=x64 /v:minimal
+    msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64 /v:minimal
 
     $baseHost = "src\bin\x64\Release\net48"
     $outDir   = "dist\_build\WebView2AppHost-win-x64"

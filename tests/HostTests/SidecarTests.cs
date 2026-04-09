@@ -126,6 +126,37 @@ namespace HostTests
 
                 var errResp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
                 Assert(errResp.ContainsKey("error"), "Response should contain error");
+
+                // Restart after child process exits
+                responseEvent.Reset();
+                lastResponse = null;
+                var exitRequest = new Dictionary<string, object> {
+                    ["jsonrpc"] = "2.0",
+                    ["id"] = "t3",
+                    ["method"] = "TestSidecar.Test.Process.Exit",
+                    ["params"] = new object[] { }
+                };
+
+                Console.WriteLine("  [Test] Sending Exit Request: " + s_json.Serialize(exitRequest));
+                connector.Deliver(s_json.Serialize(exitRequest));
+                Thread.Sleep(2500);
+
+                var restartRequest = new Dictionary<string, object> {
+                    ["jsonrpc"] = "2.0",
+                    ["id"] = "t4",
+                    ["method"] = "TestSidecar.Test.Math.Add",
+                    ["params"] = new[] { 7, 8 }
+                };
+
+                Console.WriteLine("  [Test] Sending Restart Verification Request: " + s_json.Serialize(restartRequest));
+                connector.Deliver(s_json.Serialize(restartRequest));
+
+                if (!responseEvent.Wait(5000))
+                    throw new TimeoutException("Sidecar did not restart after process exit");
+
+                var restartResp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
+                Assert(restartResp["id"].ToString() == "t4", "Restart response ID mismatch");
+                Assert(Convert.ToInt32(restartResp["result"]) == 15, "Restarted sidecar result mismatch");
             }
         }
 
