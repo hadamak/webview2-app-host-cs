@@ -1,7 +1,9 @@
 using System;
 using System.Drawing;
 using System.IO;
+#if !SECURE_OFFLINE
 using System.Net.Http;
+#endif
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -13,11 +15,13 @@ namespace WebView2AppHost
     {
         private readonly WebView2         _webView  = new WebView2();
 
+#if !SECURE_OFFLINE
         // ③ 修正: タイムアウトを設定する。
         private static readonly HttpClient _httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(15)
         };
+#endif
 
         private readonly ZipContentProvider _zip;
         private readonly AppConfig        _config;
@@ -42,10 +46,14 @@ namespace WebView2AppHost
 
         // コネクターバス（新設計）
         private MessageBus?      _bus;
+#if !SECURE_OFFLINE
         private McpConnector?    _mcpConnector;
+#endif
         private readonly System.Threading.CancellationTokenSource _shutdownCts = new System.Threading.CancellationTokenSource();
 
+#if !SECURE_OFFLINE
         private CdpProxyHandler? _cdpProxy;
+#endif
 
         // ---------------------------------------------------------------------------
         // コンストラクタ
@@ -120,11 +128,19 @@ namespace WebView2AppHost
 
             RegisterCustomScheme();
 
+#if !SECURE_OFFLINE
             if (_config.ProxyOrigins?.Length > 0)
             {
                 _cdpProxy = new CdpProxyHandler(wv, _config.ProxyOrigins, _httpClient);
                 await _cdpProxy.EnableAsync();
             }
+#else
+            if (_config.ProxyOrigins?.Length > 0)
+            {
+                AppLog.Log("WARN", "App.InitWebViewAsync",
+                    "Secure offline build では proxyOrigins は無効です。");
+            }
+#endif
 
             wv.DocumentTitleChanged += (s, _) =>
             {
@@ -258,12 +274,17 @@ namespace WebView2AppHost
             try
             {
                 // ConnectorFactory でバスを構築
+#if SECURE_OFFLINE
+                _bus = ConnectorFactory.BuildWithBrowser(
+                    _webView, _config, _shutdownCts.Token);
+#else
                 var enableMcp = Array.IndexOf(System.Environment.GetCommandLineArgs(), "--mcp") >= 0;
                 (_bus, _mcpConnector) = ConnectorFactory.BuildWithBrowser(
                     _webView, _config, enableMcp, _shutdownCts.Token);
 
                 if (enableMcp && _mcpConnector != null)
                     StartMcpConnector();
+#endif
             }
             catch (Exception ex)
             {
@@ -356,6 +377,7 @@ namespace WebView2AppHost
             }
         }
 
+#if !SECURE_OFFLINE
         private async Task HandleProxyRequestAsync(CoreWebView2WebResourceRequestedEventArgs e, Uri targetUri)
         {
             var deferral = e.GetDeferral();
@@ -416,6 +438,7 @@ namespace WebView2AppHost
                 deferral.Complete();
             }
         }
+#endif
 
         // ---------------------------------------------------------------------------
         // フルスクリーン
@@ -647,6 +670,7 @@ namespace WebView2AppHost
             StartCloseNavigation();
         }
 
+#if !SECURE_OFFLINE
         private void StartMcpConnector()
         {
             if (_mcpConnector == null) return;
@@ -659,6 +683,7 @@ namespace WebView2AppHost
             thread.Start();
             AppLog.Log("INFO", "App", "McpConnector 起動（--mcp モード）");
         }
+#endif
 
                 protected override void Dispose(bool disposing)
         {
@@ -669,7 +694,9 @@ namespace WebView2AppHost
                 _shutdownCts.Dispose();
 
                 _favicon?.Dispose();
+#if !SECURE_OFFLINE
                 _cdpProxy?.Dispose();
+#endif
                 _bus?.Dispose();
                 if (_disposeZipOnClose)
                     _zip.Dispose();

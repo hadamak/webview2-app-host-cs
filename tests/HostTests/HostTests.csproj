@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <Configurations>Debug;Release;SecureRelease</Configurations>
     <OutputType>Exe</OutputType>
     <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
@@ -11,6 +12,10 @@
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(Configuration)' == 'SecureRelease'">
+    <DefineConstants>$(DefineConstants);SECURE_OFFLINE</DefineConstants>
+  </PropertyGroup>
+
   <!-- ================================
        本体ソース参照
        ================================ -->
@@ -18,6 +23,7 @@
     <Compile Include="..\..\src\AppLog.cs" />
     <Compile Include="..\..\src\AppConfig.cs" />
     <Compile Include="..\..\src\CloseRequestState.cs" />
+    <Compile Include="..\..\src\ConnectorFactory.cs" />
     <Compile Include="..\..\src\IConnector.cs" />
     <Compile Include="..\..\src\MimeTypes.cs" />
     <Compile Include="..\..\src\NavigationPolicy.cs" />
@@ -28,13 +34,21 @@
     <Compile Include="..\..\src\ZipContentProvider.cs" />
     <Compile Include="..\..\src\MessageBus.cs" />
     <Compile Include="..\..\src\ReflectionDispatcherBase.cs" />
+    <Compile Include="..\..\src\connectors\BrowserConnector.cs" />
+    <Compile Include="..\..\src\connectors\DllConnector.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Configuration)' != 'SecureRelease'">
     <Compile Include="..\..\src\McpBridge.cs" />
     <Compile Include="..\..\src\connectors\IBrowserTools.cs" />
     <Compile Include="..\..\src\connectors\McpConnector.cs" />
     <Compile Include="..\..\src\connectors\PipeServerConnector.cs" />
     <Compile Include="..\..\src\connectors\PipeClientConnector.cs" />
     <Compile Include="..\..\src\connectors\SidecarConnector.cs" />
-    <Compile Include="..\..\src\connectors\DllConnector.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Configuration)' == 'SecureRelease'">
+    <Compile Include="..\..\src\connectors\IBrowserTools.cs" />
   </ItemGroup>
 
   <!-- ================================
@@ -42,6 +56,10 @@
        ================================ -->
   <ItemGroup>
     <Compile Include="Program.cs" />
+    <Compile Include="SecureOfflineTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(Configuration)' != 'SecureRelease'">
     <Compile Include="McpTests.cs" />
     <Compile Include="SidecarTests.cs" />
     <Compile Include="ConnectorQualityTests.cs" />

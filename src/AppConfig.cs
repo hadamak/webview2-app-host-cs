@@ -15,6 +15,18 @@ namespace WebView2AppHost
     [DataContract]
     public sealed class AppConfig
     {
+        public static bool IsSecureMode
+        {
+            get
+            {
+#if SECURE_OFFLINE
+                return true;
+#else
+                return false;
+#endif
+            }
+        }
+
         // ウィンドウサイズの許容範囲
         private const int MinSize   =  160;
         private const int MaxWidth  = 7680;

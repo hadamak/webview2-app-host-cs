@@ -83,9 +83,12 @@ namespace HostTests
             RunLargeEntryGuardTests(workDir);
             
             // Sidecar & MCP Tests
+#if !SECURE_OFFLINE
             SidecarTests.RunAll();
             McpTests.RunAll();
             ConnectorQualityTests.RunAll();
+#endif
+            SecureOfflineTests.RunAll();
         }
 
         private static void CreateZip(string path, params (string Name, string Content)[] entries)
@@ -268,7 +271,7 @@ namespace HostTests
                 return s_json.Serialize(dict);
             }
 
-            public void HandleWebMessageCore(string json)
+            public new void HandleWebMessageCore(string json)
             {
                 base.HandleWebMessageCore(json);
             }

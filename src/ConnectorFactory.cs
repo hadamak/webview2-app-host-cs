@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -11,6 +12,35 @@ namespace WebView2AppHost
     /// </summary>
     public static class ConnectorFactory
     {
+        public static IReadOnlyList<string> GetAvailableConnectorNames(
+            AppConfig? config = null,
+            bool enableMcp = false)
+        {
+            var names = new List<string>
+            {
+                "Browser",
+                "Host",
+            };
+
+#if !SECURE_OFFLINE
+            if (config?.Sidecars != null)
+            {
+                foreach (var sidecar in config.Sidecars)
+                {
+                    if (!string.IsNullOrWhiteSpace(sidecar.Alias))
+                        names.Add(sidecar.Alias);
+                }
+            }
+
+            names.Add("PipeServer");
+
+            if (enableMcp)
+                names.Add("Mcp");
+#endif
+
+            return names;
+        }
+
         // -------------------------------------------------------------------
         // パイプ名
         // -------------------------------------------------------------------
@@ -24,6 +54,24 @@ namespace WebView2AppHost
         /// <summary>
         /// Mode 2 用（WebView2 あり）の MessageBus を構築する。
         /// </summary>
+#if SECURE_OFFLINE
+        public static MessageBus BuildWithBrowser(
+            WebView2           webView,
+            AppConfig          config,
+            System.Threading.CancellationToken shutdownToken = default)
+        {
+            var bus = new MessageBus();
+
+            var browser = new BrowserConnector(webView);
+            bus.Register(browser);
+
+            var dll = new DllConnector();
+            dll.Initialize(config.RawJson);
+            bus.Register(dll);
+
+            return bus;
+        }
+#else
         public static (MessageBus bus, McpConnector? mcp) BuildWithBrowser(
             WebView2           webView,
             AppConfig          config,
@@ -84,11 +132,13 @@ namespace WebView2AppHost
 
             return (bus, mcp);
         }
+#endif
 
         // -------------------------------------------------------------------
         // 内部ヘルパー
         // -------------------------------------------------------------------
 
+#if !SECURE_OFFLINE
         private static void RegisterSidecars(
             MessageBus bus, AppConfig config,
             System.Threading.CancellationToken shutdownToken)
@@ -152,5 +202,6 @@ namespace WebView2AppHost
             }
             return null;
         }
+#endif
     }
 }

@@ -11,9 +11,18 @@ namespace WebView2AppHost
         [STAThread]
         static void Main(string[] args)
         {
+            bool isMcpHeadless = Array.IndexOf(args, "--mcp-headless") >= 0;
+            bool isMcpProxy = Array.IndexOf(args, "--mcp-proxy") >= 0;
+            bool isMcpBrowser = Array.IndexOf(args, "--mcp") >= 0;
+            bool isMcpMode = isMcpHeadless || isMcpProxy;
+
             try
             {
-                bool isMcpMode = Array.IndexOf(args, "--mcp-headless") >= 0 || Array.IndexOf(args, "--mcp-proxy") >= 0;
+#if SECURE_OFFLINE
+                if (isMcpHeadless || isMcpProxy || isMcpBrowser)
+                    throw new NotSupportedException(
+                        "Secure offline build では MCP、Pipe、外部プロセス連携は利用できません。");
+#endif
 
                 // MCP モードの時だけ BOM なし UTF-8 を設定する
                 if (isMcpMode)
@@ -27,19 +36,21 @@ namespace WebView2AppHost
                     catch { /* コンソールがない場合は無視 */ }
                 }
 
+#if !SECURE_OFFLINE
                 // --mcp-headless: WebView2 を起動せず MCP サーバーとして動作する
-                if (Array.IndexOf(args, "--mcp-headless") >= 0)
+                if (isMcpHeadless)
                 {
                     RunMcpHeadless();
                     return;
                 }
 
                 // --mcp-proxy: Named Pipe 経由で本体プロセスに中継する軽量プロキシ
-                if (Array.IndexOf(args, "--mcp-proxy") >= 0)
+                if (isMcpProxy)
                 {
                     RunMcpProxy();
                     return;
                 }
+#endif
 
                 // 通常モード（WebView2 あり）
                 Application.EnableVisualStyles();
@@ -64,7 +75,7 @@ namespace WebView2AppHost
                 Console.Error.WriteLine(ex.StackTrace);
                 
                 // 通常モードならダイアログも出す
-                if (Array.IndexOf(args, "--mcp-headless") < 0 && Array.IndexOf(args, "--mcp-proxy") < 0)
+                if (!isMcpHeadless && !isMcpProxy)
                 {
                     MessageBox.Show(ex.Message, "Fatal Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
@@ -72,6 +83,7 @@ namespace WebView2AppHost
             }
         }
 
+#if !SECURE_OFFLINE
         // -------------------------------------------------------------------
         // Mode 1: WebView2 なし MCP サーバー
         // -------------------------------------------------------------------
@@ -160,6 +172,7 @@ namespace WebView2AppHost
 
             AppLog.Log("INFO", "Program", "MCP プロキシ終了");
         }
+#endif
 
         // -------------------------------------------------------------------
         // 設定読み込み
