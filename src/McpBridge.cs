@@ -23,7 +23,8 @@ namespace WebView2AppHost
 
         /// <summary>
         /// プラグイン側から届いた JSON を受け取り、id が一致する pending を完了させる。
-        /// id がない / 一致しない場合は UnsolicitedMessage に流す。
+        /// id がない場合は UnsolicitedMessage に流す。
+        /// id があり一致しない場合は、MCP起因のリクエストの遅延応答であれば警告を出す。
         /// </summary>
         public void Dispatch(string messageJson)
         {
@@ -55,8 +56,13 @@ namespace WebView2AppHost
                 return;
             }
 
-            AppLog.Log("WARN", "McpBridge", $"一致する pending id が見つかりません: {id} (現在の pending: {string.Join(", ", _pending.Keys)})");
-            UnsolicitedMessage?.Invoke(messageJson);
+            // 自分(MCP)が発行したリクエストの遅延応答・タイムアウト後の応答のみ警告を出す。
+            // 他のコネクター間の通信（Browser等が発行したID）はメッセージバスを流れるが、
+            // MCPの管轄外なので無視する。
+            if (id!.StartsWith("mcp-"))
+            {
+                AppLog.Log("WARN", "McpBridge", $"一致する pending id が見つかりません: {id} (現在の pending: {string.Join(", ", _pending.Keys)})");
+            }
         }
 
         public Task<string> CallAsync(
@@ -113,4 +119,3 @@ namespace WebView2AppHost
         }
     }
 }
-

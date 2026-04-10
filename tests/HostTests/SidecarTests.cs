@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
@@ -26,10 +27,19 @@ namespace HostTests
             {
                 TestStreamingModeAsync().GetAwaiter().GetResult();
                 Console.WriteLine("  Sidecar streaming mode test passed.");
+
+                TestCliModeNamedParamsAsync().GetAwaiter().GetResult();
+                Console.WriteLine("  Sidecar CLI named params test passed.");
+
+                TestCliModeAutoArgsAsync().GetAwaiter().GetResult();
+                Console.WriteLine("  Sidecar CLI auto args test passed.");
+
+                TestCliModePlaceholderAsync().GetAwaiter().GetResult();
+                Console.WriteLine("  Sidecar CLI placeholder test passed.");
             }
             catch (Exception ex)
             {
-                throw new Exception("Sidecar streaming test failed", ex);
+                throw new Exception("Sidecar test failed", ex);
             }
         }
 
@@ -43,6 +53,129 @@ namespace HostTests
                     return p.ExitCode == 0;
                 }
             } catch { return false; }
+        }
+
+        private static async Task TestCliModeNamedParamsAsync()
+        {
+            var entry = new SidecarEntry
+            {
+                Alias = "TestCli",
+                Mode = "cli",
+                Executable = "cmd",
+                Args = new[] { "/c", "echo", "FOO={foo}", "COUNT={count}" }
+            };
+
+            using (var connector = new SidecarConnector(entry, CancellationToken.None))
+            {
+                string lastResponse = null;
+                var responseEvent = new ManualResetEventSlim(false);
+
+                connector.Publish = json => {
+                    lastResponse = json;
+                    responseEvent.Set();
+                };
+
+                var request = new Dictionary<string, object> {
+                    ["jsonrpc"] = "2.0",
+                    ["id"] = "cli1",
+                    ["method"] = "TestCli.Echo",
+                    ["params"] = new Dictionary<string, object> {
+                        ["foo"] = "bar",
+                        ["count"] = 123
+                    }
+                };
+
+                connector.Deliver(s_json.Serialize(request));
+
+                if (!responseEvent.Wait(5000))
+                    throw new TimeoutException("Sidecar CLI did not respond");
+
+                var resp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
+                Assert(resp["id"].ToString() == "cli1", "Response ID mismatch");
+                
+                var result = resp["result"]?.ToString() ?? "";
+                Assert(result.Contains("FOO=bar"), "FOO param missing");
+                Assert(result.Contains("COUNT=123"), "COUNT param missing");
+            }
+        }
+
+        private static async Task TestCliModeAutoArgsAsync()
+        {
+            var entry = new SidecarEntry
+            {
+                Alias = "TestCliAuto",
+                Mode = "cli",
+                Executable = "cmd",
+                Args = new[] { "/c", "echo" }
+            };
+
+            using (var connector = new SidecarConnector(entry, CancellationToken.None))
+            {
+                string lastResponse = null;
+                var responseEvent = new ManualResetEventSlim(false);
+
+                connector.Publish = json => {
+                    lastResponse = json;
+                    responseEvent.Set();
+                };
+
+                var request = new Dictionary<string, object> {
+                    ["jsonrpc"] = "2.0",
+                    ["id"] = "cli_auto",
+                    ["method"] = "TestCliAuto.Echo",
+                    ["params"] = new Dictionary<string, object> {
+                        ["foo"] = "bar"
+                    }
+                };
+
+                connector.Deliver(s_json.Serialize(request));
+
+                if (!responseEvent.Wait(5000))
+                    throw new TimeoutException("Sidecar CLI did not respond");
+
+                var resp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
+                var result = resp["result"]?.ToString() ?? "";
+                Assert(result.Contains("--foo") && result.Contains("bar"), "Auto args failed");
+            }
+        }
+
+        private static async Task TestCliModePlaceholderAsync()
+        {
+            var entry = new SidecarEntry
+            {
+                Alias = "TestCliPlace",
+                Mode = "cli",
+                Executable = "cmd",
+                Args = new[] { "/c", "echo", "{val}" }
+            };
+
+            using (var connector = new SidecarConnector(entry, CancellationToken.None))
+            {
+                string lastResponse = null;
+                var responseEvent = new ManualResetEventSlim(false);
+
+                connector.Publish = json => {
+                    lastResponse = json;
+                    responseEvent.Set();
+                };
+
+                var request = new Dictionary<string, object> {
+                    ["jsonrpc"] = "2.0",
+                    ["id"] = "cli2",
+                    ["method"] = "TestCliPlace.Echo",
+                    ["params"] = new Dictionary<string, object> {
+                        ["val"] = "hello-world"
+                    }
+                };
+
+                connector.Deliver(s_json.Serialize(request));
+
+                if (!responseEvent.Wait(5000))
+                    throw new TimeoutException("Sidecar CLI did not respond");
+
+                var resp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
+                Assert(resp["result"].ToString().Trim() == "hello-world", "Placeholder replacement failed");
+            }
         }
 
         private static async Task TestStreamingModeAsync()

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -527,17 +528,54 @@ namespace WebView2AppHost
         {
             try
             {
-                var msg    = s_json.Deserialize<Dictionary<string, object>>(pluginJson);
+                var msg = s_json.Deserialize<Dictionary<string, object>>(pluginJson);
                 if (msg == null) return;
-                var ev     = msg.TryGetValue("event",  out var e)   ? e?.ToString() : null;
-                var source = msg.TryGetValue("source", out var src) ? src?.ToString() : null;
-                var parms  = msg.TryGetValue("params", out var p)   ? p : null;
 
+                // 1. 旧形式: {"source": "Steam", "event": "OnAchievementProgress", "params": {...}}
+                if (msg.TryGetValue("event", out var evObj) && msg.TryGetValue("source", out var srcObj))
+                {
+                    var ev = evObj?.ToString();
+                    var source = srcObj?.ToString();
+                    var parms = msg.TryGetValue("params", out var p) ? p : null;
+
+                    Write(new Dictionary<string, object?>
+                    {
+                        ["jsonrpc"] = "2.0",
+                        ["method"]  = $"plugin/event/{source ?? "unknown"}/{ev ?? "message"}",
+                        ["params"]  = parms ?? new Dictionary<string, object>()
+                    });
+                    return;
+                }
+
+                // 2. JSON-RPC 形式通知: {"jsonrpc": "2.0", "method": "Source.EventName", "params": {...}}
+                if (msg.TryGetValue("jsonrpc", out var rpcObj) && 
+                    string.Equals(rpcObj?.ToString(), "2.0", StringComparison.OrdinalIgnoreCase) &&
+                    msg.TryGetValue("method", out var methodObj))
+                {
+                    var methodStr = methodObj?.ToString() ?? "";
+                    var parts = methodStr.Split('.');
+                    if (parts.Length >= 2)
+                    {
+                        var source = parts[0];
+                        var ev = string.Join(".", parts.Skip(1));
+                        var parms = msg.TryGetValue("params", out var p2) ? p2 : null;
+
+                        Write(new Dictionary<string, object?>
+                        {
+                            ["jsonrpc"] = "2.0",
+                            ["method"]  = $"plugin/event/{source}/{ev}",
+                            ["params"]  = parms ?? new Dictionary<string, object>()
+                        });
+                        return;
+                    }
+                }
+
+                // 3. その他（未知のフォーマット）
                 Write(new Dictionary<string, object?>
                 {
                     ["jsonrpc"] = "2.0",
-                    ["method"]  = $"plugin/event/{source ?? "unknown"}/{ev ?? "message"}",
-                    ["params"]  = parms ?? (object)new Dictionary<string, object> { ["raw"] = pluginJson },
+                    ["method"]  = $"plugin/event/unknown/message",
+                    ["params"]  = new Dictionary<string, object> { ["raw"] = pluginJson }
                 });
             }
             catch (Exception ex)

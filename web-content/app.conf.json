@@ -18,6 +18,12 @@
     {
       "type": "browser",
       "alias": "Browser"
+    },
+    {
+      "type": "pipe_server"
+    },
+    {
+      "type": "mcp"
     }
   ]
 }

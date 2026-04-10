@@ -193,6 +193,8 @@ namespace WebView2AppHost
                 if (req != null && req.TryGetValue("params", out var pObj))
                 {
                     var args = new List<string>(_entry.Args);
+
+                    // 1. 配列形式 (Positional) のパラメータ処理
                     if (pObj is ArrayList pList)
                     {
                         foreach (var p in pList)
@@ -206,6 +208,34 @@ namespace WebView2AppHost
                             if (!replaced) args.Add(ps);
                         }
                     }
+                    // 2. オブジェクト形式 (Named) のパラメータ処理
+                    else if (pObj is IDictionary pDict)
+                    {
+                        foreach (DictionaryEntry entry in pDict)
+                        {
+                            var key = entry.Key?.ToString() ?? "";
+                            var val = entry.Value?.ToString() ?? "";
+                            var placeholder = "{" + key + "}";
+                            bool replaced = false;
+
+                            for (int i = 0; i < args.Count; i++)
+                            {
+                                if (args[i].Contains(placeholder))
+                                {
+                                    args[i] = args[i].Replace(placeholder, val);
+                                    replaced = true;
+                                }
+                            }
+
+                            // プレースホルダがない場合、自動で --key value 形式で追加する
+                            if (!replaced)
+                            {
+                                args.Add("--" + key);
+                                args.Add(val);
+                            }
+                        }
+                    }
+
                     args.RemoveAll(a => a == "{args}");
                     psi.Arguments = string.Join(" ", args.Select(EscapeArgument));
                 }

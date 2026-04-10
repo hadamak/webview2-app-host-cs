@@ -116,5 +116,6 @@
 ## Notes
 
 - `connectors` is now the only supported way to declare DLLs and sidecars.
+- **Selective Activation**: If the `connectors` array is present, the host will **only** start the connectors explicitly listed. For example, if you want to allow external MCP clients to attach via `--mcp-proxy`, you must include `{ "type": "pipe_server" }` in the list.
 - Use snake_case field names in `app.conf.json`.
 - `user.conf.json` may still override `width`, `height`, and `fullscreen` at runtime.

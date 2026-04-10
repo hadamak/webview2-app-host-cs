@@ -4,8 +4,8 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Web.Script.Serialization;
 using WebView2AppHost;
-
 
 namespace HostTests
 {
@@ -102,15 +102,26 @@ namespace HostTests
                 Assert(ex is OperationCanceledException, "McpBridge: キャンセルで OperationCanceledException");
             }
 
-            // --- id 不一致 → UnsolicitedMessage イベント ---
+            // --- id 不一致(MCP起因) → ログのみで UnsolicitedMessage には流れない ---
             {
                 var bridge     = new McpBridge();
                 var unsolicited= (string?)null;
                 bridge.UnsolicitedMessage += json => unsolicited = json;
 
-                var orphan = @"{""jsonrpc"":""2.0"",""id"":""no-match"",""result"":""late""}";
+                var orphan = @"{""jsonrpc"":""2.0"",""id"":""mcp-no-match"",""result"":""late""}";
                 bridge.Dispatch(orphan);
-                Assert(unsolicited == orphan, "McpBridge: id 不一致は UnsolicitedMessage に流れる");
+                Assert(unsolicited == null, "McpBridge: MCP起因のid不一致は UnsolicitedMessage に流れない");
+            }
+
+            // --- 他コネクターのリクエスト(idあり) → 無視 ---
+            {
+                var bridge     = new McpBridge();
+                var unsolicited= (string?)null;
+                bridge.UnsolicitedMessage += json => unsolicited = json;
+
+                var otherReq = @"{""jsonrpc"":""2.0"",""id"":1,""method"":""Browser.doSomething"",""params"":[]}";
+                bridge.Dispatch(otherReq);
+                Assert(unsolicited == null, "McpBridge: 他コネクターのリクエストは無視される");
             }
 
             // --- id なし → UnsolicitedMessage イベント ---
@@ -311,9 +322,9 @@ namespace HostTests
 
             Console.WriteLine("    McpServer.tools/call tests passed.");
         }
+
         private static void RunMcpServerEventForwardingTests()
         {
-            // UnsolicitedMessage が発火したとき stdout に JSON-RPC 通知が出力されるかを確認
             var outBuf = new StringBuilder();
             var output = new StringWriter(outBuf);
             var input = new StringReader("\n"); // すぐ EOF
@@ -326,6 +337,7 @@ namespace HostTests
             // 少し待ってから id なし JSON を Dispatch → UnsolicitedMessage 発火
             System.Threading.Thread.Sleep(30);
             mcp.Deliver(@"{""source"":""Node"",""event"":""onData"",""params"":{""value"":99}}");
+            mcp.Deliver(@"{""jsonrpc"":""2.0"",""method"":""Browser.OnTestEvent"",""params"":{""val"":1}}");
 
             runTask.Wait(1000);
 
@@ -336,18 +348,11 @@ namespace HostTests
                 if (!string.IsNullOrEmpty(t)) lines.Add(t);
             }
 
-            // 通知行を探す
-            var notif = lines.Find(l => l.Contains("plugin/event"));
-            Assert(notif != null, "McpServer.event: plugin/event 通知が出力される");
+            var notif1 = lines.Find(l => l.Contains("plugin/event/Node/onData"));
+            Assert(notif1 != null, "McpServer.event: 旧形式通知が出力される");
 
-            if (notif != null)
-            {
-                var msg = ParseJson(notif);
-                Assert(!msg.ContainsKey("id"),          "McpServer.event: 通知に id がない");
-                Assert(msg.ContainsKey("method"),       "McpServer.event: method がある");
-                Assert(msg["method"]?.ToString()?.StartsWith("plugin/event/Node/onData") == true,
-                    "McpServer.event: method が plugin/event/Node/onData");
-            }
+            var notif2 = lines.Find(l => l.Contains("plugin/event/Browser/OnTestEvent"));
+            Assert(notif2 != null, "McpServer.event: 新形式通知が出力される");
 
             Console.WriteLine("    McpServer event forwarding tests passed.");
         }

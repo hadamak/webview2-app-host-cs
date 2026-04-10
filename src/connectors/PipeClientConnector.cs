@@ -141,6 +141,10 @@ namespace WebView2AppHost
                     }
                 }
             }
+
+            AppLog.Log("ERROR", "PipeClientConnector",
+                $"ホストプロセスへの接続に失敗しました。ホストが起動していること、およびホストの app.conf.json の connectors に \"pipe_server\" が設定されていることを確認してください。");
+
             return null;
         }
 
