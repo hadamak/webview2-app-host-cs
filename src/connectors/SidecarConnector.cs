@@ -282,7 +282,6 @@ namespace WebView2AppHost
                 {
                     _isReady = true;
                     _ready.Set();
-                    return;
                 }
             }
 

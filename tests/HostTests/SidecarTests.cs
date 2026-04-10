@@ -213,9 +213,16 @@ namespace HostTests
             {
                 string lastResponse = null;
                 var responseEvent = new ManualResetEventSlim(false);
+                var readyEvent = new ManualResetEventSlim(false);
 
                 connector.Publish = json => {
                     Console.WriteLine("  [Test] Received from Sidecar: " + json);
+                    if (json.Contains("\"ready\"") && json.Contains("true"))
+                    {
+                        Console.WriteLine("  [Test] Observed Ready Signal");
+                        readyEvent.Set();
+                        return; // ready signal is not a JSON-RPC response
+                    }
                     lastResponse = json;
                     responseEvent.Set();
                 };
@@ -262,7 +269,9 @@ namespace HostTests
 
                 // Restart after child process exits
                 responseEvent.Reset();
+                readyEvent.Reset();
                 lastResponse = null;
+
                 var exitRequest = new Dictionary<string, object> {
                     ["jsonrpc"] = "2.0",
                     ["id"] = "t3",
@@ -272,8 +281,12 @@ namespace HostTests
 
                 Console.WriteLine("  [Test] Sending Exit Request: " + s_json.Serialize(exitRequest));
                 connector.Deliver(s_json.Serialize(exitRequest));
-                Thread.Sleep(2500);
+                
+                // Wait for restart (up to 15s for slow CI)
+                if (!readyEvent.Wait(15000))
+                    throw new TimeoutException("Sidecar did not send ready signal after exit");
 
+                responseEvent.Reset();
                 var restartRequest = new Dictionary<string, object> {
                     ["jsonrpc"] = "2.0",
                     ["id"] = "t4",
@@ -284,8 +297,8 @@ namespace HostTests
                 Console.WriteLine("  [Test] Sending Restart Verification Request: " + s_json.Serialize(restartRequest));
                 connector.Deliver(s_json.Serialize(restartRequest));
 
-                if (!responseEvent.Wait(5000))
-                    throw new TimeoutException("Sidecar did not restart after process exit");
+                if (!responseEvent.Wait(10000))
+                    throw new TimeoutException("Sidecar did not respond after restart");
 
                 var restartResp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
                 Assert(restartResp["id"].ToString() == "t4", "Restart response ID mismatch");
