@@ -88,6 +88,7 @@ const Host = (() => {
 
     function sendMessage(message, pluginName, resolve, reject) {
         const id = ++_requestId;
+        message.id = id; // 確実に生成されたIDをメッセージにセット
         _pending.set(id, { resolve, reject, pluginName });
         _emitDiagnostic('outbound', message);
 
@@ -96,24 +97,25 @@ const Host = (() => {
         } else {
             console.log(`[Host Mock] ${message.method}`, message.params);
             setTimeout(() => {
-                _pending.delete(id);
-                resolve(undefined);
+                const prom = _pending.get(id);
+                if (prom) {
+                    _pending.delete(id);
+                    resolve(undefined);
+                }
             }, 4);
         }
     }
 
     function invoke(pluginName, className, methodName, args) {
         return new Promise((resolve, reject) => {
-            const id = _requestId + 1;
-            const message = { jsonrpc: '2.0', id, method: `${pluginName}.${className}.${methodName}`, params: args ?? [] };
+            const message = { jsonrpc: '2.0', method: `${pluginName}.${className}.${methodName}`, params: args ?? [] };
             sendMessage(message, pluginName, resolve, reject);
         });
     }
 
     function invokeInstance(pluginName, handleId, methodName, args) {
         return new Promise((resolve, reject) => {
-            const id = _requestId + 1;
-            const message = { jsonrpc: '2.0', id, method: `${pluginName}.${methodName}`, params: { handleId, args: args ?? [] } };
+            const message = { jsonrpc: '2.0', method: `${pluginName}.${methodName}`, params: { handleId, args: args ?? [] } };
             sendMessage(message, pluginName, resolve, reject);
         });
     }

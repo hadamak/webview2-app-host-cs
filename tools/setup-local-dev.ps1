@@ -6,7 +6,7 @@
     以下をまとめて実行する:
       1. ホスト本体 (WebView2AppHost.csproj) をビルド
       2. Facepunch.Steamworks DLL を EXE と同じフォルダにコピー
-      3. Nodeサイドカーを出力先にコピー
+      3. Pythonサイドカーを出力先にコピー
 
     実行後は生成された EXE をそのまま起動して動作確認できる。
 
