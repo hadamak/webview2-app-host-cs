@@ -12,8 +12,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
-      with:
-        submodules: 'recursive'
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v3
@@ -43,10 +41,10 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: WebView2AppHost-${{ github.sha }}
-        path: src\bin\x64\Release\
+        path: src\bin\x64\Release\net48\
 
     - name: Upload secure artifact
       uses: actions/upload-artifact@v7
       with:
         name: WebView2AppHost-Secure-${{ github.sha }}
-        path: src\bin\x64\SecureRelease\
+        path: src\bin\x64\SecureRelease\net48\

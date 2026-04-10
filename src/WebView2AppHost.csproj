@@ -69,6 +69,11 @@
     <Delete Files="$(OutputPath)Microsoft.Web.WebView2.Wpf.dll" />
   </Target>
 
+  <Target Name="RemoveRedundantRuntimes" AfterTargets="Build">
+    <RemoveDir Directories="$(OutputPath)runtimes\" 
+              Condition="Exists('$(OutputPath)runtimes\')" />
+  </Target>
+
   <!-- Debug ビルド時のみ test-www/ をそのまま出力先 www/ へコピーする -->
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">
     <ManualWwwContent Include="$(MSBuildProjectDirectory)\..\test-www\**\*" />
