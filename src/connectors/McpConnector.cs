@@ -122,9 +122,6 @@ namespace WebView2AppHost
                             var s = args?.ContainsKey("script") == true ? args["script"]?.ToString() : null;
                             if (string.IsNullOrEmpty(s)) { WriteToolError(id, "script is required"); return; }
                             WriteToolResult(id, await _browser.EvaluateAsync(s!, ct)); break;
-                        case "browser_get_elements": WriteToolResult(id, await _browser.GetElementsAsync(ct)); break;
-                        case "browser_click_label": await _browser.ClickLabelAsync(Convert.ToInt32(args?["id"]), ct); WriteToolResult(id, "Clicked."); break;
-                        case "browser_clear_labels": await _browser.ClearLabelsAsync(ct); WriteToolResult(id, "Cleared."); break;
                         case "browser_screenshot":
                             var sc = await _browser.ScreenshotAsync(ct);
                             WriteToolResponse(id, new object[] { new { type = "image", data = sc.Base64, mimeType = "image/png" }, new { type = "text", text = $"{sc.Width}x{sc.Height}px" } }); break;
