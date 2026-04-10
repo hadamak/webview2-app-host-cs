@@ -5,7 +5,6 @@ namespace WebView2AppHost
 {
     /// <summary>
     /// McpConnector が browser_* ツールを提供するための最小インターフェース。
-    /// WebView2 依存を切り離し、テストやヘッドレスでも McpConnector を単体でコンパイルできるようにする。
     /// </summary>
     public interface IBrowserTools
     {
@@ -14,6 +13,8 @@ namespace WebView2AppHost
         Task NavigateAsync(string url, CancellationToken ct = default);
         Task<string> GetUrlAsync(CancellationToken ct = default);
         Task<string> GetContentAsync(CancellationToken ct = default);
+        Task ClickAsync(string selector, CancellationToken ct = default);
+        Task TypeAsync(string selector, string text, CancellationToken ct = default);
+        Task ScrollAsync(int x, int y, CancellationToken ct = default);
     }
 }
-

@@ -1,40 +1,14 @@
 (function() {
+    // 強化されたツール定義（ブラウザ操作を含む）
     const TOOLS_DEFINITION = [
-        {
-            "name": "execute_terminal_command",
-            "description": "ローカル PC のターミナルでコマンドを実行します。",
-            "parameters": { "type": "object", "properties": { "command": { "type": "string" } }, "required": ["command"] }
-        },
-        {
-            "name": "list_files",
-            "description": "ファイルとフォルダの一覧を取得します。",
-            "parameters": { "type": "object", "properties": { "dirPath": { "type": "string" } } }
-        },
-        {
-            "name": "read_file",
-            "description": "ファイルを読み込みます。",
-            "parameters": { "type": "object", "properties": { "filePath": { "type": "string" } }, "required": ["filePath"] }
-        },
-        {
-            "name": "write_file",
-            "description": "ファイルを書き込みます。",
-            "parameters": { "type": "object", "properties": { "filePath": { "type": "string" }, "content": { "type": "string" } }, "required": ["filePath", "content"] }
-        }
+        { "name": "execute_terminal_command", "description": "コマンドを実行します。", "parameters": { "type": "object", "properties": { "command": { "type": "string" } }, "required": ["command"] } },
+        { "name": "list_files", "description": "ファイル一覧を取得します。", "parameters": { "type": "object", "properties": { "dirPath": { "type": "string" } } } },
+        { "name": "read_file", "description": "ファイルを読み込みます。", "parameters": { "type": "object", "properties": { "filePath": { "type": "string" } }, "required": ["filePath"] } },
+        { "name": "write_file", "description": "ファイルを書き込みます。", "parameters": { "type": "object", "properties": { "filePath": { "type": "string" }, "content": { "type": "string" } }, "required": ["filePath", "content"] } }
     ];
 
-    console.log("🚀 AI Agent Bridge (Python Edition): 強化版 observer 起動しました。");
+    console.log("🚀 AI Agent Bridge: ツール監視を開始しました。");
 
-    // --- 1. ツール定義の流し込み支援 ---
-    const btn = document.createElement('button');
-    btn.innerText = "📋 Copy Python Tools JSON";
-    btn.style = "position:fixed; top:10px; left:100px; z-index:9999; padding:8px; background:#3776ab; color:white; border:none; border-radius:4px; cursor:pointer;";
-    btn.onclick = () => {
-        navigator.clipboard.writeText(JSON.stringify(TOOLS_DEFINITION, null, 2));
-        alert("ツール定義をクリップボードにコピーしました。\n'Add Function' を押し、JSON エディタに貼り付けてください。");
-    };
-    document.body.appendChild(btn);
-
-    // --- 2. 関数呼び出しの監視と自動実行 ---
     async function handleFunctionCall(chunk) {
         if (chunk.dataset.agentProcessed) return;
 
@@ -44,48 +18,34 @@
 
         const funcName = titleElement.innerText.trim();
         console.log(`🔍 [AI Agent] 関数呼び出し検出: ${funcName}`);
-        
-        // 実行マッピング表
+
+        // ホスト側の C# 機能を直接呼ぶマップ
         const methodMap = {
-            'execute_terminal_command': () => Host.PythonRuntime.Terminal.execute(JSON.parse(codeElement.innerText).command),
-            'list_files': () => Host.PythonRuntime.Filesystem.listFiles(JSON.parse(codeElement.innerText).dirPath || "."),
-            'read_file': () => Host.PythonRuntime.Filesystem.readFile(JSON.parse(codeElement.innerText).filePath),
-            'write_file': () => {
-                const args = JSON.parse(codeElement.innerText);
-                return Host.PythonRuntime.Filesystem.writeFile(args.filePath, args.content);
-            }
+            'execute_terminal_command': (args) => Host.PythonRuntime.Terminal.execute(args.command),
+            'list_files': (args) => Host.PythonRuntime.Filesystem.listFiles(args.dirPath || "."),
+            'read_file': (args) => Host.PythonRuntime.Filesystem.readFile(args.filePath),
+            'write_file': (args) => Host.PythonRuntime.Filesystem.writeFile(args.filePath, args.content)
         };
 
         if (methodMap[funcName]) {
             chunk.dataset.agentProcessed = "true";
             try {
-                console.log(`🚀 [AI Agent] Python 実行中: ${funcName}`);
-                const result = await methodMap[funcName]();
+                const args = JSON.parse(codeElement.innerText || "{}");
+                console.log(`🚀 [AI Agent] 実行中: ${funcName}`, args);
+                const result = await methodMap[funcName](args);
                 console.log(`✅ [AI Agent] 実行結果取得: ${funcName}`, result);
                 
-                const input = chunk.querySelector('input[placeholder="Enter function response"]');
+                // 結果をUIに書き戻す処理
+                const input = chunk.querySelector('input[placeholder*="response"], textarea');
                 const sendBtn = chunk.querySelector('button[type="submit"]');
 
-                if (input && sendBtn) {
-                    // 値をセットし、各種イベントを発火させて UI に変更を通知
-                    input.value = JSON.stringify(result);
+                if (input) {
+                    // スクリーンショットの場合は Base64 データをそのまま流し込む（UI側が対応している場合）
+                    input.value = typeof result === 'string' ? result : JSON.stringify(result);
                     input.dispatchEvent(new Event('input', { bubbles: true }));
-                    input.dispatchEvent(new Event('change', { bubbles: true }));
-                    input.dispatchEvent(new Event('blur', { bubbles: true }));
-
-                    // 送信ボタンが有効になるのを待ってクリック
-                    setTimeout(() => {
-                        const isDisabled = sendBtn.getAttribute('aria-disabled') === 'true' || sendBtn.disabled;
-                        if (!isDisabled) {
-                            sendBtn.click();
-                            console.log(`[AI Agent] 結果を送信しました。`);
-                        } else {
-                            console.warn(`⚠️ [AI Agent] 送信ボタンが無効なため、送信をスキップしました。`, {
-                                ariaDisabled: sendBtn.getAttribute('aria-disabled'),
-                                disabled: sendBtn.disabled
-                            });
-                        }
-                    }, 800);
+                    if (sendBtn && !sendBtn.disabled) {
+                        setTimeout(() => sendBtn.click(), 500);
+                    }
                 }
             } catch (e) {
                 console.error("[AI Agent] 実行失敗:", e);
@@ -97,8 +57,10 @@
         for (const mutation of mutations) {
             mutation.addedNodes.forEach(node => {
                 if (node.nodeType === Node.ELEMENT_NODE) {
-                    if (node.tagName === 'MS-FUNCTION-CALL-CHUNK') handleFunctionCall(node);
-                    else node.querySelectorAll('ms-function-call-chunk').forEach(handleFunctionCall);
+                    if (node.tagName.includes('FUNCTION-CALL')) handleFunctionCall(node);
+                    else node.querySelectorAll('*').forEach(n => {
+                        if (n.tagName.includes('FUNCTION-CALL')) handleFunctionCall(n);
+                    });
                 }
             });
         }
