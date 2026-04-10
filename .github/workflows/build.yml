@@ -12,8 +12,6 @@ jobs:
 
     steps:
     - uses: actions/checkout@v6
-      with:
-        submodules: 'recursive'
 
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v3
@@ -21,16 +19,20 @@ jobs:
     - name: Build
       run: msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64
 
-    - name: Build Generic Plugins
-      run: |
-        msbuild src-generic\WebView2AppHost.GenericDllPlugin.csproj "/t:Restore;Build"/p:Configuration=Release /p:Platform=x64
-        msbuild src-generic\WebView2AppHost.GenericSidecarPlugin.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64
+    - name: Build SecureRelease
+      run: msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=SecureRelease /p:Platform=x64
 
     - name: Build HostTests
       run: msbuild tests\HostTests\HostTests.csproj "/t:Restore;Build" /p:Configuration=Debug /p:Platform=x64
 
+    - name: Build HostTests SecureRelease
+      run: msbuild tests\HostTests\HostTests.csproj "/t:Restore;Build" /p:Configuration=SecureRelease /p:Platform=x64
+
     - name: Run HostTests
       run: tests\HostTests\bin\x64\Debug\net48\HostTests.exe
+
+    - name: Run HostTests SecureRelease
+      run: tests\HostTests\bin\x64\SecureRelease\net48\HostTests.exe
 
     - name: Run host.js unit tests
       run: node tests/host-js/host.test.js
@@ -39,4 +41,10 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: WebView2AppHost-${{ github.sha }}
-        path: src\bin\x64\Release\
+        path: src\bin\x64\Release\net48\
+
+    - name: Upload secure artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: WebView2AppHost-Secure-${{ github.sha }}
+        path: src\bin\x64\SecureRelease\net48\

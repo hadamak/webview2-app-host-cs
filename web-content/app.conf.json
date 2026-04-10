@@ -1,6 +1,24 @@
 {
-  "title": "WebView2 App Host",
-  "width": 1280,
-  "height": 720,
-  "fullscreen": false
+  "title": "WebView2AppHost",
+  "window": {
+    "width": 1280,
+    "height": 720,
+    "frame": true
+  },
+  "url": "https://app.local/index.html",
+  "navigation_policy": {
+    "external_navigation_mode": "host"
+  },
+  "connectors": [
+    {
+      "type": "browser",
+      "alias": "Browser"
+    },
+    {
+      "type": "pipe_server"
+    },
+    {
+      "type": "mcp"
+    }
+  ]
 }

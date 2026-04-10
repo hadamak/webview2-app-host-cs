@@ -40,9 +40,11 @@ namespace PluginCoreTester
             
             var json = @"{
                 ""title"": ""Test App"",
-                ""width"": 800,
-                ""height"": 600,
-                ""fullscreen"": true
+                ""window"": {
+                    ""width"": 800,
+                    ""height"": 600,
+                    ""fullscreen"": true
+                }
             }";
             
             using var stream = new MemoryStream(Encoding.UTF8.GetBytes(json));
@@ -68,11 +70,9 @@ namespace PluginCoreTester
             
             var json = @"{
                 ""title"": ""Test App"",
-                ""loadDlls"": [
-                    { ""alias"": ""Calc"", ""dll"": ""TestLib.dll"", ""exposeEvents"": [""OnResult""] }
-                ],
-                ""sidecars"": [
-                    { ""alias"": ""NodeBackend"", ""mode"": ""streaming"", ""executable"": ""node.exe"", ""workingDirectory"": ""."", ""args"": [""server.js""], ""waitForReady"": true }
+                ""connectors"": [
+                    { ""type"": ""dll"", ""alias"": ""Calc"", ""path"": ""TestLib.dll"", ""expose_events"": [""OnResult""] },
+                    { ""type"": ""sidecar"", ""alias"": ""NodeBackend"", ""mode"": ""streaming"", ""executable"": ""node.exe"", ""working_directory"": ""."", ""args"": [""server.js""], ""wait_for_ready"": true }
                 ]
             }";
             
@@ -237,8 +237,8 @@ namespace PluginCoreTester
                 // JSON 文字列を直接作成（AppConfigに依存しない）
                 var configJson = @"{
                     ""title"": ""無視されるべきデータ"",
-                    ""loadDlls"": [
-                        { ""alias"": ""Calc"", ""dll"": ""../../../../TestDll/bin/Debug/net48/TestLib.dll"", ""exposeEvents"": [""OnResult"", ""OnPing"", ""OnCalculationFinished""] }
+                    ""connectors"": [
+                        { ""type"": ""dll"", ""alias"": ""Calc"", ""path"": ""../../../../TestDll/bin/Debug/net48/TestLib.dll"", ""expose_events"": [""OnResult"", ""OnPing"", ""OnCalculationFinished""] }
                     ]
                 }";
                 
@@ -310,8 +310,8 @@ namespace PluginCoreTester
                 // JSON 文字列を直接作成（AppConfigに依存しない）
                 var configJson = @"{
                     ""title"": ""無視されるべきデータ"",
-                    ""sidecars"": [
-                        { ""alias"": ""TestSidecar"", ""mode"": ""streaming"", ""executable"": ""nonexistent.exe"", ""workingDirectory"": ""."", ""args"": [], ""waitForReady"": false }
+                    ""connectors"": [
+                        { ""type"": ""sidecar"", ""alias"": ""TestSidecar"", ""mode"": ""streaming"", ""executable"": ""nonexistent.exe"", ""working_directory"": ""."", ""args"": [], ""wait_for_ready"": false }
                     ]
                 }";
                 
@@ -384,8 +384,8 @@ namespace PluginCoreTester
                 var initMethod = pluginType.GetMethod("Initialize", BindingFlags.Public | BindingFlags.Instance, null, new[] { typeof(string) }, null);
                 var configJson = @"{
                     ""title"": ""無視されるべきデータ"",
-                    ""loadDlls"": [
-                        { ""alias"": ""Calc"", ""dll"": ""../../../../TestDll/bin/Debug/net48/TestLib.dll"", ""exposeEvents"": [""OnResult"", ""OnPing"", ""OnCalculationFinished""] }
+                    ""connectors"": [
+                        { ""type"": ""dll"", ""alias"": ""Calc"", ""path"": ""../../../../TestDll/bin/Debug/net48/TestLib.dll"", ""expose_events"": [""OnResult"", ""OnPing"", ""OnCalculationFinished""] }
                     ]
                 }";
                 initMethod.Invoke(plugin, new object[] { configJson });

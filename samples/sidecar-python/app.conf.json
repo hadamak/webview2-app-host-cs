@@ -1,0 +1,19 @@
+{
+  "title": "Sidecar Python Sample",
+  "window": { "width": 1280, "height": 800, "frame": true },
+  "url": "https://app.local/index.html",
+  "navigation_policy": {
+    "external_navigation_mode": "browser",
+    "block_request_patterns": []
+  },
+  "connectors": [
+    {
+      "type": "sidecar",
+      "alias": "Python",
+      "runtime": "python",
+      "script": "python-runtime/server.py",
+      "working_directory": "python-runtime",
+      "wait_for_ready": true
+    }
+  ]
+}

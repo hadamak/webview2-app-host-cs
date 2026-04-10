@@ -1,467 +1,146 @@
-# WebView2 App Host
+# WebView2AppHost
 
 [![Build](https://github.com/hadamak/webview2-app-host-cs/actions/workflows/build.yml/badge.svg)](https://github.com/hadamak/webview2-app-host-cs/actions/workflows/build.yml)
 [![Release](https://img.shields.io/github/v/release/hadamak/webview2-app-host-cs)](https://github.com/hadamak/webview2-app-host-cs/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/hadamak/webview2-app-host-cs)](LICENSE)
-[![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078d4?logo=windows)](https://www.microsoft.com/windows)
-[![.NET Framework](https://img.shields.io/badge/.NET_Framework-4.8-512bd4?logo=dotnet)](https://dotnet.microsoft.com)
 
-A lightweight host for distributing HTML/CSS/JavaScript web apps as Windows desktop applications using WebView2.
+WebView2AppHost is a lightweight Windows desktop host for shipping HTML/CSS/JavaScript applications using WebView2.
 
-- 🌐 Fully local delivery via `https://app.local/`
-- 🔗 Native integration with standard Web APIs like `window.close()` and `requestFullscreen()`
-- 🚀 Generic Plugins — Extend your app with C# DLLs or external sidecar processes (Node.js, Python, etc.)
-- 📦 Web content can be served from a `www/` folder, a ZIP file, an EXE-appended ZIP, or an embedded resource
-- 🚀 Multiple distribution methods available — all keeping the package small and fast
+It acts as a **transparent host**—meaning standard Web APIs just work. You don't have to learn custom wrapper APIs to manage windows, permissions, dialogs, or media.
 
-![screenshot](images/screenshot.png)
+It is designed for two primary audiences:
+- **Adopters**: Package and ship web apps as desktop executables instantly, with zero host-side coding.
+- **Maintainers & Power Users**: Extend capabilities dynamically using a MessageBus-centric connector architecture (Native DLLs, Sidecar processes, and AI/MCP integration).
 
-> 🇯🇵 [日本語版 README はこちら](README.ja.md)
+> Japanese README: [README.ja.md](README.ja.md)
 
----
+## Why Use It?
 
-## 📋 Table of Contents
+- **100% Standard Web APIs**
+  - `window.close()`, `requestFullscreen()`, `beforeunload`, `navigator.permissions`, and clipboard work exactly as they do in a standard browser.
+- **Zero-Rebuild Extension Model**
+  - Need native capabilities? Drop a .NET DLL or a Node.js/Python/PowerShell script next to the EXE and enable it in `app.conf.json`. No need to recompile the host application.
+- **Built-in AI (MCP) Integration**
+  - First-class Model Context Protocol (MCP) support. Expose your app's state, UI tools, or native capabilities to AI agents seamlessly (supports headless and proxy modes).
+- **Transparent CORS Proxy**
+  - A built-in Chrome DevTools Protocol (CDP) proxy allows your local `https://app.local` frontend to `fetch()` external APIs without CORS errors.
+- **Ultra Lightweight & Portable**
+  - Built on .NET 4.8 (pre-installed on modern Windows). No need to bundle a 100MB+ Chromium runtime.
 
-1. [Overview](#overview)
-2. [Features](#features)
-3. [Comparison](#comparison)
-4. [Use Cases](#use-cases)
-5. [Requirements](#requirements)
-6. [Quick Start](#quick-start)
-7. [Replacing Web Content](#replacing-web-content)
-8. [Distribution Methods](#distribution-methods)
-9. [Configuration](#configuration)
-10. [Web API Integration](#web-api-integration)
-11. [Generic Plugins](#generic-plugins)
-12. [Limitations](#limitations)
-13. [Keyboard Shortcuts](#keyboard-shortcuts)
-14. [FAQ](#faq)
-15. [Project Structure](#project-structure)
-16. [Development Notes](#development-notes)
-17. [License](#license)
+## Fastest Path
 
----
+If you simply want to wrap a web app as a desktop EXE:
 
-## 🔍 Overview
+1. Get a prebuilt `WebView2AppHost.exe`
+2. Create a `www\` folder next to the EXE and put your web files in it.
+3. Add a `www\app.conf.json` file.
+4. Run the EXE.
 
-This repository is a WebView2-based web app host for Windows. Its goal is to let you take your existing web app assets and distribute them as a desktop EXE with minimal changes.
+That's it. It runs as a fully functional Windows desktop application.
 
-Intended use cases:
-
-- Wrapping an existing web app for Windows desktop distribution
-- Distributing with little to no installation required
-- Using different distribution styles (EXE-appended, bundled ZIP, external `www/`) depending on the situation
-- Running content that can't be hosted on a network server, served from an `https://` origin without a local server
-- Calling C# DLLs or interacting with external processes like Node.js from JavaScript
-
----
-
-## ✨ Features
-
-### 1. 🛠️ No Build Environment Required
-Just attach your web content to a pre-built EXE and you have a working application. No .NET SDK, Visual Studio, Node.js, or any other toolchain is needed.
-
-You can choose how to provide content depending on your workflow:
-
-- Place a `www/` folder next to the EXE (instant updates, great for development)
-- Place a ZIP with the same name as the EXE next to it
-- Append a ZIP to the end of the EXE using `copy /b` (bundle content into a single file)
-- Embed content as a resource at build time
-
-### 2. 📦 Small Distribution Size
-Since WebView2 runtime ships with Windows 10/11, there's no need to bundle Chromium. This keeps the distribution size dramatically smaller than Electron.
-
-### 3. 🌐 Standard Web API Compatibility
-The host provides a browser-compatible environment, so your content doesn't need any special modifications. The following standard Web APIs work out of the box:
-
-- `window.close()` — quit the app
-- `element.requestFullscreen()` / `document.exitFullscreen()` — toggle fullscreen
-- `beforeunload` — prompt the user before closing
-- `target="_blank"` / `window.open()` — open external links in the default browser
-- `visibilityState` / `visibilitychange` — detect window minimization
-
-### 4. 🚀 Generic Plugins (DLL & Sidecar)
-Extend your application's capabilities infinitely with C# DLLs or independent sidecar processes.
-
-- **DLL Plugin**: Simply list DLL names in `app.conf.json` to call .NET classes and methods directly from JS (e.g. Steamworks integration, direct SQLite access).
-- **Sidecar Plugin**: Launch executables like Node.js or Python as sidecars and communicate via JSON over StdIO.
-
----
-
-WebView2 App Host is distributed as a single package that includes expansion capabilities via plugins. Depending on your application's requirements, choose the files you need to bundle:
-
-- **WebView2AppHost.exe** — The minimal WebView2 host (~900KB)
-- **WebView2AppHost.GenericDllPlugin.dll** — Generic plugin for C# DLL integration
-- **WebView2AppHost.GenericSidecarPlugin.dll** — Generic plugin for external sidecar processes
-
-> ℹ️ **Third-party Libraries:** External libraries and runtimes such as `Facepunch.Steamworks.Win64.dll` or `node.exe` are not included in the release package due to size and licensing. Developers should obtain and bundle these from their official sources as needed.
-
----
-
-## 📊 Comparison
-
-Measured results comparing build time and distribution size against other frameworks.
-
-| Target | Build Time | Size | Notes |
-|---|---:|---:|---|
-| Electron | 12,909 ms | 343.56 MB | 132 MB zipped |
-| Tauri (first build) | 391,344 ms | 1.80 MB | installer size |
-| Tauri (subsequent) | 126,863 ms | 1.80 MB | installer size |
-| Neutralino.js | 1,399 ms | 2.53 MB | 920 KB zipped |
-| WebView2Host build | 6,197 ms | 884 KB | 254 KB zipped |
-| WebView2Host ZIP-append | 74 ms | 888 KB | 254 KB zipped |
-| WebView2Host ZIP-bundle | 0 ms | 888 KB | 258 KB zipped |
-| WebView2Host folder | 0 ms | 895 KB | 258 KB zipped |
-
-> ⚡ When using a pre-built EXE (ZIP-append or folder mode), build time is zero. That's what "no build environment required" really means in practice.
-
----
-
-## 💡 Use Cases
-
-### 🕹️ Fantasy Console
-Embed a JS-based game engine in the EXE and treat ZIPs as game cartridges. Drag and drop a ZIP onto the EXE icon to pass it as a launch argument, and the content loads automatically. Swapping cartridges gives a physical, retro console feel.
-
-### 📚 Offline Document Viewer
-Distribute product manuals or internal documentation as ZIPs, viewable without a network connection. Update the docs by swapping the ZIP — no need to redistribute the viewer.
-
-### 🎪 Interactive Deliverables
-Instead of an installer or explainer video, hand off an interactive HTML experience as an EXE. Product demos, tutorials, trade show presentations — recipients can open them without installing anything.
-
----
-
-## 💻 Requirements
-
-### Development
-- Windows 10 or later
-- Visual Studio 2022 (.NET desktop development workload)
-
-### Runtime
-- Windows 10 or later
-- .NET Framework 4.8
-- WebView2 Runtime
-
----
-
-## 🚀 Quick Start
-
-### 1. Clone the Repository
-
-```bash
-git clone https://github.com/hadamak/webview2-app-host-cs.git
-cd webview2-app-host-cs
-```
-
-### 2. Build
-
-```bat
-msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64
-```
-
-### 3. Run
-
-Execute the generated EXE. On first launch, the sample content will load.
-
----
-
-## 🔄 Replacing Web Content
-
-The host treats `web-content/` as the app's primary content directory. Replace its contents with your own web app and rebuild.
-
-### Basic Rules
-- `index.html` is the entry point
-- Files under `web-content/` are bundled into `app.zip` at build time
-- The generated content is embedded into the EXE
-
-### Minimal Structure Example
+## Basic App Layout
 
 ```text
-web-content/
-├── index.html
-├── app.conf.json
-├── assets/
-│   └── ...
-└── scripts/
-    └── ...
+WebView2AppHost.exe
+WebView2AppHost.exe.config
+Microsoft.Web.WebView2.Core.dll
+Microsoft.Web.WebView2.WinForms.dll
+WebView2Loader.dll
+www/
+  index.html
+  app.conf.json
+  assets/
+  scripts/
 ```
 
-### Steps to Replace Content
-1. Replace the contents of `web-content/` with your app files
-2. Edit `app.conf.json` as needed
-3. Rebuild
-4. Run the output to verify
-
----
-
-## 📦 Distribution Methods
-
-The host supports multiple content delivery modes, which can be mixed and matched per file.
-
-### Content Loading Priority
-When the same file exists in multiple locations, the higher-priority source wins.
-
-1. `www/` folder (next to the EXE)
-2. ZIP path passed as a launch argument
-3. ZIP with the same name as the EXE (e.g. `MyApp.zip` for `MyApp.exe`)
-4. ZIP appended to the EXE
-5. Resource embedded inside the EXE
-
-### 1. 📁 `www/` Folder
-Place a `www/` folder next to the EXE and put your content inside.
-
-Best for:
-- Instant content updates during development
-- Frequently updated assets
-- Large files like video or audio that require Range Requests
-
-### 2. 🗜️ Bundled ZIP
-Place a ZIP with the same name as the EXE next to it.
-
-Best for:
-- Distributing content separately from the EXE
-- Plugin- or mod-style extensions
-
-### 3. 🔗 ZIP-Appended EXE
-Physically append a ZIP to the end of the EXE using `copy /b`.
-
-Best for:
-- Bundling content and EXE into a single file
-- Simplifying the distribution package
-
-```powershell
-cmd /c copy /b src\bin\x64\Release\net48\WebView2AppHost.exe + src\app.zip src\bin\x64\Release\net48\MyApp.exe
-```
-
-### 4. 🧱 Embedded Resource
-Embed `web-content/` inside the EXE at build time.
-
-Best for:
-- Minimal distribution (single file)
-- Keeping core files from being extracted or modified
-
----
-
-## ⚙️ Configuration
-
-### `app.conf.json`
-
-Place this at the root of `web-content/`, or the root of any ZIP or folder. This is intended for content authors.
-
-| Key | Type | Default | Description |
-|---|---:|---:|---|
-| `title` | string | `"WebView2 App Host"` | Initial window title |
-| `width` | int | `1280` | Initial width (pixels) |
-| `height` | int | `720` | Initial height (pixels) |
-| `fullscreen` | bool | `false` | Start in fullscreen mode |
-| `proxyOrigins` | string[] | `[]` | External origins allowed for CORS proxying |
-
-### CORS Proxy
-
-List allowed origins in `proxyOrigins` and the host will transparently forward requests to those origins. Content can use regular `fetch()` calls without any host-specific code. When opened directly in a browser, normal CORS rules apply.
-
-```json
-{ "proxyOrigins": ["https://api.example.com"] }
-```
-
-```js
-// No host-specific code needed in content
-const res = await fetch('https://api.example.com/v1/data');
-```
-
-Requests to origins not in the allow list are handled by WebView2 as usual (and may fail due to CORS).
-
-> ℹ️ **Implementation note:** Proxying is implemented via CDP's Fetch domain,
-> which intercepts requests before they reach the network stack.
-> This allows forwarding of GET, POST, PUT, DELETE, and other HTTP methods,
-> including request bodies (JSON, `application/x-www-form-urlencoded`, etc.).
->
-> Binary request bodies (`multipart/form-data` file uploads) are not fully supported.
-> For those use cases, consider configuring CORS on your server side instead.
-
-### `user.conf.json`
-
-Place this next to the EXE to let end users override window display settings. Values here take precedence over `app.conf.json`. Any omitted fields fall back to `app.conf.json`.
-
-| Key | Type | Description |
-|---|---:|---|
-| `width` | int | Initial width (pixels) |
-| `height` | int | Initial height (pixels) |
-| `fullscreen` | bool | Start in fullscreen mode |
-
-### Example
+Minimal `app.conf.json`:
 
 ```json
 {
   "title": "My App",
-  "width": 1440,
-  "height": 900,
-  "fullscreen": false
+  "window": { "width": 1280, "height": 720, "frame": true },
+  "url": "https://app.local/index.html",
+  "connectors": [
+    { "type": "browser" }
+  ]
 }
 ```
 
-### Dynamic Title and Favicon
+> **Tips:** If end-users want to override the window size or fullscreen settings locally without modifying the core app config, they can simply place a `user.conf.json` next to the EXE.
 
-The initial window title is taken from `app.conf.json`. After that, the title updates automatically whenever the page `<title>` changes. If a favicon is set, the window icon updates to match as well.
+## Zero-Rebuild Extension Model
 
----
+The real power of WebView2AppHost is its extensibility without recompilation. If your app needs system-level capabilities, you just add **Connectors**.
 
-## 🔗 Web API Integration
+- **`dll` Connector**: Load a .NET DLL placed next to the EXE and call it directly from JavaScript (Perfect for Steamworks integrations).
+- **`sidecar` Connector**: Spawn a Node.js, Python, PowerShell, or custom executable as a child process and communicate via JSON-RPC.
+- **`pipe_server` / `mcp` Connector**: Allow local automation tools or AI agents (MCP clients) to connect to your app.
 
-The host is designed around standard Web APIs — no proprietary bridge required.
+**Extended Configuration Example:**
 
-### Closing the App
-```js
-window.close();
-```
-Closes the application. Per browser spec, this only works when the current page was navigated to by the host itself (not by a user-initiated navigation).
-
-### Fullscreen
-```js
-element.requestFullscreen();
-document.exitFullscreen();
-```
-The host window state syncs with fullscreen requests from content.
-
-### Close Confirmation
-```js
-window.addEventListener('beforeunload', (event) => {
-  event.preventDefault();
-  event.returnValue = '';
-});
-```
-Implement unsaved-changes prompts the same way you would in a browser.
-
-### External Links
-URLs opened via `target="_blank"` or `window.open()` with an `http(s)` scheme are opened in the OS default browser.
-
-### Lifecycle Events
-- `visibilitychange`
-- `fullscreenchange`
-
-These fire when the window is minimized or fullscreen state changes.
-
-### `window.AppBridge`
-Not provided. The design intent is to stay close to standard Web APIs rather than adding host-specific APIs.
-
----
-
-## 🚀 Generic Plugins
-
-WebView2 App Host provides two ways to extend its capabilities beyond standard Web APIs.
-
-### 1. 🧩 Generic DLL Plugin (C# Integration)
-Integrate any .NET DLL into your app and call its classes and methods directly from JavaScript.
-Perfect for using Steamworks SDK (Facepunch.Steamworks), direct SQLite access, or other .NET libraries.
-
-- 📖 Details: `docs/generic-dll-plugin.md`
-- 🎯 Steam Integration Example: `docs/steam/en/overview.md`
-
-### 2. 🚛 Generic Sidecar Plugin (External Process Integration)
-Launch executables like Node.js or Python as "sidecars" and communicate via JSON over StdIO.
-Ideal for complex server-side logic or leveraging existing Node.js code.
-
-- 📖 Details: `docs/generic-sidecar-plugin.md`
-
----
-
-## ⚠️ Limitations
-
-- Because the origin is `https://app.local/`, some Service Worker configurations may require additional setup
-- Large files inside a ZIP (video, audio, etc.) are fully expanded into memory on request. If this causes memory pressure, consider placing those files in a `www/` folder instead
-
----
-
-## ⌨️ Keyboard Shortcuts
-
-Fullscreen is controlled via `requestFullscreen()` / `exitFullscreen()` from content.
-
-### Default Browser Shortcuts
-
-Browser shortcuts such as F5 (reload), Ctrl+F, and Ctrl+P are enabled by default, consistent with browser behavior.
-
-To suppress specific keys in your content, use `keydown` events just as you would in a browser:
-
-```js
-window.addEventListener('keydown', (e) => {
-    // Prevent F5 / Ctrl+R reload
-    if (e.key === 'F5' || (e.ctrlKey && e.key === 'r')) {
-        e.preventDefault();
-    }
-});
+```json
+{
+  "title": "My Extended App",
+  "window": { "width": 1280, "height": 720 },
+  "url": "https://app.local/index.html",
+  "connectors": [
+    { "type": "browser" },
+    { "type": "dll", "alias": "Steam", "path": "Facepunch.Steamworks.Win64.dll" },
+    { "type": "sidecar", "alias": "PythonRuntime", "runtime": "python", "script": "tools/agent.py", "wait_for_ready": true }
+  ]
+}
 ```
 
----
+**None of this requires rebuilding the host EXE.**
 
-## ❓ FAQ
+## Content Placement Options
 
-### How do I change the app icon?
-Replace `resources/app.ico` and rebuild. You can also set a favicon in your HTML — the window icon will follow after launch.
+The host can load web content from multiple sources based on your distribution needs. Priority is as follows:
 
-### How do I open DevTools?
-DevTools is enabled automatically in Debug builds. To enable it in a Release build, adjust the `#if DEBUG` block in `src/App.cs`.
+1. **`www\` next to the EXE**: Best for rapid development and straightforward loose-file distribution.
+2. **Command-line ZIP**: Run `WebView2AppHost.exe content.zip`. Great when using the EXE as a generic shell.
+3. **Sibling ZIP**: `WebView2AppHost.zip`. Good for separating the runtime executable from updatable content.
+4. **Appended ZIP**: `copy /b EXE + ZIP`. Perfect for single-file, portable distribution.
+5. **Embedded `app.zip`**: Best for a guaranteed fallback when building your own custom host binary.
 
-### How do I use C# DLLs or Node.js?
-Add the generic plugins:
-- To call .NET DLLs: Include `WebView2AppHost.GenericDllPlugin.dll` and configure `loadDlls` in `app.conf.json`.
-- To run external processes: Include `WebView2AppHost.GenericSidecarPlugin.dll` and configure `sidecars` in `app.conf.json`.
+See [docs/guides/content-packaging.md](docs/guides/content-packaging.md).
 
-### What files do I need to distribute?
-This depends on your distribution method, but the typical set is:
+## Build And Release
 
-- `WebView2AppHost.exe`
-- Your content (embedded / bundled ZIP / appended ZIP / `www/` folder)
-- `Microsoft.Web.WebView2.Core.dll`
-- `Microsoft.Web.WebView2.WinForms.dll`
-- `WebView2Loader.dll`
-- `WebView2AppHost.exe.config`
-- `LICENSE`
-- `THIRD_PARTY_NOTICES.md`
+If you need to build the host from source (e.g., to change the application icon or bake an embedded ZIP):
 
-If you use plugins, you'll also need `WebView2AppHost.GenericDllPlugin.dll` or `WebView2AppHost.GenericSidecarPlugin.dll`, plus any DLLs or runtimes they depend on.
-
-### Should I use `www/` or ZIP?
-Use `www/` during development, and ZIP or embedded resources for distribution. For large media files, `www/` is the better fit.
-Both modes can be used at the same time — you can pick the right location on a per-file basis.
-
----
-
-## 🗂️ Project Structure
-
-```text
-.
-├── docs/
-│   ├── generic-dll-plugin.md      # DLL Plugin specification
-│   ├── generic-sidecar-plugin.md  # Sidecar Plugin specification
-│   └── steam/                     # Steam integration (example of DLL Plugin)
-├── samples/
-│   └── steam-complete/            # Full working Steam sample
-├── src/                           # Host application (plugin-independent)
-│   ├── App.cs
-│   ├── PluginManager.cs           # Plugin loader
-│   └── ...
-├── src-generic/                   # Generic plugin projects
-│   ├── GenericDllPlugin.cs
-│   └── GenericSidecarPlugin.cs
-├── test-www/                      # Dev/test web content
-├── tests/                         # Various tests
-├── tools/                         # Build and packaging scripts
-├── web-content/                   # Default embedded web content
-├── LICENSE
-├── README.md
-├── README.ja.md
-└── THIRD_PARTY_NOTICES.md
+```powershell
+msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64
 ```
 
----
+Build Configurations:
+- `Debug`: For local development. Copies `test-www\` to the output directory.
+- `Release`: Standard shipping build.
+- `SecureRelease`: A restricted build that permanently strips out MCP, Sidecar, Pipe, and CDP code paths for high-security, offline-only applications.
 
-## 🔨 Development Notes
+Use the provided script to generate a clean distribution ZIP:
+```powershell
+.\tools\package-release.ps1
+```
 
-- Main implementation is under `src/`.
-- Generic extensions are under `src-generic/` and can be built or replaced independently from the host.
-- GitHub Actions workflows for automated build and release are included.
+## Samples
 
----
+Check out the `samples/` directory to see extensions in action immediately:
 
-## 📄 License
+- `samples/sidecar-node`
+- `samples/sidecar-python`
+- `samples/sidecar-powershell`
+- `samples/steam-complete` (Native DLL integration using Facepunch.Steamworks)
 
-This repository is distributed under the MIT License. For third-party component licenses, see `THIRD_PARTY_NOTICES.md`.
+## For Maintainers & Developers
+
+Details regarding internal architecture, API compatibility, and the MessageBus bridge design are kept separate for developers:
+
+- [docs/maintainer/README.md](docs/maintainer/README.md)
+- [Web API Compatibility](docs/maintainer/api-compatibility.md)
+- [Bridge & Connector Architecture](docs/architecture/bridge-design.md)
+
+## License
+
+- [LICENSE](LICENSE)
+- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)

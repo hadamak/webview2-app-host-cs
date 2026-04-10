@@ -1,7 +1,10 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Linq;
+#if !SECURE_OFFLINE
 using System.Net.Http;
+#endif
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
@@ -13,11 +16,13 @@ namespace WebView2AppHost
     {
         private readonly WebView2         _webView  = new WebView2();
 
+#if !SECURE_OFFLINE
         // ③ 修正: タイムアウトを設定する。
         private static readonly HttpClient _httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(15)
         };
+#endif
 
         private readonly ZipContentProvider _zip;
         private readonly AppConfig        _config;
@@ -40,10 +45,16 @@ namespace WebView2AppHost
         // favicon 管理
         private Icon? _favicon = null;
 
-        // プラグインマネージャー（Steam 等のプラグインを統合管理）
-        private PluginManager? _pluginManager;
+        // コネクターバス（新設計）
+        private MessageBus?      _bus;
+#if !SECURE_OFFLINE
+        private McpConnector?    _mcpConnector;
+#endif
+        private readonly System.Threading.CancellationTokenSource _shutdownCts = new System.Threading.CancellationTokenSource();
 
+#if !SECURE_OFFLINE
         private CdpProxyHandler? _cdpProxy;
+#endif
 
         // ---------------------------------------------------------------------------
         // コンストラクタ
@@ -67,6 +78,13 @@ namespace WebView2AppHost
             StartPosition   = (_popupWindowOptions?.HasPosition == true) ? FormStartPosition.Manual : FormStartPosition.CenterScreen;
             if (_popupWindowOptions?.HasPosition == true)
                 Location = new Point(_popupWindowOptions.Left, _popupWindowOptions.Top);
+
+            if (!config.Frame && _popupWindowOptions == null)
+            {
+                FormBorderStyle = FormBorderStyle.None;
+                MaximizeBox = false;
+                MinimizeBox = false;
+            }
 
             Icon = IconUtils.GetAppIcon();
 
@@ -118,11 +136,19 @@ namespace WebView2AppHost
 
             RegisterCustomScheme();
 
+#if !SECURE_OFFLINE
             if (_config.ProxyOrigins?.Length > 0)
             {
                 _cdpProxy = new CdpProxyHandler(wv, _config.ProxyOrigins, _httpClient);
                 await _cdpProxy.EnableAsync();
             }
+#else
+            if (_config.ProxyOrigins?.Length > 0)
+            {
+                AppLog.Log("WARN", "App.InitWebViewAsync",
+                    "Secure offline build では proxy_origins は無効です。");
+            }
+#endif
 
             wv.DocumentTitleChanged += (s, _) =>
             {
@@ -255,7 +281,19 @@ namespace WebView2AppHost
         {
             try
             {
-                _pluginManager = PluginManager.Create(_webView, _config, _config.RawJson);
+                // ConnectorFactory でバスを構築
+#if SECURE_OFFLINE
+                _bus = ConnectorFactory.BuildWithBrowser(
+                    _webView, _config, _shutdownCts.Token);
+#else
+                var enableMcp = Array.IndexOf(System.Environment.GetCommandLineArgs(), "--mcp") >= 0
+                    || (_config.Connectors?.Any(c => c != null && string.Equals(c.Type, "mcp", StringComparison.OrdinalIgnoreCase)) ?? false);
+                (_bus, _mcpConnector) = ConnectorFactory.BuildWithBrowser(
+                    _webView, _config, enableMcp, _shutdownCts.Token);
+
+                if (enableMcp && _mcpConnector != null)
+                    StartMcpConnector();
+#endif
             }
             catch (Exception ex)
             {
@@ -263,27 +301,8 @@ namespace WebView2AppHost
                 return;
             }
 
-            if (!_pluginManager.HasPlugins) return;
-
-            _webView.CoreWebView2.WebMessageReceived += (s, e) =>
-            {
-                try
-                {
-                    string messageJson = WebMessageHelper.GetJsonPayload(
-                        () => e.TryGetWebMessageAsString(),
-                        () => e.WebMessageAsJson
-                    );
-                    _pluginManager?.HandleWebMessage(messageJson);
-                }
-                catch (Exception ex)
-                {
-                    AppLog.Log("ERROR", "App.WebMessageReceived", ex.Message, ex);
-                }
-            };
-
-#if DEBUG
-            AppLog.Log("INFO", "App.InitPlugins", "プラグインマネージャーを有効化しました");
-#endif
+            // WebMessageReceived は BrowserConnector が内部で購読している
+            AppLog.Log("INFO", "App.InitPlugins", "コネクターバスを有効化しました");
         }
 
         // ---------------------------------------------------------------------------
@@ -304,12 +323,25 @@ namespace WebView2AppHost
         {
             var uri  = new Uri(e.Request.Uri);
             var path = Uri.UnescapeDataString(uri.AbsolutePath);
+            var resolvedPath = path;
 
             var rangeHeader = e.Request.Headers.Contains("Range")
                 ? e.Request.Headers.GetHeader("Range")
                 : null;
 
             var stream = _zip.OpenEntry(path);
+            if (stream == null && (path == "/" || path.EndsWith("/")))
+            {
+                resolvedPath = path == "/" ? "/index.html" : path + "index.html";
+                stream = _zip.OpenEntry(resolvedPath);
+            }
+
+            if (stream == null && !Path.HasExtension(path))
+            {
+                resolvedPath = "/index.html";
+                stream = _zip.OpenEntry(resolvedPath);
+            }
+
             if (stream == null)
             {
                 e.Response = _webView.CoreWebView2.Environment
@@ -320,7 +352,7 @@ namespace WebView2AppHost
 
             try
             {
-                var mime  = MimeTypes.FromPath(path);
+                var mime  = MimeTypes.FromPath(resolvedPath);
                 var total = stream.Length;
 
                 if (!string.IsNullOrEmpty(rangeHeader) && stream.CanSeek)
@@ -367,6 +399,7 @@ namespace WebView2AppHost
             }
         }
 
+#if !SECURE_OFFLINE
         private async Task HandleProxyRequestAsync(CoreWebView2WebResourceRequestedEventArgs e, Uri targetUri)
         {
             var deferral = e.GetDeferral();
@@ -416,7 +449,7 @@ namespace WebView2AppHost
             catch (Exception ex)
             {
                 AppLog.Log("ERROR", "App.HandleProxyRequestAsync",
-                    $"プロキシ転送失敗: {targetUri.AbsoluteUri}", ex);
+                    $"プロキシ転送失敗: {AppLog.DescribeUri(targetUri.AbsoluteUri)}", ex);
                 e.Response = _webView.CoreWebView2.Environment
                     .CreateWebResourceResponse(null, 502, "Bad Gateway",
                         "Content-Type: text/plain");
@@ -427,6 +460,7 @@ namespace WebView2AppHost
                 deferral.Complete();
             }
         }
+#endif
 
         // ---------------------------------------------------------------------------
         // フルスクリーン
@@ -460,7 +494,7 @@ namespace WebView2AppHost
             {
                 var wv = _webView.CoreWebView2;
 
-                AppLog.Log("INFO", "App.SetupFaviconTracking", $"FaviconChanged 発生, URI='{wv.FaviconUri}'");
+                AppLog.Log("INFO", "App.SetupFaviconTracking", $"FaviconChanged 発生, URI='{AppLog.DescribeUri(wv.FaviconUri)}'");
 
                 if (string.IsNullOrEmpty(wv.FaviconUri))
                 {
@@ -530,7 +564,7 @@ namespace WebView2AppHost
                     UseShellExecute = true
                 });
             }
-            catch (Exception ex) { AppLog.Log("ERROR", "App.OpenInDefaultBrowser", $"ブラウザで開けませんでした: {uri}", ex); }
+            catch (Exception ex) { AppLog.Log("ERROR", "App.OpenInDefaultBrowser", $"ブラウザで開けませんでした: {AppLog.DescribeUri(uri)}", ex); }
         }
 
         private void OpenHostPopup(string uri, PopupWindowOptions popupOptions)
@@ -558,7 +592,7 @@ namespace WebView2AppHost
             catch (Exception ex)
             {
                 popupZip?.Dispose();
-                AppLog.Log("ERROR", "App.OpenHostPopup", $"ホスト内ポップアップを開けませんでした: {uri}", ex);
+                AppLog.Log("ERROR", "App.OpenHostPopup", $"ホスト内ポップアップを開けませんでした: {AppLog.DescribeUri(uri)}", ex);
                 OpenInDefaultBrowser(uri);
             }
         }
@@ -580,14 +614,17 @@ namespace WebView2AppHost
                 fallbackWidth: _config.Width,
                 fallbackHeight: _config.Height);
 
-            switch (NavigationPolicy.Classify(uri))
+            switch (NavigationPolicy.Classify(uri, _config))
             {
                 case NavigationPolicy.Action.OpenExternal:
                     e.Handled = true;
                     OpenInDefaultBrowser(uri);
                     break;
+                case NavigationPolicy.Action.Block:
+                    e.Handled = true;
+                    break;
                 case NavigationPolicy.Action.Allow:
-                    if (NavigationPolicy.ShouldOpenHostPopup(uri))
+                    if (NavigationPolicy.ShouldOpenHostPopup(uri, _config))
                     {
                         e.Handled = true;
                         OpenHostPopup(uri, popupOptions);
@@ -600,11 +637,14 @@ namespace WebView2AppHost
 
         private void HandleNavigation(string uri, Action cancelAction)
         {
-            switch (NavigationPolicy.Classify(uri))
+            switch (NavigationPolicy.Classify(uri, _config))
             {
                 case NavigationPolicy.Action.OpenExternal:
                     cancelAction();
                     OpenInDefaultBrowser(uri);
+                    break;
+                case NavigationPolicy.Action.Block:
+                    cancelAction();
                     break;
                 case NavigationPolicy.Action.Allow:
                 default:
@@ -658,13 +698,34 @@ namespace WebView2AppHost
             StartCloseNavigation();
         }
 
-        protected override void Dispose(bool disposing)
+#if !SECURE_OFFLINE
+        private void StartMcpConnector()
+        {
+            if (_mcpConnector == null) return;
+            var thread = new System.Threading.Thread(() =>
+                _mcpConnector.RunAsync(_shutdownCts.Token).GetAwaiter().GetResult())
+            {
+                IsBackground = true,
+                Name         = "McpConnectorThread",
+            };
+            thread.Start();
+            AppLog.Log("INFO", "App", "McpConnector 起動（--mcp モード）");
+        }
+#endif
+
+                protected override void Dispose(bool disposing)
         {
             if (disposing)
             {
+                // MCP スレッドとサイドカーに終了を通知
+                _shutdownCts.Cancel();
+                _shutdownCts.Dispose();
+
                 _favicon?.Dispose();
+#if !SECURE_OFFLINE
                 _cdpProxy?.Dispose();
-                _pluginManager?.Dispose();
+#endif
+                _bus?.Dispose();
                 if (_disposeZipOnClose)
                     _zip.Dispose();
             }

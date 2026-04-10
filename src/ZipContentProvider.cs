@@ -8,7 +8,8 @@ namespace WebView2AppHost
 {
     /// <summary>
     /// ZIP・ディレクトリからコンテンツを提供する。
-    /// 起動時に全展開せず、リクエストのあったエントリだけ展開して返す（リクエスト時展開）。
+    /// 起動時に全展開は行わず、必要なエントリだけを要求時に読み出す。
+    /// ZIP エントリは小さいファイルのみメモリにキャッシュし、大きなファイルは都度展開する。
     ///
     /// コンテンツの読み込み優先順位（高い順）:
     ///   1. 個別配置: EXE 隣接の www/ フォルダ
@@ -178,7 +179,11 @@ namespace WebView2AppHost
         /// </summary>
         private sealed class ZipSource : IContentSource
         {
+            private const int MaxCachedEntryBytes = 1024 * 1024;
+
             private readonly ZipArchive _archive;
+            private readonly Dictionary<string, byte[]> _cache =
+                new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
 
             private ZipSource(Stream stream)
             {
@@ -294,6 +299,9 @@ namespace WebView2AppHost
             public Stream? OpenEntry(string virtualPath)
             {
                 var entryName = virtualPath.TrimStart('/');
+                if (_cache.TryGetValue(entryName, out var cached))
+                    return new MemoryStream(cached, writable: false);
+
                 var entry     = _archive.GetEntry(entryName);
                 if (entry == null) return null;
 
@@ -316,10 +324,18 @@ namespace WebView2AppHost
                 var ms = new MemoryStream((int)entry.Length);
                 entryStream.CopyTo(ms);
                 ms.Position = 0;
+
+                if (entry.Length <= MaxCachedEntryBytes)
+                    _cache[entryName] = ms.ToArray();
+
                 return ms;
             }
 
-            public void Dispose() { _archive.Dispose(); }
+            public void Dispose()
+            {
+                _cache.Clear();
+                _archive.Dispose();
+            }
         }
 
         /// <summary>

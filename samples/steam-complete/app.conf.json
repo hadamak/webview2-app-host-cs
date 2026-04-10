@@ -1,13 +1,30 @@
 {
   "title": "Steam Complete Sample",
-  "width": 1280,
-  "height": 800,
-  "fullscreen": false,
-  "loadDlls": [
+  "window": {
+    "width": 1280,
+    "height": 800,
+    "frame": true
+  },
+  "url": "https://app.local/index.html",
+  "navigation_policy": {
+    "external_navigation_mode": "browser",
+    "block_request_patterns": []
+  },
+  "steam": {
+    "app_id": "480",
+    "dev_mode": true
+  },
+  "connectors": [
     {
+      "type": "dll",
       "alias": "Steam",
-      "dll": "Facepunch.Steamworks.Win64.dll",
-      "exposeEvents": ["OnAchievementProgress", "OnGameOverlayActivated", "OnMicroTxnAuthorizationResponse", "OnScreenshotReady"]
+      "path": "Facepunch.Steamworks.Win64.dll",
+      "expose_events": [
+        "OnAchievementProgress",
+        "OnGameOverlayActivated",
+        "OnMicroTxnAuthorizationResponse",
+        "OnScreenshotReady"
+      ]
     }
   ]
 }

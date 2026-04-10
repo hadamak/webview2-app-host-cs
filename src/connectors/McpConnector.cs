@@ -1,0 +1,217 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Web.Script.Serialization;
+
+namespace WebView2AppHost
+{
+    public sealed class McpConnector : IConnector
+    {
+        private readonly TextReader  _in;
+        private readonly TextWriter  _out;
+        private readonly TimeSpan    _callTimeout;
+        private readonly McpBridge   _bridge = new McpBridge();
+        private readonly AppConfig   _config;
+        private Action<string>?      _publish;
+        private IBrowserTools        _browser;
+        private bool                 _browserEnabled;
+        private static readonly JavaScriptSerializer s_json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+        private long _nextId = 1;
+        private bool _disposed;
+
+        public McpConnector(AppConfig? config, TextReader? input = null, TextWriter? output = null, TimeSpan callTimeout = default)
+        {
+            _config = config ?? new AppConfig();
+            var encoding = new UTF8Encoding(false);
+            _in = input ?? new StreamReader(Console.OpenStandardInput(), encoding);
+            _out = output ?? new StreamWriter(Console.OpenStandardOutput(), encoding) { AutoFlush = true };
+            _callTimeout = callTimeout == default ? TimeSpan.FromSeconds(30) : callTimeout;
+            _browser = new BusBrowserTools(this);
+            _bridge.UnsolicitedMessage += ForwardEventAsNotification;
+        }
+
+        public void SetBrowser(IBrowserTools browser) { _browser = browser; _browserEnabled = true; }
+        public void EnableBrowserProxy() => _browserEnabled = true;
+        public string Name => "Mcp";
+        public Action<string> Publish { set => _publish = value; }
+        public void Deliver(string json) { if (!_disposed) _bridge.Dispatch(json); }
+
+        public async Task RunAsync(CancellationToken ct = default)
+        {
+            AppLog.Log("INFO", "McpConnector", "MCP サーバー起動");
+            var tasks = new List<Task>();
+            while (!ct.IsCancellationRequested)
+            {
+                string? line;
+                try {
+                    var readTask = _in.ReadLineAsync();
+                    if (await Task.WhenAny(readTask, Task.Delay(-1, ct)) != readTask) break;
+                    line = await readTask;
+                } catch { break; }
+                if (line == null) break;
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                var task = Task.Run(async () => { try { await HandleLineAsync(line, ct); } catch (Exception ex) { AppLog.Log("ERROR", "McpConnector", ex.Message); } });
+                lock (tasks) tasks.Add(task);
+                _ = task.ContinueWith(t => { lock (tasks) tasks.Remove(t); });
+            }
+            await Task.WhenAll(tasks);
+        }
+
+        private async Task HandleLineAsync(string line, CancellationToken ct)
+        {
+            Dictionary<string, object>? msg;
+            try {
+                msg = s_json.Deserialize<Dictionary<string, object>>(line);
+            } catch {
+                WriteError(null, -32700, "JSON パースエラー");
+                return;
+            }
+            if (msg == null) return;
+
+            msg.TryGetValue("id", out var id);
+            var method = msg.ContainsKey("method") ? msg["method"]?.ToString() : "";
+            switch (method) {
+                case "initialize": WriteResult(id, new { protocolVersion = "2024-11-05", capabilities = new { tools = new { listChanged = false } }, serverInfo = new { name = "WebView2AppHost", version = "2.2.6" } }); break;
+                case "tools/list": HandleToolsList(id); break;
+                case "tools/call": await HandleToolsCallAsync(id, msg, ct); break;
+                case "ping": WriteResult(id, new { }); break;
+                default:
+                    if (id != null) WriteError(id, -32601, $"メソッドが見つかりません: {method}");
+                    break;
+            }
+        }
+
+        private void HandleToolsList(object? id)
+        {
+            var tools = new System.Collections.ArrayList();
+            if (_browserEnabled) {
+                tools.Add(BuildToolDef("browser_evaluate", "Run JS", new { script = Prop("string", "JS") }, new[] { "script" }));
+                tools.Add(BuildToolDef("browser_screenshot", "Take Screenshot", new { }, null));
+                tools.Add(BuildToolDef("browser_navigate", "Navigate", new { url = Prop("string", "URL") }, new[] { "url" }));
+                tools.Add(BuildToolDef("browser_click", "Click", new { selector = Prop("string", "Selector") }, new[] { "selector" }));
+                tools.Add(BuildToolDef("browser_type", "Type", new { selector = Prop("string", "Selector"), text = Prop("string", "Text") }, new[] { "selector", "text" }));
+                tools.Add(BuildToolDef("browser_scroll", "Scroll", new { x = Prop("number", "X"), y = Prop("number", "Y") }, new[] { "x", "y" }));
+                tools.Add(BuildToolDef("browser_get_url", "Get URL", new { }, null));
+                tools.Add(BuildToolDef("browser_get_content", "Get HTML", new { }, null));
+            }
+            foreach (var dll in _config.LoadDlls) tools.Add(BuildToolDef($"invoke_dll_{dll.Alias}", "DLL", new { method = Prop("string", "M"), args = new { type = "array" } }, new[] { "method" }));
+            foreach (var sc in _config.Sidecars) tools.Add(BuildToolDef($"call_sidecar_{sc.Alias}", "Sidecar", new { method = Prop("string", "M"), @params = new { type = "object" } }, new[] { "method" }));
+            WriteResult(id, new { tools });
+        }
+
+        private static object BuildToolDef(string name, string desc, object props, string[]? req) => new { name, description = desc, inputSchema = new { type = "object", properties = props, required = req } };
+        private static object Prop(string type, string desc) => new { type, description = desc };
+
+        private async Task HandleToolsCallAsync(object? id, Dictionary<string, object> msg, CancellationToken ct)
+        {
+            var p = msg.ContainsKey("params") ? msg["params"] as Dictionary<string, object> : null;
+            var name = p?.ContainsKey("name") == true ? p["name"]?.ToString() : null;
+            var args = p?.ContainsKey("arguments") == true ? p["arguments"] as Dictionary<string, object> : null;
+
+            if (string.IsNullOrEmpty(name)) { WriteToolError(id, "ツール名が指定されていません。"); return; }
+
+            if (name!.StartsWith("browser_")) {
+                if (!_browserEnabled) { WriteToolError(id, "ブラウザ操作ツールは現在無効です。--mcp を付けて起動してください。"); return; }
+                try {
+                    switch (name) {
+                        case "browser_evaluate": 
+                            var s = args?.ContainsKey("script") == true ? args["script"]?.ToString() : null;
+                            if (string.IsNullOrEmpty(s)) { WriteToolError(id, "script is required"); return; }
+                            WriteToolResult(id, await _browser.EvaluateAsync(s!, ct)); break;
+                        case "browser_screenshot":
+                            var sc = await _browser.ScreenshotAsync(ct);
+                            WriteToolResponse(id, new object[] { new { type = "image", data = sc.Base64, mimeType = "image/png" }, new { type = "text", text = $"{sc.Width}x{sc.Height}px" } }); break;
+                        case "browser_navigate": await _browser.NavigateAsync(args?["url"].ToString()!, ct); WriteToolResult(id, "Navigated."); break;
+                        case "browser_click": await _browser.ClickAsync(args?["selector"].ToString()!, ct); WriteToolResult(id, "Clicked."); break;
+                        case "browser_type": await _browser.TypeAsync(args?["selector"].ToString()!, args?["text"].ToString()!, ct); WriteToolResult(id, "Typed."); break;
+                        case "browser_scroll": await _browser.ScrollAsync(Convert.ToInt32(args?["x"]), Convert.ToInt32(args?["y"]), ct); WriteToolResult(id, "Scrolled."); break;
+                        case "browser_get_url": WriteToolResult(id, await _browser.GetUrlAsync(ct)); break;
+                        case "browser_get_content": WriteToolResult(id, await _browser.GetContentAsync(ct)); break;
+                        default: WriteToolError(id, $"未知のブラウザツール: {name}"); break;
+                    }
+                } catch (Exception ex) { WriteToolError(id, ex.Message); }
+            } else if (name.StartsWith("invoke_dll_") || name.StartsWith("call_sidecar_")) {
+                var isDll = name.StartsWith("invoke_dll_");
+                var alias = name.Substring(isDll ? 11 : 13);
+                var method = args?.ContainsKey("method") == true ? args["method"]?.ToString() : null;
+                if (string.IsNullOrEmpty(method)) { WriteToolError(id, "'method' が指定されていません。"); return; }
+                var full = method!.Contains(".") ? method : alias + "." + method;
+                var param = args?.ContainsKey(isDll ? "args" : "params") == true ? args[isDll ? "args" : "params"] : (isDll ? (object)new object[0] : new Dictionary<string, object>());
+                await ExecutePluginCall(id, full, param, ct);
+            } else {
+                WriteToolError(id, $"未知のツール: {name}");
+            }
+        }
+
+        private async Task ExecutePluginCall(object? mcpId, string method, object? parms, CancellationToken ct)
+        {
+            var callId = $"mcp-{Interlocked.Increment(ref _nextId)}";
+            var req = s_json.Serialize(new { jsonrpc = "2.0", id = callId, method, @params = parms });
+            try {
+                var res = await _bridge.CallAsync(req, callId, _publish!, _callTimeout, ct);
+                var resp = s_json.Deserialize<Dictionary<string, object>>(res);
+                if (resp != null && resp.ContainsKey("error")) { WriteToolError(mcpId, s_json.Serialize(resp["error"])); return; }
+                WriteToolResult(mcpId, resp != null && resp.ContainsKey("result") ? (resp["result"] is string s ? s : s_json.Serialize(resp["result"])) : res);
+            } catch (Exception ex) { WriteToolError(mcpId, ex.Message); }
+        }
+
+        private void ForwardEventAsNotification(string json)
+        {
+            try {
+                var msg = s_json.Deserialize<Dictionary<string, object>>(json);
+                if (msg == null) return;
+                if (msg.ContainsKey("event") && msg.ContainsKey("source")) {
+                    Write(new { jsonrpc = "2.0", method = $"plugin/event/{msg["source"]}/{msg["event"]}", @params = msg.ContainsKey("params") ? msg["params"] : new { } });
+                } else if (msg.ContainsKey("jsonrpc") && msg.ContainsKey("method")) {
+                    var m = msg["method"].ToString();
+                    var p = m.Split('.');
+                    if (p.Length >= 2) {
+                        Write(new { jsonrpc = "2.0", method = $"plugin/event/{p[0]}/{string.Join(".", p.Skip(1))}", @params = msg.ContainsKey("params") ? msg["params"] : new { } });
+                    }
+                }
+            } catch { }
+        }
+
+        private void WriteResult(object? id, object res) => Write(new { jsonrpc = "2.0", id, result = res });
+        private void WriteError(object? id, int code, string message) => Write(new { jsonrpc = "2.0", id, error = new { code, message } });
+        private void WriteToolResult(object? id, string text) => WriteToolResponse(id, new[] { new { type = "text", text } });
+        private void WriteToolError(object? id, string text) => WriteToolResponse(id, new[] { new { type = "text", text } }, true);
+        private void WriteToolResponse(object? id, object content, bool isError = false) => Write(new { jsonrpc = "2.0", id, result = new { content, isError } });
+        private void Write(object p) { try { var j = s_json.Serialize(p); lock (_out) _out.WriteLine(j); } catch { } }
+
+        public void Dispose() => _disposed = true;
+
+        private sealed class BusBrowserTools : IBrowserTools
+        {
+            private readonly McpConnector _p;
+            public BusBrowserTools(McpConnector p) => _p = p;
+            public Task<string> EvaluateAsync(string s, CancellationToken ct) => CallAsync<string>("Browser.WebView.EvaluateAsync", new[] { s }, ct);
+            public async Task<(string Base64, int Width, int Height)> ScreenshotAsync(CancellationToken ct) {
+                var r = await CallAsync<Dictionary<string, object>>("Browser.WebView.ScreenshotAsync", null, ct);
+                return (r["base64"].ToString(), (int)r["width"], (int)r["height"]);
+            }
+            public Task NavigateAsync(string u, CancellationToken ct) => CallAsync<object>("Browser.WebView.NavigateAsync", new[] { u }, ct);
+            public Task<string> GetUrlAsync(CancellationToken ct) => CallAsync<string>("Browser.WebView.GetUrlAsync", null, ct);
+            public Task<string> GetContentAsync(CancellationToken ct) => CallAsync<string>("Browser.WebView.GetContentAsync", null, ct);
+            public Task ClickAsync(string s, CancellationToken ct) => CallAsync<object>("Browser.WebView.ClickAsync", new[] { s }, ct);
+            public Task TypeAsync(string s, string t, CancellationToken ct) => CallAsync<object>("Browser.WebView.TypeAsync", new[] { s, t }, ct);
+            public Task ScrollAsync(int x, int y, CancellationToken ct) => CallAsync<object>("Browser.WebView.ScrollAsync", new[] { x, y }, ct);
+            public Task<string> GetElementsAsync(CancellationToken ct) => CallAsync<string>("Browser.WebView.GetElementsAsync", null, ct);
+            public Task ClickLabelAsync(int i, CancellationToken ct) => CallAsync<object>("Browser.WebView.ClickLabelAsync", new[] { (object)i }, ct);
+            public Task ClearLabelsAsync(CancellationToken ct) => CallAsync<object>("Browser.WebView.ClearLabelsAsync", null, ct);
+
+            private async Task<T> CallAsync<T>(string m, object? a, CancellationToken ct)
+            {
+                var id = $"mcp-b-{Interlocked.Increment(ref _p._nextId)}";
+                var res = await _p._bridge.CallAsync(s_json.Serialize(new { jsonrpc = "2.0", id, method = m, @params = a ?? new object[0] }), id, _p._publish!, _p._callTimeout, ct);
+                var resp = s_json.Deserialize<Dictionary<string, object>>(res);
+                if (resp != null && resp.ContainsKey("error")) throw new Exception(s_json.Serialize(resp["error"]));
+                return (T)(resp?["result"] ?? default(T)!);
+            }
+        }
+    }
+}

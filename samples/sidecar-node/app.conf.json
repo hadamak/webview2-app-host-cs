@@ -1,0 +1,19 @@
+{
+  "title": "Sidecar Node Sample",
+  "window": { "width": 1280, "height": 800, "frame": true },
+  "url": "https://app.local/index.html",
+  "navigation_policy": {
+    "external_navigation_mode": "browser",
+    "block_request_patterns": []
+  },
+  "connectors": [
+    {
+      "type": "sidecar",
+      "alias": "Node",
+      "runtime": "node",
+      "script": "node-runtime/server.js",
+      "working_directory": "node-runtime",
+      "wait_for_ready": true
+    }
+  ]
+}

@@ -46,7 +46,7 @@ await Host.Steam.SteamFriends.OpenOverlay('achievements');
 
 // 5. Saving a screenshot
 // Capture the WebView2 screen to a file, then register it with Steam.
-const preview = await Host.Internal.WebView.CapturePreview("screenshot.png");
+const preview = await Host.Browser.WebView.ScreenshotAsync("screenshot.png");
 await Host.Steam.SteamScreenshots.AddScreenshot(
     preview.path, "", preview.width, preview.height
 );

@@ -7,7 +7,7 @@ using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
-using Microsoft.Web.WebView2.WinForms;
+
 
 namespace WebView2AppHost
 {
@@ -54,7 +54,10 @@ namespace WebView2AppHost
         /// <summary>JS との送受信に使う JSON シリアライザ。サブクラスからも参照可。</summary>
         protected static readonly JavaScriptSerializer s_json = new JavaScriptSerializer();
 
-        protected readonly WebView2 _webView;
+        /// <summary>
+        /// バスへの送信口。DllConnector が Publish セッターで設定する。
+        /// </summary>
+        protected Action<string>? _postMessage;
 
         /// <summary>JS に返したオブジェクトを保持するハンドルレジストリ。</summary>
         protected readonly ConcurrentDictionary<long, object> _handles =
@@ -69,10 +72,11 @@ namespace WebView2AppHost
         // コンストラクタ
         // ---------------------------------------------------------------------------
 
-        protected ReflectionDispatcherBase(WebView2 webView)
-        {
-            _webView = webView;
-        }
+        /// <summary>
+        /// コネクターとして使う場合（Publish セッターで後から設定）。
+        /// プラグイン互換層は削除し、送信口は _postMessage を直接設定する。
+        /// </summary>
+        protected ReflectionDispatcherBase() { }
 
         // ---------------------------------------------------------------------------
         // 純粋抽象メンバー
@@ -98,12 +102,13 @@ namespace WebView2AppHost
         /// null を受け取った <see cref="DispatchInvokeAsync"/> はそれ以上の処理を行わない。
         /// </para>
         /// </summary>
-        protected abstract Task<Type?> ResolveTypeAsync(
+        protected abstract Task<object?> ResolveTypeAsync(
+            string? source,
             Dictionary<string, object>? paramsObj,
             string className,
             string methodName,
             object?[]  argsRaw,
-            double     asyncId);
+            object?    asyncId);
 
         // ---------------------------------------------------------------------------
         // 仮想フック（オーバーライド任意）
@@ -129,7 +134,11 @@ namespace WebView2AppHost
         /// </summary>
         protected void HandleWebMessageCore(string webMessageJson)
         {
-            AppLog.Log("INFO", $"{GetType().Name}.HandleWebMessageCore", $"Received: {webMessageJson}");
+            AppLog.Log(
+                AppLog.LogLevel.Debug,
+                $"{GetType().Name}.HandleWebMessageCore",
+                $"Received: {AppLog.DescribeMessageJson(webMessageJson)}",
+                dataKind: AppLog.LogDataKind.Sensitive);
             if (_disposed || string.IsNullOrWhiteSpace(webMessageJson)) return;
 
             try
@@ -154,8 +163,7 @@ namespace WebView2AppHost
                 if (string.IsNullOrEmpty(method)) return;
 
                 // id はリクエストの場合は必須、通知の場合は省略可
-                msg.TryGetValue("id", out var idObj);
-                var id = (idObj is IConvertible cv) ? cv.ToDouble(null) : -1.0;
+                msg.TryGetValue("id", out var id);
 
                 // method 形式: "PluginName.ClassName.MethodName" または "PluginName.EventName"
                 var parts = method.Split('.');
@@ -164,7 +172,7 @@ namespace WebView2AppHost
                 var sourceFromMethod = parts[0];
 
                 // イベント通知（id なし）
-                if (id < 0)
+                if (id == null)
                 {
                     var eventName = string.Join(".", parts.Skip(1));
                     var eventParams = msg.TryGetValue("params", out var pVal) ? pVal : null;
@@ -180,11 +188,8 @@ namespace WebView2AppHost
 
                 var source = !string.IsNullOrEmpty(sourceFromMsg) ? sourceFromMsg : sourceFromMethod;
 
-                if (!string.Equals(source, SourceName, StringComparison.OrdinalIgnoreCase))
-                    return;
-
                 // リクエストdispatch（id あり）
-                Task.Run(async () => await DispatchJsonRpcRequestAsync(parts, id, msg));
+                Task.Run(async () => await DispatchJsonRpcRequestAsync(source, parts, id, msg));
             }
             catch (Exception ex)
             {
@@ -198,15 +203,15 @@ namespace WebView2AppHost
             if (msg == null) return;
 
             // source フィルタ
-            if (!msg.TryGetValue("source", out var srcObj) ||
-                !string.Equals(srcObj?.ToString(), SourceName, StringComparison.OrdinalIgnoreCase))
+            if (!msg.TryGetValue("source", out var srcObj))
                 return;
+
+            var source = srcObj?.ToString();
 
             msg.TryGetValue("messageId", out var midObj);
             var messageId = midObj?.ToString();
 
-            msg.TryGetValue("asyncId", out var asyncIdObj);
-            var asyncId = (asyncIdObj is IConvertible cv) ? cv.ToDouble(null) : -1.0;
+            msg.TryGetValue("asyncId", out var asyncId);
 
             // release: ハンドル解放
             if (messageId == "release")
@@ -234,7 +239,7 @@ namespace WebView2AppHost
                 || !(paramsVal is Dictionary<string, object> paramsObj))
                 return;
 
-            Task.Run(async () => await DispatchInvokeAsync(paramsObj, asyncId));
+            Task.Run(async () => await DispatchInvokeAsync(source, paramsObj, asyncId));
         }
 
         /// <summary>通知メッセージ（id なし）を処理する。</summary>
@@ -245,9 +250,9 @@ namespace WebView2AppHost
         }
 
         /// <summary>JSON-RPC リクエストを処理する共通フロー。</summary>
-        protected async Task DispatchJsonRpcRequestAsync(string[] methodParts, double id, Dictionary<string, object> msg)
+        protected async Task DispatchJsonRpcRequestAsync(string? source, string[] methodParts, object? id, Dictionary<string, object> msg)
         {
-            AppLog.Log("INFO", $"{GetType().Name}.DispatchJsonRpcRequestAsync", $"methodParts=[{string.Join(", ", methodParts)}], id={id}");
+            AppLog.Log("INFO", $"{GetType().Name}.DispatchJsonRpcRequestAsync", $"source={source}, methodParts=[{string.Join(", ", methodParts)}], id={id}");
             var logCtx = "?";
             try
             {
@@ -285,12 +290,22 @@ namespace WebView2AppHost
 
                 var staticArgs = ExtractArgsFromParams(paramsVal);
 
-                var type = await ResolveTypeAsync(paramsVal as Dictionary<string, object>, className, staticMethodName, staticArgs, id);
-                if (type == null || staticMethodName == null) return;
+                var resolved = await ResolveTypeAsync(source, paramsVal as Dictionary<string, object>, className, staticMethodName, staticArgs, id);
+                if (resolved == null || staticMethodName == null) return;
 
-                object? result = (staticMethodName == ".ctor" || staticMethodName == "Create")
-                    ? InvokeConstructor(type, staticArgs)
-                    : InvokeStaticMember(type, staticMethodName, staticArgs);
+                object? result;
+                if (resolved is Type type)
+                {
+                    // 静的呼び出し
+                    result = (staticMethodName == ".ctor" || staticMethodName == "Create")
+                        ? InvokeConstructor(type, staticArgs)
+                        : InvokeStaticMember(type, staticMethodName, staticArgs);
+                }
+                else
+                {
+                    // インスタンス（シングルトン等）呼び出し
+                    result = InvokeInstanceMember(resolved, staticMethodName, staticArgs);
+                }
 
                 result = await UnwrapTaskAsync(result);
                 SendJsonRpcResult(id, result, null);
@@ -317,9 +332,25 @@ namespace WebView2AppHost
         private static object?[] ExtractArgsFromParams(object? paramsVal)
         {
             if (paramsVal is Dictionary<string, object> pDict)
-                return ExtractArgs(pDict);
-            if (paramsVal is ArrayList arr)
-                return arr.Cast<object?>().ToArray();
+            {
+                // "args" キーがあればそれを使う（従来の挙動）
+                if (pDict.TryGetValue("args", out var argsVal) && argsVal != null)
+                {
+                    if (argsVal is ArrayList arr) return arr.Cast<object?>().ToArray();
+                    return new[] { argsVal };
+                }
+                
+                // "args" キーがなく、他のキーがある場合（名前付き引数など）
+                // 辞書の値を配列に変換してフォールバックを試みる
+                if (pDict.Count > 0)
+                {
+                    return pDict.Values.ToArray();
+                }
+            }
+            
+            if (paramsVal is ArrayList arr2)
+                return arr2.Cast<object?>().ToArray();
+                
             return Array.Empty<object?>();
         }
 
@@ -342,7 +373,7 @@ namespace WebView2AppHost
         /// Type の解決は <see cref="ResolveTypeAsync"/> に委譲する。
         /// </para>
         /// </summary>
-        protected async Task DispatchInvokeAsync(Dictionary<string, object> p, double asyncId)
+        protected async Task DispatchInvokeAsync(string? source, Dictionary<string, object> p, object? asyncId)
         {
             var logCtx = "?";
             try
@@ -382,12 +413,20 @@ namespace WebView2AppHost
                 logCtx = $"{className}.{methodName}";
 
                 // サブクラスが型を解決する（特例処理を自前で完結した場合は null を返す）
-                var type = await ResolveTypeAsync(p, className!, methodName!, argsRaw, asyncId);
-                if (type == null) return; // 特例処理済み（TriggerScreenshot など）
+                var resolved = await ResolveTypeAsync(source, p, className!, methodName!, argsRaw, asyncId);
+                if (resolved == null) return; // 特例処理済み（TriggerScreenshot など）
 
-                object? result = (methodName == ".ctor" || methodName == "Create")
-                    ? InvokeConstructor(type, argsRaw)
-                    : InvokeStaticMember(type, methodName!, argsRaw);
+                object? result;
+                if (resolved is Type type)
+                {
+                    result = (methodName == ".ctor" || methodName == "Create")
+                        ? InvokeConstructor(type, argsRaw)
+                        : InvokeStaticMember(type, methodName!, argsRaw);
+                }
+                else
+                {
+                    result = InvokeInstanceMember(resolved, methodName!, argsRaw);
+                }
 
                 result = await UnwrapTaskAsync(result);
                 SendResult(asyncId, result, null);
@@ -495,9 +534,17 @@ namespace WebView2AppHost
             if (!(result is Task task)) return result;
 
             await task.ConfigureAwait(false);
-            return task.GetType().IsGenericType
-                ? task.GetType().GetProperty("Result")?.GetValue(task)
-                : null;
+
+            var taskType = task.GetType();
+            if (taskType.IsGenericType)
+            {
+                var val = taskType.GetProperty("Result")?.GetValue(task);
+                // 内部型 VoidTaskResult をチェック (Task<VoidTaskResult> 等)
+                if (val != null && val.GetType().Name == "VoidTaskResult") return null;
+                return val;
+            }
+
+            return null; // 非ジェネリック Task は値を返さない
         }
 
         // ---------------------------------------------------------------------------
@@ -647,51 +694,50 @@ namespace WebView2AppHost
         // ---------------------------------------------------------------------------
 
         /// <summary>JSON-RPC 2.0 正常応答またはエラー応答を送信する。</summary>
-        protected void SendJsonRpcResult(double id, object? result, string? errorMessage)
+        protected void SendJsonRpcResult(object? id, object? result, string? errorMessage)
         {
-            AppLog.Log("INFO", $"{GetType().Name}.SendJsonRpcResult", $"id={id}, result={result}, error={errorMessage}");
+            AppLog.Log(
+                AppLog.LogLevel.Debug,
+                $"{GetType().Name}.SendJsonRpcResult",
+                $"id={id}, result={AppLog.DescribeResultSummary(result)}, error={errorMessage}",
+                dataKind: AppLog.LogDataKind.Sensitive);
             if (_disposed) return;
-            if (_webView.IsDisposed || !_webView.IsHandleCreated) return;
 
-            _webView.BeginInvoke(new Action(() =>
+            try
             {
-                if (_disposed || _webView.CoreWebView2 == null) return;
-                try
+                Dictionary<string, object?> payload;
+                if (errorMessage != null)
                 {
-                    Dictionary<string, object?> payload;
-                    if (errorMessage != null)
+                    payload = new Dictionary<string, object?>
                     {
-                        payload = new Dictionary<string, object?>
+                        ["jsonrpc"] = "2.0",
+                        ["id"]      = id,
+                        ["error"]   = new Dictionary<string, object>
                         {
-                            ["jsonrpc"] = "2.0",
-                            ["id"]      = id,
-                            ["error"]   = new Dictionary<string, object>
-                            {
-                                ["code"]    = -32000,
-                                ["message"] = errorMessage,
-                            },
-                        };
-                    }
-                    else
-                    {
-                        payload = new Dictionary<string, object?>
-                        {
-                            ["jsonrpc"] = "2.0",
-                            ["id"]      = id,
-                            ["result"]  = WrapResult(result),
-                        };
-                    }
-                    _webView.CoreWebView2.PostWebMessageAsString(s_json.Serialize(payload));
+                            ["code"]    = -32000,
+                            ["message"] = errorMessage,
+                        },
+                    };
                 }
-                catch (Exception ex)
+                else
                 {
-                    AppLog.Log("ERROR", $"{GetType().Name}.SendJsonRpcResult", ex.Message, ex);
+                    payload = new Dictionary<string, object?>
+                    {
+                        ["jsonrpc"] = "2.0",
+                        ["id"]      = id,
+                        ["result"]  = WrapResult(result),
+                    };
                 }
-            }));
+                _postMessage?.Invoke(s_json.Serialize(payload));
+            }
+            catch (Exception ex)
+            {
+                AppLog.Log("ERROR", $"{GetType().Name}.SendJsonRpcResult", ex.Message, ex);
+            }
         }
 
         /// <summary>invoke-result メッセージを JS へ送信する（legacy フォーマット）。</summary>
-        protected void SendResult(double asyncId, object? result, string? error)
+        protected void SendResult(object? asyncId, object? result, string? error)
         {
             SendJsonRpcResult(asyncId, result, error);
         }
@@ -704,26 +750,21 @@ namespace WebView2AppHost
         protected void PostEventToJs(string eventName, object eventParams)
         {
             if (_disposed) return;
-            if (_webView.IsDisposed || !_webView.IsHandleCreated) return;
 
-            _webView.BeginInvoke(new Action(() =>
+            try
             {
-                if (_disposed || _webView.CoreWebView2 == null) return;
-                try
+                var payload = s_json.Serialize(new Dictionary<string, object>
                 {
-                    var payload = s_json.Serialize(new Dictionary<string, object>
-                    {
-                        ["jsonrpc"] = "2.0",
-                        ["method"]  = $"{SourceName}.{eventName}",
-                        ["params"]  = eventParams,
-                    });
-                    _webView.CoreWebView2.PostWebMessageAsString(payload);
-                }
-                catch (Exception ex)
-                {
-                    AppLog.Log("ERROR", $"{GetType().Name}.PostEventToJs", ex.Message, ex);
-                }
-            }));
+                    ["jsonrpc"] = "2.0",
+                    ["method"]  = $"{SourceName}.{eventName}",
+                    ["params"]  = eventParams,
+                });
+                _postMessage?.Invoke(payload);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Log("ERROR", $"{GetType().Name}.PostEventToJs", ex.Message, ex);
+            }
         }
 
         // ---------------------------------------------------------------------------

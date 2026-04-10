@@ -1,35 +1,49 @@
 {
   "title": "WebView2 ホストテスト",
-  "width": 900,
-  "height": 640,
-  "fullscreen": false,
-  "proxyOrigins": [
+  "window": {
+    "width": 1280,
+    "height": 960,
+    "fullscreen": false,
+    "frame": true
+  },
+  "url": "https://app.local/index.html",
+  "proxy_origins": [
     "https://httpbin.org",
     "https://jsonplaceholder.typicode.com"
   ],
-  "loadDlls": [
+  "navigation_policy": {
+    "external_navigation_mode": "host",
+    "block_request_patterns": []
+  },
+  "connectors": [
     {
-      "alias": "Steam",
-      "dll": "Facepunch.Steamworks.Win64.dll",
-      "exposeEvents": ["OnAchievementProgress", "OnGameOverlayActivated", "OnMicroTxnAuthorizationResponse"]
-    }
-  ],
-  "sidecars": [
-    {
-      "alias": "Node",
-      "mode": "streaming",
-      "executable": "node",
-      "workingDirectory": "node-runtime",
-      "args": ["server.js"],
-      "waitForReady": true
+      "type": "browser",
+      "alias": "Browser"
     },
     {
-      "alias": "Ping",
-      "mode": "cli",
-      "executable": "ping",
-      "args": ["-n", "1", "{args}"],
-      "waitForReady": false,
-      "encoding": "sjis"
+      "type": "dll",
+      "alias": "Steam",
+      "path": "Facepunch.Steamworks.Win64.dll",
+      "expose_events": [
+        "OnAchievementProgress",
+        "OnGameOverlayActivated",
+        "OnMicroTxnAuthorizationResponse"
+      ]
+    },
+    {
+      "type": "sidecar",
+      "alias": "PythonRuntime",
+      "mode": "streaming",
+      "executable": "python",
+      "working_directory": "../../../../../",
+      "args": ["-u", "src/bin/x64/Debug/net48/python-runtime/server.py"],
+      "wait_for_ready": true
+    },
+    {
+      "type": "pipe_server"
+    },
+    {
+      "type": "mcp"
     }
   ]
 }

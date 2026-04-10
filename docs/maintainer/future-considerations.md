@@ -31,7 +31,7 @@ CDP の `Fetch.enable` でリクエストをインターセプトし、
 `Fetch.requestPaused` イベントで `postData`（リクエストボディ）を取得して転送する。
  
 動作フロー:
-1. `Fetch.enable` で `proxyOrigins` に一致する URL パターンを登録
+1. `Fetch.enable` で `proxy_origins` に一致する URL パターンを登録
 2. `Fetch.requestPaused` イベントでリクエスト全体（URL・メソッド・ヘッダ・ボディ）を取得
 3. `HttpClient` で外部 API へ転送（タイムアウト 15 秒）
 4. `Fetch.fulfillRequest` でレスポンスを WebView2 に返す（ボディは base64 エンコード）

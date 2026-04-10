@@ -1,19 +1,24 @@
 {
-  "sidecars": [
+  "title": "Legacy Sidecar Sample",
+  "window": { "width": 1280, "height": 800, "frame": true },
+  "url": "https://app.local/index.html",
+  "connectors": [
     {
+      "type": "sidecar",
       "alias": "PowerShell",
       "mode": "streaming",
       "executable": "powershell",
-      "workingDirectory": "powershell-runtime",
+      "working_directory": "powershell-runtime",
       "args": ["server.ps1"],
-      "waitForReady": true
+      "wait_for_ready": true
     },
     {
+      "type": "sidecar",
       "alias": "Ping",
       "mode": "cli",
       "executable": "ping",
       "args": ["-n", "1", "{args}"],
-      "waitForReady": false,
+      "wait_for_ready": false,
       "encoding": "sjis"
     }
   ]

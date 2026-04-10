@@ -213,7 +213,7 @@
             <h2>Screenshot</h2>
             <p class="note">
                 WebView2 の画面をキャプチャし、Steam のスクリーンショットライブラリに保存します。<br>
-                Host.Internal.WebView.CapturePreview() で 画像を出力し、
+                Host.Browser.WebView.ScreenshotAsync() で 画像を出力し、
                 Host.Steam.SteamScreenshots.AddScreenshot() で書き込みます。
             </p>
             <div class="row">
@@ -430,11 +430,11 @@ document.getElementById('leaderboard-download-btn').addEventListener('click', as
 
 // Screenshot
 // SteamScreenshots.TriggerScreenshot は DirectX フック前提のため WebView2 では動作しない。
-// Host.Internal.WebView.CapturePreview() で 画像ファイルを出力し、AddScreenshot () で渡す。
+// Host.Browser.WebView.ScreenshotAsync() で 画像ファイルを出力し、AddScreenshot () で渡す。
 document.getElementById('screenshot-btn').addEventListener('click', async () => {
     try {
-        log('Internal.WebView.CapturePreview() ...');
-        const preview = await Host.Internal.WebView.CapturePreview("screenshot.png");
+        log('Browser.WebView.ScreenshotAsync() ...');
+        const preview = await Host.Browser.WebView.ScreenshotAsync("screenshot.png");
         log('CapturePreview() done', { width: preview.width, height: preview.height });
 
         const result = await Host.Steam.SteamScreenshots.AddScreenshot(

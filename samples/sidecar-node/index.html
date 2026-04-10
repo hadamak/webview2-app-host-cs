@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>Sidecar Plugin Demo</title>
+    <style>
+        body { font-family: sans-serif; background: #f0f3f5; color: #333; padding: 20px; }
+        .container { max-width: 900px; margin: 0 auto; }
+        .card { background: white; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h2 { margin-top: 0; font-size: 1.2em; color: #0056b3; border-bottom: 2px solid #eef; padding-bottom: 5px; }
+        .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+        button { padding: 8px 15px; cursor: pointer; background: #0078d4; color: white; border: none; border-radius: 4px; font-weight: bold; }
+        button:hover { background: #005a9e; }
+        button.ps { background: #012456; }
+        button.node { background: #339933; }
+        button.py { background: #3776ab; }
+        pre { background: #1e1e1e; color: #dcdcdc; padding: 15px; border-radius: 5px; overflow: auto; min-height: 100px; max-height: 300px; font-family: Consolas, monospace; font-size: 13px; }
+        .status { font-size: 0.9em; color: #666; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🚀 Sidecar Plugin Demo</h1>
+    <p>外部プロセス（サイドカー）と JSON-RPC 2.0 で通信するデモです。</p>
+
+    <!-- Node.js Section -->
+    <div class="card">
+        <h2>🟢 Node.js (via server.js)</h2>
+        <div class="row">
+            <button class="node" onclick="call('Node', 'Node.version')">Get Version</button>
+            <button class="node" onclick="call('Node', 'FileSystem.listFiles', ['.'])">List Files (.)</button>
+        </div>
+    </div>
+
+    <!-- PowerShell Section -->
+    <div class="card">
+        <h2>🔵 PowerShell (via server.ps1)</h2>
+        <div class="status">OS標準機能のみで動作（インストール不要）</div>
+        <div class="row">
+            <button class="ps" onclick="call('PS', 'PowerShell.version')">Get PS Version</button>
+            <button class="ps" onclick="call('PS', 'PowerShell.getServices')">Get Top 10 Services</button>
+            <button class="ps" onclick="call('PS', 'PowerShell.getUptime')">Get Uptime</button>
+        </div>
+        <div class="row">
+            <input type="text" id="ps-cmd" value="Get-Process | Sort-Object CPU -Descending | Select -First 5" style="flex:1; padding: 8px;">
+            <button class="ps" onclick="call('PS', 'PowerShell.execute', [document.getElementById('ps-cmd').value])">Execute Command</button>
+        </div>
+    </div>
+
+    <!-- Python Section -->
+    <div class="card">
+        <h2>🟡 Python (via server.py)</h2>
+        <div class="row">
+            <button class="py" onclick="call('Python', 'Python.version')">Get Version</button>
+            <button class="py" onclick="call('Python', 'Math.add', [10, 20])">Add (10 + 20)</button>
+        </div>
+    </div>
+
+    <!-- Log Section -->
+    <div class="card">
+        <h2>Log / Result</h2>
+        <div id="status-info" class="status">Ready.</div>
+        <pre id="log-output">Responses will appear here...</pre>
+        <button onclick="document.getElementById('log-output').textContent = ''" style="background:#666">Clear Log</button>
+    </div>
+</div>
+
+<script src="host.js"></script>
+<script>
+    const output = document.getElementById('log-output');
+    const statusInfo = document.getElementById('status-info');
+
+    function log(obj) {
+        const text = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+        output.textContent = `[${new Date().toLocaleTimeString()}]\n${text}\n\n` + output.textContent;
+    }
+
+    /**
+     * サイドカーを呼び出す
+     * @param {string} alias app.conf.json で定義した alias
+     * @param {string} method "ClassName.MethodName"
+     * @param {any[]} params 引数
+     */
+    async function call(alias, method, params = []) {
+        statusInfo.textContent = `Calling ${alias}.${method}...`;
+        try {
+            // host.js の汎用 Proxy を使用
+            // Host.<Alias>.<ClassName>.<MethodName>(...args)
+            const parts = method.split('.');
+            const result = await Host[alias][parts[0]][parts[1]](...params);
+            log({ source: alias, method, result });
+            statusInfo.textContent = `Success: ${alias}.${method}`;
+        } catch (err) {
+            log({ source: alias, method, error: err.message });
+            statusInfo.textContent = `Error: ${alias}.${method}`;
+        }
+    }
+
+    // イベント受信（サイドカーからの自発的な通知など）
+    window.chrome.webview.addEventListener('message', (e) => {
+        if (e.data && e.data.method && !e.data.id) {
+            log({ event: "Received Notification", data: e.data });
+        }
+    });
+</script>
+</body>
+</html>
