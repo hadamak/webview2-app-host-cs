@@ -4,42 +4,39 @@
 [![Release](https://img.shields.io/github/v/release/hadamak/webview2-app-host-cs)](https://github.com/hadamak/webview2-app-host-cs/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/hadamak/webview2-app-host-cs)](LICENSE)
 
-WebView2AppHost は、HTML / CSS / JavaScript で作った Web アプリを、WebView2 ベースの小さな Windows デスクトップアプリとして配布するためのホストです。
+WebView2AppHost は、HTML / CSS / JavaScript で構築された Web アプリを、WebView2 ベースの軽量な Windows デスクトップアプリとして配布するためのホストプログラムです。
 
-このプロジェクトには 2 つの見方があります。
+**「透過的なホスト」** として設計されており、Web 標準の API がそのまま機能するため、開発者はデスクトップアプリ化のために独自のカスタム API を学習する必要はありません。
 
-- 導入者としては、ホスト側の専門知識なしに Web コンテンツをそのまま配布に使える
-- メンテナとしては、コネクタ、AI 連携、低レベルなブラウザ制御まで拡張できる
-
-この README はまず導入者向けです。
+このプロジェクトには 2 つの側面があります：
+- **導入者向け**: ホスト側のコードを一切書かずに、Web コンテンツをそのままデスクトップ EXE として配布できる。
+- **拡張・メンテナ向け**: MessageBus を中心としたモダンな「コネクタアーキテクチャ」により、ネイティブ DLL、別言語のサイドカープロセス、さらには AI (MCP) 連携まで柔軟に拡張できる。
 
 > English README: [README.md](README.md)
 
-## なぜ使うのか
+## 選ばれる理由
 
-- Chromium を丸ごと同梱しない
-  - 重いブラウザランタイムを抱えずに済む
-- 基本用途ではバックエンド不要
-  - 静的な Web コンテンツを配るだけなら C#、Node.js、Python の準備は不要
-- ホストを再ビルドせずにローカル機能を足せる
-  - DLL や外部実行ファイルを横に置き、設定だけで有効化できる
-- コンテンツ差し替えだけならホストの再ビルドも不要
-  - 既存の EXE に `www\`、ZIP、DLL、外部実行ファイルを添える形で使える
-- 標準 Web API がそのまま使いやすい
-  - `window.close()`、fullscreen、リンク、ダイアログ、クリップボード、メディア再生など
-- 必要になった時だけ拡張できる
-  - DLL、Sidecar、Pipe、MCP などは任意機能
+- **Web 標準 API への完全準拠**
+  - `window.close()`、`requestFullscreen()`、`beforeunload` ダイアログ、`navigator.permissions`、クリップボード、メディア再生などが、通常のブラウザと全く同じように動作します。
+- **再ビルド不要の拡張アーキテクチャ (Zero-Rebuild)**
+  - ネイティブの機能が必要になっても、.NET DLL や Node.js / Python スクリプトを横に置き、`app.conf.json` に追記するだけで連携可能。ホスト EXE の再コンパイルは不要です。
+- **AI 連携 (MCP) 標準対応**
+  - Model Context Protocol (MCP) を第一級のコネクタとして内蔵。アプリの機能や UI を AI エージェントに簡単に公開できます（ヘッドレスモードやプロキシモードもサポート）。
+- **透過的 CORS プロキシ**
+  - CDP (Chrome DevTools Protocol) ベースのプロキシを内蔵し、ローカルオリジン (`https://app.local`) からでも外部 API へスムーズに `fetch()` できます。
+- **超軽量・ポータブル**
+  - Windows 標準搭載の .NET 4.8 ベース。巨大な Chromium バイナリを同梱する必要がありません。
 
 ## 最短の使い方
 
-Web アプリをデスクトップ EXE として配布したいなら、まずは次で十分です。
+Web アプリをデスクトップ EXE として配布したいなら、以下の手順だけで完了します。
 
 1. ビルド済みの `WebView2AppHost.exe` を用意する
-2. EXE の隣に `www\` フォルダを置く
-3. `www\app.conf.json` を置く
+2. EXE の隣に `www\` フォルダを作成し、Web コンテンツを置く
+3. `www\app.conf.json` を配置する
 4. EXE を起動する
 
-この使い方なら、ホスト本体をビルドする必要はありません。さらに、アプリがローカル機能を必要とする場合でも、DLL や外部実行ファイルを横に置いて設定するだけで対応できるケースが多く、ホスト自体の再ビルドは不要です。
+この基本構成で、完全な Windows デスクトップアプリとして動作します。
 
 ## 基本レイアウト
 
@@ -62,174 +59,86 @@ www/
 {
   "title": "My App",
   "window": { "width": 1280, "height": 720, "frame": true },
-  "url": "https://app.local/index.html"
-}
-```
-
-## 再ビルド不要の拡張モデル
-
-このホストの特徴は、静的コンテンツだけに限らないことです。ビルド済みのホストに対して、設定と同梱ファイルだけでローカル機能を足せます。
-
-- HTML / CSS / JavaScript だけを配る
-- .NET DLL を EXE の横に置いて JavaScript から呼ぶ
-- Node.js、Python、PowerShell、独自実行ファイルを横に置いてサイドカーとして使う
-- 必要なコネクタ機能がホストに入っていれば、ホスト自体は再ビルドしない
-
-典型例:
-
-```text
-WebView2AppHost.exe
-www/
-  index.html
-  app.conf.json
-plugins/
-  SystemMonitor.dll
-tools/
-  agent.js
-```
-
-設定例:
-
-```json
-{
-  "title": "My App",
-  "window": { "width": 1280, "height": 720, "frame": true },
   "url": "https://app.local/index.html",
   "connectors": [
-    { "type": "dll", "path": "plugins/SystemMonitor.dll" },
-    { "type": "sidecar", "runtime": "node", "script": "tools/agent.js" }
+    { "type": "browser" }
   ]
 }
 ```
 
-要点は、ホストを差し替えずに、同梱したファイルと設定だけでローカルコード能力を増やせる点です。
+> **Tips:** ユーザーがウィンドウサイズやフルスクリーン設定だけを個別に変更したい場合、EXE の隣に `user.conf.json` を配置することで、開発者の `app.conf.json` を上書き（オーバーライド）できます。
+
+## 再ビルド不要の拡張モデル
+
+このホストの強力な点は、静的コンテンツの枠を超えた拡張性にあります。
+アプリがシステム固有の能力を必要とした場合、コネクタ（`Connectors`）を追加するだけで機能を拡張できます。
+
+- **`dll` コネクタ**: .NET DLL を EXE の横に置いて JavaScript から直接呼び出す（Steamworks 連携などに最適）。
+- **`sidecar` コネクタ**: Node.js、Python、PowerShell、または独自実行ファイルを子プロセスとして起動し、JSON-RPC で通信する。
+- **`pipe_server` / `mcp` コネクタ**: ローカルの自動化ツールや、AI エージェント（MCP クライアント）を接続する。
+
+**設定例（拡張後）:**
+
+```json
+{
+  "title": "My Extended App",
+  "window": { "width": 1280, "height": 720 },
+  "url": "https://app.local/index.html",
+  "connectors": [
+    { "type": "browser" },
+    { "type": "dll", "alias": "Steam", "path": "Facepunch.Steamworks.Win64.dll" },
+    { "type": "sidecar", "alias": "PythonRuntime", "runtime": "python", "script": "tools/agent.py", "wait_for_ready": true }
+  ]
+}
+```
+
+この変更においても、**ホスト本体の再ビルドは一切不要**です。
 
 ## コンテンツ配置の選択肢
 
-導入者として主に意識すれば良いのは次の配置です。
+コンテンツの配布方法は、要件に合わせて複数のスタイルから選べます（優先順位順）：
 
-- EXE 隣接の `www\`
-  - 開発中の差し替えや、そのままの配布に最も向く
-- コマンドライン引数で渡す ZIP
-  - EXE を共通シェルとして使いたい時に向く
-- EXE と同名の ZIP
-  - コンテンツだけ差し替えたい時に向く
-- EXE 末尾に連結した ZIP
-  - 単一ファイルで配布したい時に向く
-- 埋め込み `app.zip`
-  - 自前でホストをビルドする場合の既定コンテンツに向く
+1. **EXE 隣接の `www\`**: 開発中の差し替えや、そのままの配布に最も向く。
+2. **コマンドライン ZIP**: `WebView2AppHost.exe content.zip` のように起動。シェルとしての利用に最適。
+3. **EXE と同名の ZIP**: `WebView2AppHost.zip`。コンテンツだけを後から更新したい場合に向く。
+4. **EXE 末尾に連結した ZIP**: `copy /b EXE + ZIP`。単一ファイル配布（ポータブル化）に最適。
+5. **埋め込み `app.zip`**: 自前でホストをビルドする場合の既定フォールバック。
 
-優先順位は次のとおりです。
-
-1. `www\`
-2. コマンドライン ZIP
-3. 同名 ZIP
-4. 連結 ZIP
-5. 埋め込み `app.zip`
-
-詳細:
-
-- [docs/guides/content-packaging.md](docs/guides/content-packaging.md)
+詳細: [docs/guides/content-packaging.md](docs/guides/content-packaging.md)
 
 ## ビルドと配布
 
-Web コンテンツだけを更新する場合、ホストの再ビルドは不要なことが多いです。
-
-ホストをビルドする場合:
+ホスト自体のビルドが必要な場合（独自アイコンの適用や埋め込み ZIP を作成する場合など）：
 
 ```powershell
 msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64
 ```
 
 ビルド構成:
+- `Debug`: ローカル開発向け。`test-www\` を出力先 `www\` にコピーします。
+- `Release`: 通常の配布向け。全機能が含まれます。
+- `SecureRelease`: MCP、Sidecar、Pipe、CDP 等の拡張機能コードを完全に除外し、安全なオフライン専用に特化した制限付きビルドです。
 
-- `Debug`
-  - ローカル開発向け。`test-www\` を出力先 `www\` にコピー
-- `Release`
-  - 通常の配布向け
-- `SecureRelease`
-  - MCP、Sidecar、Pipe、CDP を除外した制限付きビルド
-
-詳細:
-
-- [docs/guides/build-and-release.md](docs/guides/build-and-release.md)
-
-## リリース ZIP に含まれるもの
-
-`tools/package-release.ps1` が作る ZIP には次が含まれます。
-
-- ホスト EXE と config
-- WebView2 関連 DLL
-- 既定の `www\`
-- `README.md`、`README.ja.md`
-- `LICENSE`、`THIRD_PARTY_NOTICES.md`
-- `docs\` の一般公開向け部分
-- `samples\`
-
-含まれないもの:
-
-- Node.js ランタイム
-- Python ランタイム
-- Steam などの外部バイナリ
-
-必要な場合だけ、アプリ側で追加同梱します。
-
-## 必要になった時の拡張
-
-基本用途では不要ですが、必要になった時は、ホストを再ビルドせずに次の拡張を有効化できることがあります。
-
-- `DllConnector`
-  - .NET DLL を横に置いて JavaScript から呼ぶ
-- `SidecarConnector`
-  - Node.js、Python、PowerShell などの外部実行ファイルやスクリプトと通信する
-- Pipe connectors
-  - 他の Windows プロセスと連携する
-- MCP
-  - ローカルツールやコンテンツを AI クライアントへ公開する
-
-ガイド:
-
-- [docs/guides/generic-dll-plugin.md](docs/guides/generic-dll-plugin.md)
-- [docs/guides/generic-sidecar-plugin.md](docs/guides/generic-sidecar-plugin.md)
-- [docs/guides/steam-integration.md](docs/guides/steam-integration.md)
-
-## 設定
-
-`app.conf.json` は構造化形式のみを受け付けます。
-
-```json
-{
-  "title": "My App",
-  "window": { "width": 1280, "height": 720, "frame": true },
-  "url": "https://app.local/index.html",
-  "proxy_origins": ["https://api.github.com"],
-  "steam": { "app_id": "480", "dev_mode": true },
-  "navigation_policy": {
-    "external_navigation_mode": "rules",
-    "open_in_host": ["*.github.com"],
-    "block_request_patterns": ["*ads*"]
-  }
-}
+配布用 ZIP の作成は付属のスクリプトで自動化できます:
+```powershell
+.\tools\package-release.ps1
 ```
-
-仕様:
-
-- [docs/api/app-conf-json.md](docs/api/app-conf-json.md)
 
 ## サンプル
 
-- `samples/sidecar-node`
-- `samples/sidecar-python`
-- `samples/sidecar-powershell`
-- `samples/steam-complete`
+同梱されている以下のサンプルですぐに仕組みを体験できます。
 
-## メンテナ向け
+- `samples/sidecar-node` (Node.js との連携)
+- `samples/sidecar-python` (Python との連携)
+- `samples/sidecar-powershell` (PowerShell との連携)
+- `samples/steam-complete` (Facepunch.Steamworks を用いたネイティブ DLL 連携)
 
-内部設計、互換性、将来の改修メモは導入者向け説明から分離しています。
+## 開発・メンテナ向け
 
-入口:
-
+内部アーキテクチャ、API 対応状況、互換性についての詳細は、メンテナ向けのドキュメントに分離しています。
 - [docs/maintainer/README.md](docs/maintainer/README.md)
+- [Web API 対応状況](docs/maintainer/api-compatibility.md)
+- [MessageBus と Bridge の設計](docs/architecture/bridge-design.md)
 
 ## ライセンス
 
