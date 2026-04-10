@@ -1,18 +1,13 @@
 {
-  "title": "WebView2AppHost Bridge Dashboard",
+  "title": "WebView2AppHost",
   "window": {
-    "width": 1360,
-    "height": 860,
+    "width": 1280,
+    "height": 720,
     "frame": true
   },
   "url": "https://app.local/index.html",
   "navigation_policy": {
-    "external_navigation_mode": "rules",
-    "open_in_host": ["*.github.com", "*.microsoft.com"],
-    "open_in_browser": ["example.com"],
-    "block": ["ads.example.com"],
-    "allowed_external_schemes": ["https", "mailto"],
-    "block_request_patterns": ["*ads*", "*tracker*"]
+    "external_navigation_mode": "host"
   },
   "connectors": [
     {
