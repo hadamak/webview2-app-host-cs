@@ -51,7 +51,7 @@ namespace WebView2AppHost
 
             if (_pending.TryRemove(id!, out var tcs))
             {
-                AppLog.Log("INFO", "McpBridge", $"id 一致: {id}");
+                AppLog.Log(AppLog.LogLevel.Info, "McpBridge", $"id 一致: {id}");
                 tcs.TrySetResult(messageJson);
                 return;
             }
@@ -61,7 +61,7 @@ namespace WebView2AppHost
             // MCPの管轄外なので無視する。
             if (id!.StartsWith("mcp-"))
             {
-                AppLog.Log("WARN", "McpBridge", $"一致する pending id が見つかりません: {id} (現在の pending: {string.Join(", ", _pending.Keys)})");
+                AppLog.Log(AppLog.LogLevel.Warn, "McpBridge", $"一致する pending id が見つかりません: {id} (現在の pending: {string.Join(", ", _pending.Keys)})");
             }
         }
 

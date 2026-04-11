@@ -150,16 +150,16 @@ namespace WebView2AppHost
 
             _stdin = new StreamWriter(_process.StandardInput.BaseStream, _encoding);
 
-            AppLog.Log("INFO", $"SidecarConnector[{Name}]", $"プロセス起動: PID={_process.Id}");
+            AppLog.Log(AppLog.LogLevel.Info, $"SidecarConnector[{Name}]", $"プロセス起動: PID={_process.Id}");
 
             if (_entry.WaitForReady)
             {
                 if (_ready.Wait(10_000, _shutdownToken))
-                    AppLog.Log("INFO", $"SidecarConnector[{Name}]", "Ready シグナル受信");
+                    AppLog.Log(AppLog.LogLevel.Info, $"SidecarConnector[{Name}]", "Ready シグナル受信");
                 else
                 {
                     _isReady = true;
-                    AppLog.Log("WARN", $"SidecarConnector[{Name}]", "Ready タイムアウト。続行します。");
+                    AppLog.Log(AppLog.LogLevel.Warn, $"SidecarConnector[{Name}]", "Ready タイムアウト。続行します。");
                 }
             }
             else { _isReady = true; }
@@ -174,7 +174,7 @@ namespace WebView2AppHost
                 await _stdin.WriteLineAsync(json);
                 await _stdin.FlushAsync().ConfigureAwait(false);
             }
-            catch (Exception ex) { AppLog.Log("WARN", $"SidecarConnector[{Name}].Send", ex.Message); }
+            catch (Exception ex) { AppLog.Log(AppLog.LogLevel.Warn, $"SidecarConnector[{Name}].Send", ex.Message); }
             finally { _writeLock.Release(); }
         }
 
@@ -244,7 +244,7 @@ namespace WebView2AppHost
                 proc.WaitForExit();
 
                 if (!string.IsNullOrWhiteSpace(stderr))
-                    AppLog.Log("WARN", $"SidecarConnector[{Name}].CLI.Stderr", $"stderr len={stderr.Length}");
+                    AppLog.Log(AppLog.LogLevel.Warn, $"SidecarConnector[{Name}].CLI.Stderr", $"stderr len={stderr.Length}");
 
                 var trimmedStdout = stdout.Trim();
                 object result;
@@ -261,7 +261,7 @@ namespace WebView2AppHost
                 });
                 _publish?.Invoke(response);
             }
-            catch (Exception ex) { AppLog.Log("ERROR", $"SidecarConnector[{Name}].CLI", ex.Message, ex); }
+            catch (Exception ex) { AppLog.Log(AppLog.LogLevel.Error, $"SidecarConnector[{Name}].CLI", ex.Message, ex); }
         }
 
         private string EscapeArgument(string arg)
@@ -312,7 +312,7 @@ namespace WebView2AppHost
         private void OnError(object sender, DataReceivedEventArgs e)
         {
             if (!string.IsNullOrWhiteSpace(e.Data))
-                AppLog.Log("WARN", $"SidecarConnector[{Name}].Stderr", $"stderr len={e.Data.Length}");
+                AppLog.Log(AppLog.LogLevel.Warn, $"SidecarConnector[{Name}].Stderr", $"stderr len={e.Data.Length}");
         }
 
         private void OnExited(object sender, EventArgs e)
@@ -334,13 +334,13 @@ namespace WebView2AppHost
                 }
 
                 try { exitCode = exitedProcess?.ExitCode; } catch { }
-                AppLog.Log("WARN", $"SidecarConnector[{Name}]", $"プロセス終了: ExitCode={exitCode}");
+                AppLog.Log(AppLog.LogLevel.Warn, $"SidecarConnector[{Name}]", $"プロセス終了: ExitCode={exitCode}");
 
                 if (_restartScheduled) return;
 
                 if (_restartCount >= 5)
                 {
-                    AppLog.Log("ERROR", $"SidecarConnector[{Name}]", "再起動上限に達しました");
+                    AppLog.Log(AppLog.LogLevel.Error, $"SidecarConnector[{Name}]", "再起動上限に達しました");
                     return;
                 }
 
@@ -366,7 +366,7 @@ namespace WebView2AppHost
             catch (Exception ex)
             {
                 lock (_processSync) { _restartScheduled = false; }
-                AppLog.Log("ERROR", $"SidecarConnector[{Name}].Restart", ex.Message, ex);
+                AppLog.Log(AppLog.LogLevel.Error, $"SidecarConnector[{Name}].Restart", ex.Message, ex);
             }
         }
 
@@ -409,7 +409,7 @@ namespace WebView2AppHost
                     _process.WaitForExit(3000);
                 }
             }
-            catch (Exception ex) { AppLog.Log("WARN", $"SidecarConnector[{Name}].Dispose", ex.Message); }
+            catch (Exception ex) { AppLog.Log(AppLog.LogLevel.Warn, $"SidecarConnector[{Name}].Dispose", ex.Message); }
             finally { _process?.Dispose(); _writeLock.Dispose(); _ready.Dispose(); }
         }
     }

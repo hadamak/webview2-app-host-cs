@@ -62,7 +62,7 @@ namespace WebView2AppHost
             if (Directory.Exists(wwwDir))
             {
                 _sources.Add(new DirectorySource(wwwDir));
-                AppLog.Log("INFO", "ZipContentProvider", $"Mounted Individual Source: {wwwDir}");
+                AppLog.Log(AppLog.LogLevel.Info, "ZipContentProvider", $"Mounted Individual Source: {wwwDir}");
             }
         }
 
@@ -72,7 +72,7 @@ namespace WebView2AppHost
             if (args.Length >= 2 && File.Exists(args[1]))
             {
                 var src = ZipSource.FromFile(args[1]);
-                if (src != null) { _sources.Add(src); AppLog.Log("INFO", "ZipContentProvider", $"Mounted Arg Source: {args[1]}"); }
+                if (src != null) { _sources.Add(src); AppLog.Log(AppLog.LogLevel.Info, "ZipContentProvider", $"Mounted Arg Source: {args[1]}"); }
             }
         }
 
@@ -82,7 +82,7 @@ namespace WebView2AppHost
             if (File.Exists(zipPath))
             {
                 var src = ZipSource.FromFile(zipPath);
-                if (src != null) { _sources.Add(src); AppLog.Log("INFO", "ZipContentProvider", $"Mounted Sibling Source: {zipPath}"); }
+                if (src != null) { _sources.Add(src); AppLog.Log(AppLog.LogLevel.Info, "ZipContentProvider", $"Mounted Sibling Source: {zipPath}"); }
             }
         }
 
@@ -92,9 +92,9 @@ namespace WebView2AppHost
             try
             {
                 var src = ZipSource.FromAppendedFile(exePath);
-                if (src != null) { _sources.Add(src); AppLog.Log("INFO", "ZipContentProvider", "Mounted Bundled Source"); }
+                if (src != null) { _sources.Add(src); AppLog.Log(AppLog.LogLevel.Info, "ZipContentProvider", "Mounted Bundled Source"); }
             }
-            catch (Exception ex) { AppLog.Log("ERROR", "ZipContentProvider.TryAddBundledSource", "Appended ZIP の検出に失敗", ex); }
+            catch (Exception ex) { AppLog.Log(AppLog.LogLevel.Error, "ZipContentProvider.TryAddBundledSource", "Appended ZIP の検出に失敗", ex); }
         }
 
         private void TryAddEmbeddedSource()
@@ -105,7 +105,7 @@ namespace WebView2AppHost
             if (stream != null)
             {
                 var src = ZipSource.FromStream(stream);
-                if (src != null) { _sources.Add(src); AppLog.Log("INFO", "ZipContentProvider", "Mounted Embedded Source"); }
+                if (src != null) { _sources.Add(src); AppLog.Log(AppLog.LogLevel.Info, "ZipContentProvider", "Mounted Embedded Source"); }
                 else { stream.Dispose(); }
             }
         }
@@ -201,7 +201,7 @@ namespace WebView2AppHost
                 catch (Exception ex)
                 {
                     fs?.Dispose();
-                    AppLog.Log("ERROR", "ZipSource.FromFile", $"ZIP を開けませんでした: {path}", ex);
+                    AppLog.Log(AppLog.LogLevel.Error, "ZipSource.FromFile", $"ZIP を開けませんでした: {path}", ex);
                     return null;
                 }
             }
@@ -280,7 +280,7 @@ namespace WebView2AppHost
                 catch (Exception ex)
                 {
                     fs.Dispose();
-                    AppLog.Log("ERROR", "ZipSource.FindAppendedZipStream", "Appended ZIP ストリームの検出に失敗", ex);
+                    AppLog.Log(AppLog.LogLevel.Error, "ZipSource.FindAppendedZipStream", "Appended ZIP ストリームの検出に失敗", ex);
                     return null;
                 }
             }
@@ -291,7 +291,7 @@ namespace WebView2AppHost
                 catch (Exception ex)
                 {
                     stream.Dispose();
-                    AppLog.Log("ERROR", "ZipSource.FromStream", "ストリームを ZIP として開けませんでした", ex);
+                    AppLog.Log(AppLog.LogLevel.Error, "ZipSource.FromStream", "ストリームを ZIP として開けませんでした", ex);
                     return null;
                 }
             }
@@ -311,8 +311,8 @@ namespace WebView2AppHost
                 // 動画・音声など大きなファイルは www/ フォルダへの個別配置を推奨する。
                 if (entry.Length > int.MaxValue)
                 {
-                    AppLog.Log("WARN", "ZipSource.OpenEntry",
-                        $"エントリが大きすぎるため ZIP からの展開をスキップします: {entry.FullName} ({entry.Length:N0} bytes)。" +
+                    AppLog.Log(AppLog.LogLevel.Warn, "ZipSource.OpenEntry",
+                    $"エントリが大きすぎるため ZIP からの展開をスキップします: {entry.FullName} ({entry.Length:N0} bytes)。" +
                         "動画・音声など大きなファイルは www/ フォルダへの個別配置を推奨します。");
                     return null;
                 }

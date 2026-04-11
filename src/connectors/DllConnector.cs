@@ -86,14 +86,14 @@ namespace WebView2AppHost
                 if (conf == null || !conf.TryGetValue("loadDlls", out var raw)
                     || !(raw is System.Collections.ArrayList list) || list.Count == 0)
                 {
-                    AppLog.Log("INFO", "DllConnector", "loadDlls が空です");
+                    AppLog.Log(AppLog.LogLevel.Info, "DllConnector", "loadDlls が空です");
                     return;
                 }
                 LoadDllEntries(list.Cast<object>());
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", "DllConnector.Initialize", ex.Message, ex);
+                AppLog.Log(AppLog.LogLevel.Error, "DllConnector.Initialize", ex.Message, ex);
             }
         }
 
@@ -103,7 +103,7 @@ namespace WebView2AppHost
             if (config == null) throw new ArgumentNullException(nameof(config));
             if (config.LoadDlls == null || config.LoadDlls.Length == 0)
             {
-                AppLog.Log("INFO", "DllConnector", "loadDlls が空です");
+                AppLog.Log(AppLog.LogLevel.Info, "DllConnector", "loadDlls が空です");
                 return;
             }
 
@@ -141,7 +141,7 @@ namespace WebView2AppHost
 
             if (asm == null)
             {
-                AppLog.Log("WARN", "DllConnector.ResolveType", $"アセンブリが見つかりません: {dllAlias}");
+                AppLog.Log(AppLog.LogLevel.Warn, "DllConnector.ResolveType", $"アセンブリが見つかりません: {dllAlias}");
                 return Task.FromResult<object?>(null);
             }
 
@@ -150,7 +150,7 @@ namespace WebView2AppHost
                     .FirstOrDefault(t => string.Equals(t.Name, className, StringComparison.OrdinalIgnoreCase));
 
             if (type == null)
-                AppLog.Log("WARN", "DllConnector.ResolveType", $"型が見つかりません: {className}");
+                AppLog.Log(AppLog.LogLevel.Warn, "DllConnector.ResolveType", $"型が見つかりません: {className}");
 
             return Task.FromResult<object?>(type);
         }
@@ -211,7 +211,7 @@ namespace WebView2AppHost
 
             if (!File.Exists(dllPath))
             {
-                AppLog.Log("WARN", "DllConnector", $"DLL が見つかりません: {dllPath}");
+                AppLog.Log(AppLog.LogLevel.Warn, "DllConnector", $"DLL が見つかりません: {dllPath}");
                 return;
             }
 
@@ -222,14 +222,14 @@ namespace WebView2AppHost
                 {
                     _assemblies[alias!] = asm;
                 }
-                AppLog.Log("INFO", "DllConnector", $"DLL ロード: alias={alias}, path={dllPath}");
+                AppLog.Log(AppLog.LogLevel.Info, "DllConnector", $"DLL ロード: alias={alias}, path={dllPath}");
 
                 if (exposeEvents?.Length > 0)
                     SubscribeEvents(asm, alias!, exposeEvents);
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", "DllConnector", $"DLL ロード失敗: {dllPath}: {ex.Message}");
+                AppLog.Log(AppLog.LogLevel.Error, "DllConnector", $"DLL ロード失敗: {dllPath}: {ex.Message}");
             }
         }
 
@@ -278,13 +278,13 @@ namespace WebView2AppHost
                             _eventSubscriptions.Add((null, evtInfo, handler));
                         }
 
-                        AppLog.Log("INFO", "DllConnector",
+                        AppLog.Log(AppLog.LogLevel.Info, "DllConnector",
                             $"イベント購読: {type.Name}.{eventName} (alias={alias})");
                         break;
                     }
                     catch (Exception ex)
                     {
-                        AppLog.Log("WARN", "DllConnector.SubscribeEvents",
+                        AppLog.Log(AppLog.LogLevel.Warn, "DllConnector.SubscribeEvents",
                             $"イベント {eventName} 購読失敗: {ex.Message}");
                     }
                 }

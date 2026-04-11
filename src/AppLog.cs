@@ -15,7 +15,7 @@ namespace WebView2AppHost
     /// </summary>
     internal static class AppLog
     {
-        internal enum LogLevel
+        public enum LogLevel
         {
             Debug = 0,
             Info = 1,
@@ -23,7 +23,7 @@ namespace WebView2AppHost
             Error = 3,
         }
 
-        internal enum LogDataKind
+        public enum LogDataKind
         {
             General,
             Sensitive,
@@ -81,10 +81,11 @@ namespace WebView2AppHost
             }
         }
 
+        [Obsolete("Use Log(LogLevel, ...) instead")]
         public static void Log(string level, string source, string message, Exception? ex = null)
             => Log(ParseLevel(level), source, message, ex, LogDataKind.General);
 
-        internal static void Log(LogLevel level, string source, string message, Exception? ex = null, LogDataKind dataKind = LogDataKind.General)
+        public static void Log(LogLevel level, string source, string message, Exception? ex = null, LogDataKind dataKind = LogDataKind.General)
         {
             if (!ShouldWrite(level, dataKind)) return;
 

@@ -105,7 +105,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", "App.OnLoad", ex.Message, ex);
+                AppLog.Log(AppLog.LogLevel.Error, "App.OnLoad", ex.Message, ex);
                 MessageBox.Show(
                     $"WebView2 の初期化に失敗しました。\n\n{ex.Message}\n\n" +
                     "WebView2 ランタイムがインストールされているか確認してください。\n" +
@@ -145,7 +145,7 @@ namespace WebView2AppHost
 #else
             if (_config.ProxyOrigins?.Length > 0)
             {
-                AppLog.Log("WARN", "App.InitWebViewAsync",
+                AppLog.Log(AppLog.LogLevel.Warn, "App.InitWebViewAsync",
                     "Secure offline build では proxy_origins は無効です。");
             }
 #endif
@@ -297,12 +297,12 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", "App.InitPlugins", "プラグインの初期化に失敗しました", ex);
+                AppLog.Log(AppLog.LogLevel.Error, "App.InitPlugins", "プラグインの初期化に失敗しました", ex);
                 return;
             }
 
             // WebMessageReceived は BrowserConnector が内部で購読している
-            AppLog.Log("INFO", "App.InitPlugins", "コネクターバスを有効化しました");
+            AppLog.Log(AppLog.LogLevel.Info, "App.InitPlugins", "コネクターバスを有効化しました");
         }
 
         // ---------------------------------------------------------------------------
@@ -394,7 +394,7 @@ namespace WebView2AppHost
             catch (Exception ex)
             {
                 stream.Dispose();
-                AppLog.Log("ERROR", "App.HandleWebResourceRequest", ex.Message, ex);
+                AppLog.Log(AppLog.LogLevel.Error, "App.HandleWebResourceRequest", ex.Message, ex);
                 throw;
             }
         }
@@ -431,7 +431,7 @@ namespace WebView2AppHost
             {
                 var wv = _webView.CoreWebView2;
 
-                AppLog.Log("INFO", "App.SetupFaviconTracking", $"FaviconChanged 発生, URI='{AppLog.DescribeUri(wv.FaviconUri)}'");
+                AppLog.Log(AppLog.LogLevel.Info, "App.SetupFaviconTracking", $"FaviconChanged 発生, URI='{AppLog.DescribeUri(wv.FaviconUri)}'");
 
                 if (string.IsNullOrEmpty(wv.FaviconUri))
                 {
@@ -472,17 +472,17 @@ namespace WebView2AppHost
                                 _favicon = newIcon;
                                 Icon     = newIcon;
                                 oldIcon?.Dispose();
-                                AppLog.Log("INFO", "App.SetupFaviconTracking", "適用完了");
+                                AppLog.Log(AppLog.LogLevel.Info, "App.SetupFaviconTracking", "適用完了");
                             }
                             catch (Exception invokeEx)
                             {
-                                AppLog.Log("ERROR", "App.SetupFaviconTracking", "アイコン適用失敗", invokeEx);
+                                AppLog.Log(AppLog.LogLevel.Error, "App.SetupFaviconTracking", "アイコン適用失敗", invokeEx);
                             }
                         }));
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Log("ERROR", "App.SetupFaviconTracking", "favicon の取得・変換に失敗", ex);
+                    AppLog.Log(AppLog.LogLevel.Error, "App.SetupFaviconTracking", "favicon の取得・変換に失敗", ex);
                 }
             };
         }
@@ -501,7 +501,7 @@ namespace WebView2AppHost
                     UseShellExecute = true
                 });
             }
-            catch (Exception ex) { AppLog.Log("ERROR", "App.OpenInDefaultBrowser", $"ブラウザで開けませんでした: {AppLog.DescribeUri(uri)}", ex); }
+            catch (Exception ex) { AppLog.Log(AppLog.LogLevel.Error, "App.OpenInDefaultBrowser", $"ブラウザで開けませんでした: {AppLog.DescribeUri(uri)}", ex); }
         }
 
         private void OpenHostPopup(string uri, PopupWindowOptions popupOptions)
@@ -529,7 +529,7 @@ namespace WebView2AppHost
             catch (Exception ex)
             {
                 popupZip?.Dispose();
-                AppLog.Log("ERROR", "App.OpenHostPopup", $"ホスト内ポップアップを開けませんでした: {AppLog.DescribeUri(uri)}", ex);
+                AppLog.Log(AppLog.LogLevel.Error, "App.OpenHostPopup", $"ホスト内ポップアップを開けませんでした: {AppLog.DescribeUri(uri)}", ex);
                 OpenInDefaultBrowser(uri);
             }
         }
@@ -643,7 +643,7 @@ namespace WebView2AppHost
                 Name         = "McpConnectorThread",
             };
             thread.Start();
-            AppLog.Log("INFO", "App", "McpConnector 起動（--mcp モード）");
+            AppLog.Log(AppLog.LogLevel.Info, "App", "McpConnector 起動（--mcp モード）");
         }
 #endif
 

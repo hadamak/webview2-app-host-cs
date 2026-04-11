@@ -96,7 +96,7 @@ namespace WebView2AppHost
         {
             // ログを stderr に向ける（stdout は MCP 通信専用）
             AppLog.Override = Console.Error;
-            AppLog.Log("INFO", "Program", "MCP ヘッドレスモードで起動します");
+            AppLog.Log(AppLog.LogLevel.Info, "Program", "MCP ヘッドレスモードで起動します");
 
             try
             {
@@ -108,17 +108,17 @@ namespace WebView2AppHost
                 var (bus, mcp) = ConnectorFactory.BuildHeadless(config, cts.Token);
                 using (bus)
                 {
-                    AppLog.Log("INFO", "Program", "MCP コネクター起動（stdin/stdout）");
+                    AppLog.Log(AppLog.LogLevel.Info, "Program", "MCP コネクター起動（stdin/stdout）");
                     mcp.RunAsync(cts.Token).GetAwaiter().GetResult();
                 }
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", "Program", "ヘッドレスモードで例外が発生しました", ex);
+                AppLog.Log(AppLog.LogLevel.Error, "Program", "ヘッドレスモードで例外が発生しました", ex);
                 throw;
             }
 
-            AppLog.Log("INFO", "Program", "MCP ヘッドレスモード終了");
+            AppLog.Log(AppLog.LogLevel.Info, "Program", "MCP ヘッドレスモード終了");
         }
 
         // -------------------------------------------------------------------
@@ -131,7 +131,7 @@ namespace WebView2AppHost
         private static void RunMcpProxy()
         {
             AppLog.Override = Console.Error;
-            AppLog.Log("INFO", "Program", "MCP プロキシモードで起動します");
+            AppLog.Log(AppLog.LogLevel.Info, "Program", "MCP プロキシモードで起動します");
 
             try
             {
@@ -153,7 +153,7 @@ namespace WebView2AppHost
 
                 using (bus)
                 {
-                    AppLog.Log("INFO", "Program", $"パイプ接続先: \\\\.\\pipe\\{pipeName}");
+                    AppLog.Log(AppLog.LogLevel.Info, "Program", $"パイプ接続先: \\\\.\\pipe\\{pipeName}");
 
                     var pipeTask = Task.Run(() => client.RunAsync(cts.Token), cts.Token);
                     var mcpTask  = mcp.RunAsync(cts.Token);
@@ -166,11 +166,11 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", "Program", "プロキシモードで例外が発生しました", ex);
+                AppLog.Log(AppLog.LogLevel.Error, "Program", "プロキシモードで例外が発生しました", ex);
                 throw;
             }
 
-            AppLog.Log("INFO", "Program", "MCP プロキシ終了");
+            AppLog.Log(AppLog.LogLevel.Info, "Program", "MCP プロキシ終了");
         }
 #endif
 
@@ -218,18 +218,18 @@ namespace WebView2AppHost
                     var config = AppConfig.Load(stream);
                     if (config != null)
                     {
-                        AppLog.Log("INFO", "Program", $"設定を読み込みました: {AppLog.DescribePath(path)}");
+                        AppLog.Log(AppLog.LogLevel.Info, "Program", $"設定を読み込みました: {AppLog.DescribePath(path)}");
                         config.ApplyUserConfig(exeDir);
                         return config;
                     }
                 }
                 catch (Exception ex)
                 {
-                    AppLog.Log("WARN", "Program", $"設定の読み込みに失敗（スキップ）: {AppLog.DescribePath(path)}", ex);
+                    AppLog.Log(AppLog.LogLevel.Warn, "Program", $"設定の読み込みに失敗（スキップ）: {AppLog.DescribePath(path)}", ex);
                 }
             }
 
-            AppLog.Log("INFO", "Program", "app.conf.json が見つかりません。デフォルト設定を使用します。");
+            AppLog.Log(AppLog.LogLevel.Info, "Program", "app.conf.json が見つかりません。デフォルト設定を使用します。");
             return new AppConfig();
         }
 

@@ -203,7 +203,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", $"{GetType().Name}.HandleWebMessage", ex.Message, ex);
+                AppLog.Log(AppLog.LogLevel.Error, $"{GetType().Name}.HandleWebMessage", ex.Message, ex);
             }
         }
 
@@ -211,14 +211,14 @@ namespace WebView2AppHost
         /// <summary>通知メッセージ（id なし）を処理する。</summary>
         protected virtual void OnNotificationReceived(string eventName, object? eventParams)
         {
-            AppLog.Log("WARN", $"{GetType().Name}.OnNotificationReceived",
-                $"未処理的通知: {eventName}");
+            AppLog.Log(AppLog.LogLevel.Warn, $"{GetType().Name}.OnNotificationReceived",
+                $"未処理の通知: {eventName}");
         }
 
         /// <summary>JSON-RPC リクエストを処理する共通フロー。</summary>
         protected async Task DispatchJsonRpcRequestAsync(string? source, string[] methodParts, object? id, Dictionary<string, object> msg)
         {
-            AppLog.Log("INFO", $"{GetType().Name}.DispatchJsonRpcRequestAsync", $"source={source}, methodParts=[{string.Join(", ", methodParts)}], id={id}");
+            AppLog.Log(AppLog.LogLevel.Info, $"{GetType().Name}.DispatchJsonRpcRequestAsync", $"source={source}, methodParts=[{string.Join(", ", methodParts)}], id={id}");
             var logCtx = "?";
             try
             {
@@ -232,7 +232,7 @@ namespace WebView2AppHost
                         var handleId = hid.ToInt64(null);
                         _handles.TryRemove(handleId, out _);
 #if DEBUG
-                        AppLog.Log("INFO", $"{GetType().Name}.Release", $"ハンドル {handleId} を解放しました");
+                        AppLog.Log(AppLog.LogLevel.Info, $"{GetType().Name}.Release", $"ハンドル {handleId} を解放しました");
 #endif
                     }
                     SendJsonRpcResult(id, "ok", null);
@@ -294,7 +294,7 @@ namespace WebView2AppHost
             catch (Exception ex)
             {
                 var inner = ex is TargetInvocationException tie ? tie.InnerException ?? ex : ex;
-                AppLog.Log("ERROR", $"{GetType().Name}.Dispatch[{logCtx}]", inner.Message, inner);
+                AppLog.Log(AppLog.LogLevel.Error, $"{GetType().Name}.Dispatch[{logCtx}]", inner.Message, inner);
                 SendJsonRpcResult(id, null, inner.Message);
             }
         }
@@ -633,7 +633,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", $"{GetType().Name}.SendJsonRpcResult", ex.Message, ex);
+                AppLog.Log(AppLog.LogLevel.Error, $"{GetType().Name}.SendJsonRpcResult", ex.Message, ex);
             }
         }
 
@@ -659,7 +659,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", $"{GetType().Name}.PostEventToJs", ex.Message, ex);
+                AppLog.Log(AppLog.LogLevel.Error, $"{GetType().Name}.PostEventToJs", ex.Message, ex);
             }
         }
 
@@ -678,7 +678,7 @@ namespace WebView2AppHost
                 try { (obj as IDisposable)?.Dispose(); }
                 catch (Exception ex)
                 {
-                    AppLog.Log("WARN", $"{GetType().Name}.DisposeHandles",
+                    AppLog.Log(AppLog.LogLevel.Warn, $"{GetType().Name}.DisposeHandles",
                         $"ハンドルオブジェクトの Dispose に失敗: {ex.Message}");
                 }
             }

@@ -43,7 +43,7 @@ namespace WebView2AppHost
             connector.Publish = json => Publish(json, connector);
             var mailbox = new ConnectorMailbox(connector);
             lock (_lock) _connectors.Add((connector, mailbox));
-            AppLog.Log("INFO", "MessageBus", $"Connector registered: {connector.Name}");
+            AppLog.Log(AppLog.LogLevel.Info, "MessageBus", $"Connector registered: {connector.Name}");
         }
 
         public void Publish(string json, IConnector? sender = null)
@@ -144,7 +144,7 @@ namespace WebView2AppHost
                     }
                     catch (Exception ex)
                     {
-                        AppLog.Log("ERROR", $"MessageBus -> [{_connector.Name}]", ex.Message, ex);
+                        AppLog.Log(AppLog.LogLevel.Error, $"MessageBus -> [{_connector.Name}]", ex.Message, ex);
                     }
                 }
             }

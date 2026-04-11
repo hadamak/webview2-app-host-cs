@@ -59,7 +59,7 @@ namespace WebView2AppHost
 
         public async Task RunAsync(CancellationToken ct = default)
         {
-            AppLog.Log("INFO", "McpConnector", "MCP サーバー起動");
+            AppLog.Log(AppLog.LogLevel.Info, "McpConnector", "MCP サーバー起動");
             var tasks = new List<Task>();
             while (!ct.IsCancellationRequested)
             {
@@ -71,7 +71,7 @@ namespace WebView2AppHost
                 } catch { break; }
                 if (line == null) break;
                 if (string.IsNullOrWhiteSpace(line)) continue;
-                var task = Task.Run(async () => { try { await HandleLineAsync(line, ct); } catch (Exception ex) { AppLog.Log("ERROR", "McpConnector", ex.Message); } });
+                var task = Task.Run(async () => { try { await HandleLineAsync(line, ct); } catch (Exception ex) { AppLog.Log(AppLog.LogLevel.Error, "McpConnector", ex.Message); } });
                 lock (tasks) tasks.Add(task);
                 _ = task.ContinueWith(t => { lock (tasks) tasks.Remove(t); });
             }

@@ -194,7 +194,7 @@ namespace WebView2AppHost
             {
                 if (string.IsNullOrEmpty(entry.Alias) || string.IsNullOrEmpty(entry.Executable))
                 {
-                    AppLog.Log("WARN", "ConnectorFactory", $"サイドカー設定不完全: alias={entry.Alias}");
+                    AppLog.Log(AppLog.LogLevel.Warn, "ConnectorFactory", $"サイドカー設定不完全: alias={entry.Alias}");
                     continue;
                 }
 
@@ -210,7 +210,7 @@ namespace WebView2AppHost
                 bus.Register(sidecar);
                 sidecar.Start();
 
-                AppLog.Log("INFO", "ConnectorFactory",
+                AppLog.Log(AppLog.LogLevel.Info, "ConnectorFactory",
                     $"SidecarConnector 登録: alias={entry.Alias}, mode={entry.Mode}");
             }
         }

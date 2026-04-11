@@ -28,7 +28,7 @@ namespace WebView2AppHost
                     if (IsForMe(json)) HandleWebMessageCore(json);
                     else _publish?.Invoke(json);
                 }
-                catch (Exception ex) { AppLog.Log("ERROR", "BrowserConnector.WebMessageReceived", ex.Message, ex); }
+                catch (Exception ex) { AppLog.Log(AppLog.LogLevel.Error, "BrowserConnector.WebMessageReceived", ex.Message, ex); }
             };
         }
 

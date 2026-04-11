@@ -91,7 +91,7 @@ namespace WebView2AppHost
             _receiver = _coreWebView.GetDevToolsProtocolEventReceiver("Fetch.requestPaused");
             _receiver.DevToolsProtocolEventReceived += OnRequestPaused;
 
-            AppLog.Log("INFO", "CdpProxyHandler.EnableAsync",
+            AppLog.Log(AppLog.LogLevel.Info, "CdpProxyHandler.EnableAsync",
                 $"CDP 透過プロキシ有効化: {_proxyOrigins.Length} オリジン");
         }
 
@@ -111,7 +111,7 @@ namespace WebView2AppHost
                 var @params = ParseEvent(e.ParameterObjectAsJson);
                 if (@params == null)
                 {
-                    AppLog.Log("WARN", "CdpProxyHandler",
+                    AppLog.Log(AppLog.LogLevel.Warn, "CdpProxyHandler",
                         "Fetch.requestPaused イベントのパースに失敗しました");
                     return;
                 }
@@ -121,7 +121,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", "CdpProxyHandler.OnRequestPaused", ex.Message, ex);
+                AppLog.Log(AppLog.LogLevel.Error, "CdpProxyHandler.OnRequestPaused", ex.Message, ex);
                 if (requestId != null)
                     await TryFailRequestAsync(requestId);
             }
@@ -141,7 +141,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", "CdpProxyHandler.ParseEvent", ex.Message, ex);
+                AppLog.Log(AppLog.LogLevel.Error, "CdpProxyHandler.ParseEvent", ex.Message, ex);
                 return null;
             }
         }
@@ -203,7 +203,7 @@ namespace WebView2AppHost
                     // CDP がボディを省略した場合（大きなボディで発生し得る）。
                     // Fetch.getRequestPostData で取得する実装は将来の課題とし、
                     // 現時点はボディなしで転送して警告を出す。
-                    AppLog.Log("WARN", "CdpProxyHandler",
+                    AppLog.Log(AppLog.LogLevel.Warn, "CdpProxyHandler",
                         $"hasPostData=true だが postData が null です。ボディなしで転送します: {req.Url}");
                 }
             }
@@ -217,14 +217,14 @@ namespace WebView2AppHost
             }
             catch (TaskCanceledException)
             {
-                AppLog.Log("WARN", "CdpProxyHandler.HandlePausedRequest",
+                AppLog.Log(AppLog.LogLevel.Warn, "CdpProxyHandler.HandlePausedRequest",
                     $"タイムアウト: {req.Method} {req.Url}");
                 await TryFailRequestAsync(@params.RequestId);
                 return;
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", "CdpProxyHandler.HandlePausedRequest",
+                AppLog.Log(AppLog.LogLevel.Error, "CdpProxyHandler.HandlePausedRequest",
                     $"転送失敗: {req.Method} {req.Url}", ex);
                 await TryFailRequestAsync(@params.RequestId);
                 return;
@@ -250,7 +250,7 @@ namespace WebView2AppHost
             await _coreWebView.CallDevToolsProtocolMethodAsync("Fetch.fulfillRequest", fulfillParams);
 
 #if DEBUG
-            AppLog.Log("INFO", "CdpProxyHandler",
+            AppLog.Log(AppLog.LogLevel.Info, "CdpProxyHandler",
                 $"{req.Method} {req.Url} → {(int)response.StatusCode} ({body.Length} bytes)");
 #endif
         }
@@ -327,7 +327,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                AppLog.Log("WARN", "CdpProxyHandler.TryFailRequestAsync", ex.Message, ex);
+                AppLog.Log(AppLog.LogLevel.Warn, "CdpProxyHandler.TryFailRequestAsync", ex.Message, ex);
             }
         }
 

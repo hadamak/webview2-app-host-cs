@@ -140,7 +140,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                AppLog.Log("ERROR", "AppConfig.Load", "設定ファイルの読み込みに失敗（デフォルト値を使用）", ex);
+                AppLog.Log(AppLog.LogLevel.Error, "AppConfig.Load", "設定ファイルの読み込みに失敗（デフォルト値を使用）", ex);
                 return null;
             }
         }
@@ -171,11 +171,11 @@ namespace WebView2AppHost
                     Window.Fullscreen = Fullscreen;
                 }
 
-                AppLog.Log("INFO", "AppConfig.ApplyUserConfig", $"user.conf.json を適用: {AppLog.DescribePath(path)}");
+                AppLog.Log(AppLog.LogLevel.Info, "AppConfig.ApplyUserConfig", $"user.conf.json を適用: {AppLog.DescribePath(path)}");
             }
             catch (Exception ex)
             {
-                AppLog.Log("WARN", "AppConfig.ApplyUserConfig", "user.conf.json の読み込みに失敗（無視）", ex);
+                AppLog.Log(AppLog.LogLevel.Warn, "AppConfig.ApplyUserConfig", "user.conf.json の読み込みに失敗（無視）", ex);
             }
         }
 

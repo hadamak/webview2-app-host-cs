@@ -95,7 +95,7 @@ namespace WebView2AppHost
 
         private async Task AcceptLoopAsync()
         {
-            AppLog.Log("INFO", $"PipeServerConnector",
+            AppLog.Log(AppLog.LogLevel.Info, $"PipeServerConnector",
                 $"Named Pipe 待機中: \\\\.\\pipe\\{_pipeName}");
 
             while (!_shutdownToken.IsCancellationRequested && !_disposed)
@@ -109,7 +109,7 @@ namespace WebView2AppHost
                 try
                 {
                     await pipe.WaitForConnectionAsync(_shutdownToken).ConfigureAwait(false);
-                    AppLog.Log("INFO", "PipeServerConnector", "プロキシ接続を受け入れました");
+                    AppLog.Log(AppLog.LogLevel.Info, "PipeServerConnector", "プロキシ接続を受け入れました");
 
                     var session = new ClientSession(pipe, json => _publish?.Invoke(json));
                     lock (_sessionsLock) _sessions.Add(session);
@@ -118,13 +118,13 @@ namespace WebView2AppHost
                     _ = session.RunAsync(_shutdownToken).ContinueWith(_ =>
                     {
                         lock (_sessionsLock) _sessions.Remove(session);
-                        AppLog.Log("INFO", "PipeServerConnector", "プロキシ切断");
+                        AppLog.Log(AppLog.LogLevel.Info, "PipeServerConnector", "プロキシ切断");
                     });
                 }
                 catch (OperationCanceledException) { pipe.Dispose(); break; }
                 catch (Exception ex)
                 {
-                    AppLog.Log("WARN", "PipeServerConnector.Accept", ex.Message);
+                    AppLog.Log(AppLog.LogLevel.Warn, "PipeServerConnector.Accept", ex.Message);
                     pipe.Dispose();
                     await Task.Delay(1000, _shutdownToken).ConfigureAwait(false);
                 }
@@ -181,7 +181,7 @@ namespace WebView2AppHost
                 }
                 catch (Exception ex) when (!(ex is OperationCanceledException))
                 {
-                    AppLog.Log("WARN", "PipeServerConnector.Session", ex.Message);
+                    AppLog.Log(AppLog.LogLevel.Warn, "PipeServerConnector.Session", ex.Message);
                 }
                 finally
                 {
@@ -204,7 +204,7 @@ namespace WebView2AppHost
                 catch (InvalidOperationException) { } // CompleteAdding 済み
                 catch (Exception ex)
                 {
-                    AppLog.Log("WARN", "PipeServerConnector.Send", $"キュー追加失敗: {ex.Message}");
+                    AppLog.Log(AppLog.LogLevel.Warn, "PipeServerConnector.Send", $"キュー追加失敗: {ex.Message}");
                 }
             }
         }

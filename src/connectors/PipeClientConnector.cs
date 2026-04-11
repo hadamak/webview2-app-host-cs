@@ -53,7 +53,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex)
             {
-                AppLog.Log("WARN", "PipeClientConnector.Deliver", $"キュー追加失敗: {ex.Message}");
+                AppLog.Log(AppLog.LogLevel.Warn, "PipeClientConnector.Deliver", $"キュー追加失敗: {ex.Message}");
             }
         }
 
@@ -62,7 +62,7 @@ namespace WebView2AppHost
             var pipe = await ConnectWithRetryAsync(ct).ConfigureAwait(false);
             if (pipe == null) return;
 
-            AppLog.Log("INFO", "PipeClientConnector", "本体プロセスに接続しました");
+            AppLog.Log(AppLog.LogLevel.Info, "PipeClientConnector", "本体プロセスに接続しました");
 
             using (pipe)
             {
@@ -83,14 +83,14 @@ namespace WebView2AppHost
                 }
                 catch (Exception ex) when (!(ex is OperationCanceledException))
                 {
-                    AppLog.Log("WARN", "PipeClientConnector.Receive", ex.Message);
+                    AppLog.Log(AppLog.LogLevel.Warn, "PipeClientConnector.Receive", ex.Message);
                 }
                 finally
                 {
                     _sendQueue.CompleteAdding();
                     // パイプ切断時に送信タスクの完了を待つ（短時間）
                     await Task.WhenAny(sendTask, Task.Delay(1000, ct)).ConfigureAwait(false);
-                    AppLog.Log("INFO", "PipeClientConnector", "本体プロセスとの接続が切断されました");
+                    AppLog.Log(AppLog.LogLevel.Info, "PipeClientConnector", "本体プロセスとの接続が切断されました");
                 }
             }
         }
@@ -108,7 +108,7 @@ namespace WebView2AppHost
             }
             catch (Exception ex) when (!(ex is OperationCanceledException))
             {
-                AppLog.Log("WARN", "PipeClientConnector.Send", ex.Message);
+                AppLog.Log(AppLog.LogLevel.Warn, "PipeClientConnector.Send", ex.Message);
             }
         }
 
@@ -124,7 +124,7 @@ namespace WebView2AppHost
                 var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
                 try
                 {
-                    AppLog.Log("INFO", "PipeClientConnector", $"接続試行 {attempt + 1}/{MaxAttempts}: \\\\.\\pipe\\{_pipeName}");
+                    AppLog.Log(AppLog.LogLevel.Info, "PipeClientConnector", $"接続試行 {attempt + 1}/{MaxAttempts}: \\\\.\\pipe\\{_pipeName}");
                     await pipe.ConnectAsync(timeout, ct).ConfigureAwait(false);
                     return pipe;
                 }
@@ -143,7 +143,7 @@ namespace WebView2AppHost
                 }
             }
 
-            AppLog.Log("ERROR", "PipeClientConnector",
+            AppLog.Log(AppLog.LogLevel.Error, "PipeClientConnector",
                 $"ホストプロセスへの接続に失敗しました。ホストが起動していること、およびホストの app.conf.json の connectors に \"pipe_server\" が設定されていることを確認してください。");
 
             return null;
@@ -156,7 +156,7 @@ namespace WebView2AppHost
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = _serverExePath, UseShellExecute = true });
             }
-            catch (Exception ex) { AppLog.Log("WARN", "PipeClientConnector.Launch", ex.Message); }
+            catch (Exception ex) { AppLog.Log(AppLog.LogLevel.Warn, "PipeClientConnector.Launch", ex.Message); }
         }
 
         public void Dispose()
