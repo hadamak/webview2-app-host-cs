@@ -138,8 +138,9 @@ namespace WebView2AppHost
         // クライアントセッション
         // -------------------------------------------------------------------
 
-        private sealed class ClientSession
+        private sealed class ClientSession : IDisposable
         {
+            private bool _sessionDisposed;
             private readonly NamedPipeServerStream    _pipe;
             private readonly Action<string>           _onReceive;
             private readonly BlockingCollection<string> _sendQueue =
@@ -210,6 +211,15 @@ namespace WebView2AppHost
                     AppLog.Log(AppLog.LogLevel.Warn, "PipeServerConnector.Send", $"キュー追加失敗: {ex.Message}");
                 }
             }
+
+            public void Dispose()
+            {
+                if (_sessionDisposed) return;
+                _sessionDisposed = true;
+                // sendQueue を閉じることで送信スレッドを停止させる
+                try { _sendQueue.CompleteAdding(); } catch { }
+                try { _pipe.Dispose(); } catch { }
+            }
         }
 
         // -------------------------------------------------------------------
@@ -220,16 +230,17 @@ namespace WebView2AppHost
         {
             if (_disposed) return;
             _disposed = true;
-
-            // 内部 CTS をキャンセルし、WaitForConnectionAsync 中のパイプを中断させる。
-            // これにより AcceptLoopAsync が OperationCanceledException を受け取り、
-            // 待機中のパイプを Dispose する。
             try { _internalCts.Cancel(); } catch (ObjectDisposedException) { }
 
-            lock (_sessionsLock) _sessions.Clear();
+            List<ClientSession> snapshot;
+            lock (_sessionsLock)
+            {
+                snapshot = new List<ClientSession>(_sessions);
+                _sessions.Clear();
+            }
+            foreach (var session in snapshot)
+                try { session.Dispose(); } catch { }
 
-            // 各セッションは RunAsync 内で pipe.Dispose() する。
-            // _internalCts のキャンセルにより RunAsync も終了に向かう。
             _internalCts.Dispose();
         }
     }

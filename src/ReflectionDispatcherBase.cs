@@ -325,7 +325,11 @@ namespace WebView2AppHost
                 // 辞書の値を配列に変換してフォールバックを試みる
                 if (pDict.Count > 0)
                 {
-                    return pDict.Values.ToArray();
+                    // handleId は上流で処理済みだが、防御的にフィルタして誤送信を防ぐ
+                    return pDict
+                        .Where(kv => !string.Equals(kv.Key, "handleId", StringComparison.OrdinalIgnoreCase))
+                        .Select(kv => (object?)kv.Value)
+                        .ToArray();
                 }
             }
             

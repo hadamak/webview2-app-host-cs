@@ -31,6 +31,8 @@ namespace WebView2AppHost
         private bool _disposed;
         private bool _restartScheduled;
         private int _restartCount;
+        private DateTime _processStartTime = DateTime.MinValue;
+        private const double StabilityThresholdSeconds = 30.0;
 
         // 自分が発行したリクエスト ID を保持する（応答を自分に戻すため）
         private readonly ConcurrentDictionary<string, bool> _pendingRequestIds =
@@ -145,6 +147,7 @@ namespace WebView2AppHost
             _process.Exited             += OnExited;
 
             _process.Start();
+            _processStartTime = DateTime.UtcNow;
             _process.BeginOutputReadLine();
             _process.BeginErrorReadLine();
 
@@ -337,6 +340,15 @@ namespace WebView2AppHost
                 AppLog.Log(AppLog.LogLevel.Warn, $"SidecarConnector[{Name}]", $"プロセス終了: ExitCode={exitCode}");
 
                 if (_restartScheduled) return;
+
+                // 一定期間安定稼働していた場合はカウンタをリセット
+                if (_processStartTime != DateTime.MinValue &&
+                    (DateTime.UtcNow - _processStartTime).TotalSeconds >= StabilityThresholdSeconds)
+                {
+                    AppLog.Log(AppLog.LogLevel.Info, $"SidecarConnector[{Name}]",
+                        $"安定稼働を確認（{StabilityThresholdSeconds}秒以上）。再起動カウンタをリセットします。");
+                    _restartCount = 0;
+                }
 
                 if (_restartCount >= 5)
                 {

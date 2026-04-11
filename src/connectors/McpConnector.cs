@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
+using System.Collections.Concurrent;
 
 namespace WebView2AppHost
 {
@@ -64,22 +65,30 @@ namespace WebView2AppHost
         public async Task RunAsync(CancellationToken ct = default)
         {
             AppLog.Log(AppLog.LogLevel.Info, "McpConnector", "MCP サーバー起動");
-            var tasks = new List<Task>();
+            var tasks = new ConcurrentQueue<Task>();
             while (!ct.IsCancellationRequested)
             {
                 string? line;
-                try {
+                try
+                {
                     var readTask = _in.ReadLineAsync();
                     if (await Task.WhenAny(readTask, Task.Delay(-1, ct)) != readTask) break;
                     line = await readTask;
-                } catch { break; }
+                }
+                catch { break; }
                 if (line == null) break;
                 if (string.IsNullOrWhiteSpace(line)) continue;
-                var task = Task.Run(async () => { try { await HandleLineAsync(line, ct); } catch (Exception ex) { AppLog.Log(AppLog.LogLevel.Error, "McpConnector", ex.Message); } });
-                lock (tasks) tasks.Add(task);
-                _ = task.ContinueWith(t => { lock (tasks) tasks.Remove(t); });
+
+                var task = Task.Run(async () =>
+                {
+                    try { await HandleLineAsync(line, ct); }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex) { AppLog.Log(AppLog.LogLevel.Error, "McpConnector", ex.Message); }
+                }, ct);
+                tasks.Enqueue(task);
             }
-            await Task.WhenAll(tasks);
+            try { await Task.WhenAll(tasks.ToArray()).ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
         }
 
         private async Task HandleLineAsync(string line, CancellationToken ct)

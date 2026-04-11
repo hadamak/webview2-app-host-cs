@@ -51,7 +51,7 @@ namespace WebView2AppHost
                 return Action.Allow;
 
             if (!Uri.TryCreate(uri, UriKind.Absolute, out var parsed))
-                return Action.Allow;
+                return Action.Block; // 無効 URI はセキュア側にフォールバック
 
             if (AppConfig.IsSecureMode)
                 return Action.Block;

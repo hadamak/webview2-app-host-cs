@@ -41,6 +41,7 @@ namespace WebView2AppHost
         /// volatile により GetLogPath() のスレッドセーフな二重初期化を防ぐ。
         /// </summary>
         private static volatile string? _logPath;
+        private static StreamWriter? _writer;
 
         /// <summary>
         /// ログファイルのローテーションしきい値（10 MB）。
@@ -192,6 +193,7 @@ namespace WebView2AppHost
             WriteToFile(timestamped);
         }
 
+        // After
         private static void WriteToFile(string content)
         {
             try
@@ -200,15 +202,13 @@ namespace WebView2AppHost
                 {
                     lock (_lock)
                     {
-                        // content はすでにタイムスタンプ付きのため、そのまま書き出す。
                         Override.WriteLine(content);
                         Override.Flush();
                     }
                     return;
                 }
 
-                if (!EnableFileOutput)
-                    return;
+                if (!EnableFileOutput) return;
 
                 var path = GetLogPath();
                 if (path == null) return;
@@ -219,14 +219,31 @@ namespace WebView2AppHost
                     if (dir != null && !Directory.Exists(dir))
                         Directory.CreateDirectory(dir);
 
-                    RotateIfNeeded(path);
+                    // ローテーションが必要な場合は Writer を閉じてから実行する
+                    try
+                    {
+                        var fi = new FileInfo(path);
+                        if (fi.Exists && fi.Length >= RotateThresholdBytes)
+                        {
+                            _writer?.Flush();
+                            _writer?.Dispose();
+                            _writer = null;
+                            RotateIfNeeded(path);
+                        }
+                    }
+                    catch { /* ローテーション失敗は無視 */ }
 
-                    File.AppendAllText(path, content + Environment.NewLine);
+                    if (_writer == null)
+                        _writer = new StreamWriter(path, append: true, System.Text.Encoding.UTF8) { AutoFlush = false };
+
+                    _writer.WriteLine(content);
+                    _writer.Flush();
                 }
             }
             catch
             {
-                // ロギング自体の失敗は握りつぶす（本体の動作を壊さない）
+                // Writer が壊れた場合は破棄して次回再生成させる
+                try { lock (_lock) { _writer?.Dispose(); _writer = null; } } catch { }
             }
         }
 
