@@ -8,27 +8,51 @@ using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using WebView2AppHost;
 using System.Reflection;
+using System.Diagnostics;
 
 namespace HostTests
 {
-    public class SidecarTests
+    public class SidecarTests : IDisposable
     {
-        private static readonly JavaScriptSerializer s_json = new JavaScriptSerializer();
+        private readonly List<string> _tempFiles = new List<string>();
+        private readonly List<SidecarConnector> _sidecars = new List<SidecarConnector>();
+        private readonly CancellationTokenSource _globalCts = new CancellationTokenSource();
+
+        public void Dispose()
+        {
+            _globalCts.Cancel();
+            foreach (var sidecar in _sidecars)
+            {
+                try { sidecar.Dispose(); } catch { }
+            }
+            foreach (var file in _tempFiles)
+            {
+                try { if (File.Exists(file)) File.Delete(file); } catch { }
+            }
+            _globalCts.Dispose();
+        }
+
+        private string CreateTempFile(string content)
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"test_sidecar_{Guid.NewGuid():N}.js");
+            File.WriteAllText(path, content);
+            _tempFiles.Add(path);
+            return path;
+        }
 
         private static bool IsNodeAvailable()
         {
             try
             {
-                var psi = new System.Diagnostics.ProcessStartInfo("node", "--version")
+                var psi = new ProcessStartInfo("node", "--version")
                 {
                     RedirectStandardOutput = true,
                     UseShellExecute = false,
                     CreateNoWindow = true
                 };
-                using (var p = System.Diagnostics.Process.Start(psi))
+                using (var p = Process.Start(psi))
                 {
-                    p.WaitForExit(1000);
-                    return p.ExitCode == 0;
+                    return p != null && p.WaitForExit(2000) && p.ExitCode == 0;
                 }
             }
             catch { return false; }
@@ -39,39 +63,27 @@ namespace HostTests
         {
             if (!IsNodeAvailable()) return;
 
-            var script = "process.stdin.on('data', d => process.stdout.write(d));";
-            var scriptPath = Path.GetTempFileName();
-            File.WriteAllText(scriptPath, script);
+            // stdin をそのまま stdout に流すスクリプト
+            var scriptPath = CreateTempFile("process.stdin.on('data', d => process.stdout.write(d));");
+            var entry = new SidecarEntry { Alias = "Echo", Executable = "node", Args = new[] { scriptPath }, Mode = "streaming" };
 
-            try
+            using (var testCts = new CancellationTokenSource(5000))
             {
-                var entry = new SidecarEntry
-                {
-                    Alias = "EchoStream",
-                    Executable = "node",
-                    Args = new[] { scriptPath },
-                    Mode = "streaming"
-                };
+                var sidecar = new SidecarConnector(entry, _globalCts.Token);
+                _sidecars.Add(sidecar);
 
-                using var cts = new CancellationTokenSource(5000);
-                var sidecar = new SidecarConnector(entry, cts.Token);
-                
-                var received = new TaskCompletionSource<string>();
-                sidecar.Publish = json => received.TrySetResult(json);
+                var tcs = new TaskCompletionSource<string>(TaskContinuationOptions.RunContinuationsAsynchronously);
+                testCts.Token.Register(() => tcs.TrySetCanceled());
 
+                sidecar.Publish = json => tcs.TrySetResult(json);
                 sidecar.Start();
-                
-                var testMsg = "{\"test\":123}";
-                sidecar.Deliver(testMsg, null);
 
-                var result = await received.Task;
-                Assert.Equal(testMsg, result.Trim());
+                // SidecarConnector は "Alias.Method" 形式の JSON-RPC 2.0 メッセージのみを受け付ける
+                var msg = "{\"jsonrpc\":\"2.0\",\"method\":\"Echo.Test\",\"params\":{\"val\":123}}";
+                sidecar.Deliver(msg, null);
 
-                sidecar.Dispose();
-            }
-            finally
-            {
-                if (File.Exists(scriptPath)) File.Delete(scriptPath);
+                var result = await tcs.Task;
+                Assert.Contains("\"method\":\"Echo.Test\"", result);
             }
         }
 
@@ -80,54 +92,49 @@ namespace HostTests
         {
             if (!IsNodeAvailable()) return;
 
-            // 1回だけ落ちて、次は普通に動くスクリプト
-            var markerFile = Path.Combine(Path.GetTempPath(), "sidecar_restart_marker_" + Guid.NewGuid().ToString("N"));
-            var script = $@"
+            var marker = Path.Combine(Path.GetTempPath(), $"restart_marker_{Guid.NewGuid():N}");
+            _tempFiles.Add(marker);
+
+            // 1回目は即終了、2回目以降は動作するスクリプト
+            var scriptPath = CreateTempFile($@"
                 const fs = require('fs');
-                if (!fs.existsSync('{markerFile.Replace("\\", "\\\\")}')) {{
-                    fs.writeFileSync('{markerFile.Replace("\\", "\\\\")}', 'done');
+                if (!fs.existsSync('{marker.Replace("\\", "\\\\")}')) {{
+                    fs.writeFileSync('{marker.Replace("\\", "\\\\")}', '1');
                     process.exit(1);
                 }}
                 process.stdin.on('data', d => process.stdout.write(d));
-            ";
-            var scriptPath = Path.GetTempFileName();
-            File.WriteAllText(scriptPath, script);
+            ");
 
-            try
+            var entry = new SidecarEntry { Alias = "Restarter", Executable = "node", Args = new[] { scriptPath }, Mode = "streaming" };
+            
+            using (var testCts = new CancellationTokenSource(15000))
             {
-                var entry = new SidecarEntry
-                {
-                    Alias = "Restarter",
-                    Executable = "node",
-                    Args = new[] { scriptPath },
-                    Mode = "streaming"
-                };
+                var sidecar = new SidecarConnector(entry, _globalCts.Token);
+                _sidecars.Add(sidecar);
 
-                using var cts = new CancellationTokenSource(10000);
-                var sidecar = new SidecarConnector(entry, cts.Token);
-                
-                var received = new TaskCompletionSource<string>();
-                sidecar.Publish = json => {
-                    if (json.Contains("after-restart")) received.TrySetResult(json);
-                };
+                var tcs = new TaskCompletionSource<string>(TaskContinuationOptions.RunContinuationsAsynchronously);
+                testCts.Token.Register(() => tcs.TrySetCanceled());
 
+                sidecar.Publish = json => { if (json.Contains("TargetMethod")) tcs.TrySetResult(json); };
                 sidecar.Start();
+
+                // 再起動を待ちながらメッセージを送信（指数バックオフがあるため複数回試行）
+                string result = null;
+                var msg = "{\"jsonrpc\":\"2.0\",\"method\":\"Restarter.TargetMethod\"}";
                 
-                // 1回目 (失敗と再起動) -> 少し待つ
-                await Task.Delay(2000);
+                for (int i = 0; i < 20; i++)
+                {
+                    sidecar.Deliver(msg, null);
+                    var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(1000, testCts.Token));
+                    if (completedTask == tcs.Task)
+                    {
+                        result = await tcs.Task;
+                        break;
+                    }
+                }
 
-                var testMsg = "{\"test\":\"after-restart\"}";
-                sidecar.Deliver(testMsg, null);
-
-                var result = await received.Task;
-                Assert.Contains("after-restart", result);
-
-                sidecar.Dispose();
-            }
-            finally
-            {
-                if (File.Exists(scriptPath)) File.Delete(scriptPath);
-                if (File.Exists(markerFile)) File.Delete(markerFile);
+                Assert.NotNull(result);
+                Assert.Contains("TargetMethod", result);
             }
         }
 
@@ -136,44 +143,33 @@ namespace HostTests
         {
             if (!IsNodeAvailable()) return;
 
-            // 即座に死ぬスクリプト
-            var entry = new SidecarEntry
-            {
-                Alias = "Suicide",
-                Executable = "node",
-                Args = new[] { "-e", "process.exit(1)" },
-                Mode = "streaming"
-            };
+            var entry = new SidecarEntry { Alias = "Suicide", Executable = "node", Args = new[] { "-e", "process.exit(1)" }, Mode = "streaming" };
+            var sidecar = new SidecarConnector(entry, _globalCts.Token);
+            _sidecars.Add(sidecar);
 
-            using var cts = new CancellationTokenSource(10000);
-            var sidecar = new SidecarConnector(entry, cts.Token);
-            
             sidecar.Start();
-            
-            // 指数バックオフがあるので 5 回の再試行には数秒かかる (1+2+4+8+16 = 31s? No, Math.Pow(2, attempt) delay)
-            // attempt 0: 1s, 1: 2s, 2: 4s...
-            // とりあえず少し待って、再起動回数が増えていることを確認
-            await Task.Delay(4000);
+            await Task.Delay(2000); // 1回目の再起動(1s後)を待つ
 
-            var field = typeof(SidecarConnector).GetField("_restartCount", BindingFlags.NonPublic | BindingFlags.Instance);
-            var count = (int)(field?.GetValue(sidecar) ?? 0);
+            var countField = typeof(SidecarConnector).GetField("_restartCount", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(countField);
             
-            Assert.True(count >= 1, "Restart count should be at least 1");
-            
-            sidecar.Dispose();
+            var count = (int)(countField.GetValue(sidecar) ?? 0);
+            Assert.True(count >= 1, $"Restart count should be >= 1, actual: {count}");
         }
 
         [Fact]
-        public void TestSidecar_IsForMe_ParsesCorrectly()
+        public void TestSidecar_IsForMe_Validation()
         {
-            var entry = new SidecarEntry { Alias = "Test" };
-            var sidecar = new SidecarConnector(entry, CancellationToken.None);
+            var sidecar = new SidecarConnector(new SidecarEntry { Alias = "MySidecar" });
             var method = typeof(SidecarConnector).GetMethod("IsForMe", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(method);
             
-            Assert.True((bool)method!.Invoke(sidecar, new object[] { "{\"jsonrpc\":\"2.0\",\"method\":\"Test.Do\"}", null! })!);
-            Assert.True((bool)method!.Invoke(sidecar, new object[] { "{\"jsonrpc\":\"2.0\",\"method\":\"test.Do\"}", null! })!);
-            Assert.False((bool)method!.Invoke(sidecar, new object[] { "{\"jsonrpc\":\"2.0\",\"method\":\"Other.Do\"}", null! })!);
-            Assert.False((bool)method!.Invoke(sidecar, new object[] { "{\"method\":\"Test.Do\"}", null! })!); // Missing jsonrpc 2.0
+            bool IsForMe(string json) => (bool)method.Invoke(sidecar, new object[] { json, null })!;
+
+            Assert.True(IsForMe("{\"jsonrpc\":\"2.0\",\"method\":\"MySidecar.Do\"}"));
+            Assert.True(IsForMe("{\"jsonrpc\":\"2.0\",\"method\":\"mysidecar.Test\"}")); // Case-insensitive
+            Assert.False(IsForMe("{\"jsonrpc\":\"2.0\",\"method\":\"Other.Do\"}"));
+            Assert.False(IsForMe("{\"method\":\"MySidecar.Do\"}")); // No jsonrpc 2.0
         }
 
         [Fact]
@@ -181,21 +177,43 @@ namespace HostTests
         {
             if (!IsNodeAvailable()) return;
 
-            var entry = new SidecarEntry { Alias = "Lifecycle", Executable = "node", Args = new[] { "-e", "setInterval(()=>{}, 1000)" }, Mode = "streaming" };
-            var sidecar = new SidecarConnector(entry, CancellationToken.None);
-            
+            var entry = new SidecarEntry { Alias = "Life", Executable = "node", Args = new[] { "-e", "setInterval(()=>{},1000)" }, Mode = "streaming" };
+            var sidecar = new SidecarConnector(entry, _globalCts.Token);
+            _sidecars.Add(sidecar);
+
             sidecar.Start();
-            await Task.Delay(500);
+
+            Process proc = null;
+            var procField = typeof(SidecarConnector).GetField("_process", BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(procField);
             
-            var field = typeof(SidecarConnector).GetField("_process", BindingFlags.NonPublic | BindingFlags.Instance);
-            var proc = field?.GetValue(sidecar) as System.Diagnostics.Process;
-            
+            // 起動待ち
+            for (int i = 0; i < 20; i++)
+            {
+                proc = procField.GetValue(sidecar) as Process;
+                if (proc != null) break;
+                await Task.Delay(100);
+            }
+
             Assert.NotNull(proc);
-            Assert.False(proc!.HasExited);
-            
+            int pid = proc.Id;
+            Assert.False(proc.HasExited);
+
             sidecar.Dispose();
-            // Wait a bit for process to exit after Kill
-            Assert.True(proc.WaitForExit(2000));
+            _sidecars.Remove(sidecar);
+
+            // プロセスが終了したか確認
+            bool isGone = false;
+            for (int i = 0; i < 20; i++)
+            {
+                try 
+                { 
+                    Process.GetProcessById(pid); 
+                    await Task.Delay(200); 
+                }
+                catch (ArgumentException) { isGone = true; break; }
+            }
+            Assert.True(isGone, "Process should be terminated after sidecar.Dispose()");
         }
     }
 }
