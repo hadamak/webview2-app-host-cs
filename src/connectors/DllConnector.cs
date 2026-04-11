@@ -257,7 +257,7 @@ namespace WebView2AppHost
                         var parameters    = handlerType.GetMethod("Invoke")?.GetParameters()
                             ?? Array.Empty<ParameterInfo>();
 
-                        Delegate handler;
+                        Delegate? handler = null;
                         if (parameters.Length == 0)
                         {
                             var msg = s_json.Serialize(new Dictionary<string, object?>
@@ -315,7 +315,12 @@ namespace WebView2AppHost
 
                 return Expression.Lambda(handlerType, call, paramExprs).Compile();
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                AppLog.Log(AppLog.LogLevel.Warn, "DllConnector.CreateGenericEventHandler",
+                    $"イベントハンドラの生成に失敗しました: {ex.Message}");
+                return null;
+            }
         }
 
         private void DispatchDynamicEvent(string alias, string eventName,
