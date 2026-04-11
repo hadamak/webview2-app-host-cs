@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
 using System.Text;
@@ -42,7 +43,7 @@ namespace WebView2AppHost
         /// <summary>
         /// ローカルバス（McpConnector）からの送信をキューに追加する。
         /// </summary>
-        public void Deliver(string messageJson)
+        public void Deliver(string messageJson, Dictionary<string, object>? messageDict)
         {
             if (_disposed || _sendQueue.IsAddingCompleted) return;
             try

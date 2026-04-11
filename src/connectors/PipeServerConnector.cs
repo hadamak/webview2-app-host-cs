@@ -69,7 +69,7 @@ namespace WebView2AppHost
         /// <summary>
         /// バスからの配信を全接続クライアントに送る。
         /// </summary>
-        public void Deliver(string messageJson)
+        public void Deliver(string messageJson, Dictionary<string, object>? messageDict)
         {
             if (_disposed) return;
 

@@ -50,7 +50,7 @@ namespace HostTests
                 var response= @"{""jsonrpc"":""2.0"",""id"":""mcp-1"",""result"":3}";
 
                 var callTask = bridge.CallAsync(request, "mcp-1",
-                    json => { sent = json; bridge.Dispatch(response); },
+                    json => { sent = json; bridge.Dispatch(response, null); },
                     TimeSpan.FromSeconds(5));
 
                 callTask.Wait(1000);
@@ -70,7 +70,7 @@ namespace HostTests
                     TimeSpan.FromSeconds(5));
 
                 // 別スレッドから少し後に Dispatch
-                Task.Delay(20).ContinueWith(_ => bridge.Dispatch(response));
+                Task.Delay(20).ContinueWith(_ => bridge.Dispatch(response, null));
                 callTask.Wait(2000);
                 Assert(callTask.IsCompleted && callTask.Result == response,
                     "McpBridge: 遅延 Dispatch でも結果を受け取れる");
@@ -109,7 +109,7 @@ namespace HostTests
                 bridge.UnsolicitedMessage += json => unsolicited = json;
 
                 var orphan = @"{""jsonrpc"":""2.0"",""id"":""mcp-no-match"",""result"":""late""}";
-                bridge.Dispatch(orphan);
+                bridge.Dispatch(orphan, null);
                 Assert(unsolicited == null, "McpBridge: MCP起因のid不一致は UnsolicitedMessage に流れない");
             }
 
@@ -120,7 +120,7 @@ namespace HostTests
                 bridge.UnsolicitedMessage += json => unsolicited = json;
 
                 var otherReq = @"{""jsonrpc"":""2.0"",""id"":1,""method"":""Browser.doSomething"",""params"":[]}";
-                bridge.Dispatch(otherReq);
+                bridge.Dispatch(otherReq, null);
                 Assert(unsolicited == null, "McpBridge: 他コネクターのリクエストは無視される");
             }
 
@@ -131,7 +131,7 @@ namespace HostTests
                 bridge.UnsolicitedMessage += json => unsolicited = json;
 
                 var evt = @"{""source"":""Node"",""event"":""onData"",""params"":{""value"":42}}";
-                bridge.Dispatch(evt);
+                bridge.Dispatch(evt, null);
                 Assert(unsolicited == evt, "McpBridge: id なし JSON は UnsolicitedMessage に流れる");
             }
 
@@ -266,7 +266,7 @@ namespace HostTests
                         var req = s.Deserialize<Dictionary<string, object>>(reqJson);
                         var id  = req?["id"]?.ToString() ?? "0";
                         var resp = $@"{{""jsonrpc"":""2.0"",""id"":""{id}"",""result"":""https://app.local/""}}";
-                        mcp.Deliver(resp);
+                        mcp.Deliver(resp, null);
                     },
                     configure: m => m.EnableBrowserProxy());
 
@@ -336,8 +336,8 @@ namespace HostTests
 
             // 少し待ってから id なし JSON を Dispatch → UnsolicitedMessage 発火
             System.Threading.Thread.Sleep(30);
-            mcp.Deliver(@"{""source"":""Node"",""event"":""onData"",""params"":{""value"":99}}");
-            mcp.Deliver(@"{""jsonrpc"":""2.0"",""method"":""Browser.OnTestEvent"",""params"":{""val"":1}}");
+            mcp.Deliver(@"{""source"":""Node"",""event"":""onData"",""params"":{""value"":99}}", null);
+            mcp.Deliver(@"{""jsonrpc"":""2.0"",""method"":""Browser.OnTestEvent"",""params"":{""val"":1}}", null);
 
             runTask.Wait(1000);
 

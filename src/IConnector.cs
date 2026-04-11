@@ -43,6 +43,6 @@ namespace WebView2AppHost
         /// MessageBus がこのコネクター宛のメッセージを配信するときに呼ぶ。
         /// コネクターは自分が処理すべきものだけを扱い、それ以外は無視する。
         /// </summary>
-        void Deliver(string messageJson);
+        void Deliver(string messageJson, System.Collections.Generic.Dictionary<string, object>? messageDict);
     }
 }

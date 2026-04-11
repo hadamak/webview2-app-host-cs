@@ -209,18 +209,18 @@ namespace HostTests
         {
             var dispatcher = new TestJsonRpcDispatcher();
             var testMsg = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"Test.StaticClass.StaticMethod\",\"params\":[\"arg1\",42]}";
-            dispatcher.HandleWebMessageCoreSync(testMsg);
+            dispatcher.HandleWebMessageCoreSync(testMsg, null);
             
             Assert(dispatcher.LastRequest != null, "JSON-RPC: request parsed");
             Assert(dispatcher.LastRequest!.ClassName == "StaticClass", "JSON-RPC: className correct");
             Assert(dispatcher.LastRequest.MethodName == "StaticMethod", "JSON-RPC: methodName correct");
 
             dispatcher.LastRequest = null;
-            dispatcher.HandleWebMessageCoreSync("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"Test.StaticClass.MethodNoParams\",\"params\":[]}");
+            dispatcher.HandleWebMessageCoreSync("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"Test.StaticClass.MethodNoParams\",\"params\":[]}", null);
             Assert(dispatcher.LastRequest != null, "JSON-RPC: empty params parsed");
 
             dispatcher.LastRequest = null;
-            dispatcher.HandleWebMessageCoreSync("{\"jsonrpc\":\"1.0\",\"id\":1,\"method\":\"Test.Class.Method\",\"params\":[]}");
+            dispatcher.HandleWebMessageCoreSync("{\"jsonrpc\":\"1.0\",\"id\":1,\"method\":\"Test.Class.Method\",\"params\":[]}", null);
             Assert(dispatcher.LastRequest == null, "JSON-RPC: wrong version rejected");
 
             Console.WriteLine("    JSON-RPC request parsing tests passed.");
@@ -238,7 +238,7 @@ namespace HostTests
         private static void RunJsonRpcNotificationTests()
         {
             var dispatcher = new TestJsonRpcDispatcher();
-            dispatcher.HandleWebMessageCoreSync("{\"jsonrpc\":\"2.0\",\"method\":\"Test.OnEvent\",\"params\":{\"key\":\"value\"}}");
+            dispatcher.HandleWebMessageCoreSync("{\"jsonrpc\":\"2.0\",\"method\":\"Test.OnEvent\",\"params\":{\"key\":\"value\"}}", null);
             Assert(dispatcher.LastNotification != null, "JSON-RPC: notification received");
             Assert(dispatcher.LastNotification!.EventName == "OnEvent", "JSON-RPC: event name correct");
         }
@@ -272,14 +272,14 @@ namespace HostTests
                 return s_json.Serialize(dict);
             }
 
-            public new void HandleWebMessageCore(string json)
+            public new void HandleWebMessageCore(string json, Dictionary<string, object>? dict)
             {
-                base.HandleWebMessageCore(json);
+                base.HandleWebMessageCore(json, dict);
             }
 
-            public void HandleWebMessageCoreSync(string json)
+            public void HandleWebMessageCoreSync(string json, Dictionary<string, object>? dict)
             {
-                base.HandleWebMessageCore(json);
+                base.HandleWebMessageCore(json, dict);
                 System.Threading.Thread.Sleep(50);
             }
         }

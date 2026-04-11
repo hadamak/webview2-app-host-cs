@@ -18,6 +18,9 @@ namespace WebView2AppHost
         private readonly BlockingCollection<(string Json, IConnector? Sender)> _queue = 
             new BlockingCollection<(string, IConnector?)>(new ConcurrentQueue<(string, IConnector?)>());
         
+        private static readonly System.Web.Script.Serialization.JavaScriptSerializer s_json =
+            new System.Web.Script.Serialization.JavaScriptSerializer();
+
         private readonly Thread _dispatchThread;
         private bool _disposed;
 
@@ -54,15 +57,21 @@ namespace WebView2AppHost
             List<IConnector> snapshot;
             lock (_lock) snapshot = new List<IConnector>(_connectors);
 
+            // JSON を一度だけパース
+            Dictionary<string, object>? dict = null;
+            try { dict = s_json.Deserialize<Dictionary<string, object>>(json); }
+            catch { /* パース失敗時は null のまま渡す */ }
+
             // 送信元以外の全コネクタに配信。順序を維持しつつ非同期で実行。
             foreach (var connector in snapshot)
             {
                 if (connector == sender) continue;
                 
                 var target = connector;
+                var messageDict = dict;
                 Task.Run(() =>
                 {
-                    try { target.Deliver(json); }
+                    try { target.Deliver(json, messageDict); }
                     catch (Exception ex)
                     {
                         AppLog.Log("ERROR", $"MessageBus -> [{target.Name}]", ex.Message, ex);

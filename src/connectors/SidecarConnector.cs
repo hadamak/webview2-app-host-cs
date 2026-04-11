@@ -53,12 +53,12 @@ namespace WebView2AppHost
             set => _publish = value;
         }
 
-        public void Deliver(string messageJson)
+        public void Deliver(string messageJson, Dictionary<string, object>? messageDict)
         {
             if (_disposed || string.IsNullOrWhiteSpace(messageJson)) return;
 
-            bool isForMe = IsForMe(messageJson);
-            bool isResponse = IsResponseForMe(messageJson);
+            bool isForMe = IsForMe(messageJson, messageDict);
+            bool isResponse = IsResponseForMe(messageJson, messageDict);
 
             AppLog.Log(
                 AppLog.LogLevel.Debug,
@@ -71,7 +71,7 @@ namespace WebView2AppHost
                 if (string.Equals(_entry.Mode, "streaming", StringComparison.OrdinalIgnoreCase))
                     _ = SendToProcessAsync(messageJson);
                 else
-                    _ = ExecuteCliAsync(messageJson);
+                    _ = ExecuteCliAsync(messageJson, messageDict);
                 return;
             }
 
@@ -81,11 +81,11 @@ namespace WebView2AppHost
             }
         }
 
-        private bool IsForMe(string json)
+        private bool IsForMe(string json, Dictionary<string, object>? dict)
         {
             try
             {
-                var dict = s_json.Deserialize<Dictionary<string, object>>(json);
+                dict ??= s_json.Deserialize<Dictionary<string, object>>(json);
                 if (dict == null) return false;
 
                 if (dict.TryGetValue("jsonrpc", out var jv) && string.Equals(jv?.ToString(), "2.0", StringComparison.OrdinalIgnoreCase))
@@ -106,11 +106,11 @@ namespace WebView2AppHost
             catch { return false; }
         }
 
-        private bool IsResponseForMe(string json)
+        private bool IsResponseForMe(string json, Dictionary<string, object>? dict)
         {
             try
             {
-                var dict = s_json.Deserialize<Dictionary<string, object>>(json);
+                dict ??= s_json.Deserialize<Dictionary<string, object>>(json);
                 if (dict == null) return false;
 
                 if (dict.TryGetValue("id", out var idObj) && idObj != null && !dict.ContainsKey("method"))
@@ -182,11 +182,11 @@ namespace WebView2AppHost
             finally { _writeLock.Release(); }
         }
 
-        private async Task ExecuteCliAsync(string requestJson)
+        private async Task ExecuteCliAsync(string requestJson, Dictionary<string, object>? messageDict)
         {
             try
             {
-                var req = s_json.Deserialize<Dictionary<string, object>>(requestJson);
+                var req = messageDict ?? s_json.Deserialize<Dictionary<string, object>>(requestJson);
                 var id  = req != null && req.TryGetValue("id", out var idV) ? idV : null;
 
                 var psi = BuildProcessStartInfo();

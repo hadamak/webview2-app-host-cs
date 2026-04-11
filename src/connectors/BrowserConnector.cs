@@ -35,10 +35,10 @@ namespace WebView2AppHost
         public string Name => "Browser";
         public Action<string> Publish { set { _publish = value; _postMessage = msg => { _publish?.Invoke(msg); PostToWebView(msg); }; } }
 
-        public void Deliver(string messageJson)
+        public void Deliver(string messageJson, Dictionary<string, object>? messageDict)
         {
             if (_disposed || string.IsNullOrWhiteSpace(messageJson)) return;
-            if (IsForMe(messageJson)) HandleWebMessageCore(messageJson);
+            if (IsForMe(messageJson, messageDict)) HandleWebMessageCore(messageJson, messageDict);
             else PostToWebView(messageJson);
         }
 
@@ -159,10 +159,10 @@ namespace WebView2AppHost
             }));
         }
 
-        private bool IsForMe(string json)
+        private bool IsForMe(string json, Dictionary<string, object>? dict = null)
         {
             try {
-                var dict = s_json.Deserialize<Dictionary<string, object>>(json);
+                dict ??= s_json.Deserialize<Dictionary<string, object>>(json);
                 if (dict == null) return false;
                 var method = dict.ContainsKey("method") ? dict["method"]?.ToString() : null;
                 if (method != null && method.StartsWith(SourceName + ".", StringComparison.OrdinalIgnoreCase)) return true;

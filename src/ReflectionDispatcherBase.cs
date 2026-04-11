@@ -134,6 +134,14 @@ namespace WebView2AppHost
         /// </summary>
         protected void HandleWebMessageCore(string webMessageJson)
         {
+            HandleWebMessageCore(webMessageJson, null);
+        }
+
+        /// <summary>
+        /// パース済みの辞書を使用して、JSON-RPC 2.0 メッセージをディスパッチする。
+        /// </summary>
+        protected void HandleWebMessageCore(string webMessageJson, Dictionary<string, object>? msg)
+        {
             AppLog.Log(
                 AppLog.LogLevel.Debug,
                 $"{GetType().Name}.HandleWebMessageCore",
@@ -143,7 +151,11 @@ namespace WebView2AppHost
 
             try
             {
-                var msg = s_json.Deserialize<Dictionary<string, object>>(webMessageJson);
+                if (msg == null)
+                {
+                    msg = s_json.Deserialize<Dictionary<string, object>>(webMessageJson);
+                }
+                
                 if (msg == null) return;
 
                 // JSON-RPC 2.0 バージョン確認

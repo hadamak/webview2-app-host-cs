@@ -47,13 +47,13 @@ namespace WebView2AppHost
             set => _postMessage = value;
         }
 
-        public void Deliver(string messageJson)
+        public void Deliver(string messageJson, Dictionary<string, object>? messageDict)
         {
             if (_disposed || string.IsNullOrWhiteSpace(messageJson)) return;
 
             try
             {
-                var dict = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(messageJson);
+                var dict = messageDict ?? s_json.Deserialize<Dictionary<string, object>>(messageJson);
                 if (dict == null) return;
 
                 string? source = ExtractSource(dict);
@@ -68,7 +68,7 @@ namespace WebView2AppHost
                 }
 
                 if (isDllAlias || string.Equals(source, SourceName, StringComparison.OrdinalIgnoreCase))
-                    HandleWebMessageCore(messageJson);
+                    HandleWebMessageCore(messageJson, dict);
             }
             catch { /* フィルタ段階の例外は無視 */ }
         }
@@ -82,7 +82,7 @@ namespace WebView2AppHost
         {
             try
             {
-                var conf = new JavaScriptSerializer().Deserialize<Dictionary<string, object>>(configJson);
+                var conf = s_json.Deserialize<Dictionary<string, object>>(configJson);
                 if (conf == null || !conf.TryGetValue("loadDlls", out var raw)
                     || !(raw is System.Collections.ArrayList list) || list.Count == 0)
                 {
@@ -260,7 +260,7 @@ namespace WebView2AppHost
                         Delegate handler;
                         if (parameters.Length == 0)
                         {
-                            var msg = new JavaScriptSerializer().Serialize(new Dictionary<string, object?>
+                            var msg = s_json.Serialize(new Dictionary<string, object?>
                                 { ["source"] = capturedAlias, ["event"] = capturedEvt, ["params"] = new { } });
                             Action fire = () => _postMessage?.Invoke(msg);
                             handler = Delegate.CreateDelegate(handlerType, fire.Target, fire.Method);
@@ -346,7 +346,7 @@ namespace WebView2AppHost
                     props[paramNames[i]] = args[i];
             }
 
-            var json = new JavaScriptSerializer().Serialize(new Dictionary<string, object?>
+            var json = s_json.Serialize(new Dictionary<string, object?>
                 { ["source"] = alias, ["event"] = eventName, ["params"] = props });
             _postMessage?.Invoke(json);
         }

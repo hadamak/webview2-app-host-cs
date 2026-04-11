@@ -41,8 +41,8 @@ namespace HostTests
                     while (!cts.IsCancellationRequested)
                     {
                         // 存在しないエイリアスや "Host" 宛のメッセージを大量に送る
-                        dll.Deliver("{\"jsonrpc\":\"2.0\",\"method\":\"Host.Dummy\",\"params\":[],\"id\":1}");
-                        dll.Deliver("{\"jsonrpc\":\"2.0\",\"method\":\"Unknown.Dummy\",\"params\":[],\"id\":2}");
+                        dll.Deliver("{\"jsonrpc\":\"2.0\",\"method\":\"Host.Dummy\",\"params\":[],\"id\":1}", null);
+                        dll.Deliver("{\"jsonrpc\":\"2.0\",\"method\":\"Unknown.Dummy\",\"params\":[],\"id\":2}", null);
                     }
                 }));
             }
@@ -99,7 +99,7 @@ namespace HostTests
             Console.WriteLine($"    Sending {sendCount} messages...");
             for (int i = 0; i < sendCount; i++)
             {
-                server.Deliver("{\"msg\":" + i + "}");
+                server.Deliver("{\"msg\":" + i + "}", null);
             }
 
             // クライアントで読み取る

@@ -38,7 +38,7 @@ namespace WebView2AppHost
         public void EnableBrowserProxy() => _browserEnabled = true;
         public string Name => "Mcp";
         public Action<string> Publish { set => _publish = value; }
-        public void Deliver(string json) { if (!_disposed) _bridge.Dispatch(json); }
+        public void Deliver(string json, Dictionary<string, object>? dict) { if (!_disposed) _bridge.Dispatch(json, dict); }
 
         public async Task RunAsync(CancellationToken ct = default)
         {

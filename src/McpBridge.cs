@@ -26,7 +26,7 @@ namespace WebView2AppHost
         /// id がない場合は UnsolicitedMessage に流す。
         /// id があり一致しない場合は、MCP起因のリクエストの遅延応答であれば警告を出す。
         /// </summary>
-        public void Dispatch(string messageJson)
+        public void Dispatch(string messageJson, Dictionary<string, object>? dict = null)
         {
             if (string.IsNullOrWhiteSpace(messageJson))
                 return;
@@ -34,7 +34,7 @@ namespace WebView2AppHost
             string? id = null;
             try
             {
-                var dict = s_json.Deserialize<Dictionary<string, object>>(messageJson);
+                dict ??= s_json.Deserialize<Dictionary<string, object>>(messageJson);
                 if (dict != null && dict.TryGetValue("id", out var idObj) && idObj != null)
                     id = idObj.ToString();
             }

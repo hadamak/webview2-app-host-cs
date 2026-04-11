@@ -85,7 +85,7 @@ namespace HostTests
                     }
                 };
 
-                connector.Deliver(s_json.Serialize(request));
+                connector.Deliver(s_json.Serialize(request), null);
 
                 if (!responseEvent.Wait(5000))
                     throw new TimeoutException("Sidecar CLI did not respond");
@@ -128,7 +128,7 @@ namespace HostTests
                     }
                 };
 
-                connector.Deliver(s_json.Serialize(request));
+                connector.Deliver(s_json.Serialize(request), null);
 
                 if (!responseEvent.Wait(5000))
                     throw new TimeoutException("Sidecar CLI did not respond");
@@ -168,7 +168,7 @@ namespace HostTests
                     }
                 };
 
-                connector.Deliver(s_json.Serialize(request));
+                connector.Deliver(s_json.Serialize(request), null);
 
                 if (!responseEvent.Wait(5000))
                     throw new TimeoutException("Sidecar CLI did not respond");
@@ -240,7 +240,7 @@ namespace HostTests
                 
                 var reqJson = s_json.Serialize(request);
                 Console.WriteLine("  [Test] Sending Request: " + reqJson);
-                connector.Deliver(reqJson);
+                connector.Deliver(reqJson, null);
 
                 if (!responseEvent.Wait(5000))
                     throw new TimeoutException("Sidecar did not respond to Math.Add");
@@ -259,7 +259,7 @@ namespace HostTests
                 };
 
                 Console.WriteLine("  [Test] Sending Error Request: " + s_json.Serialize(errRequest));
-                connector.Deliver(s_json.Serialize(errRequest));
+                connector.Deliver(s_json.Serialize(errRequest), null);
 
                 if (!responseEvent.Wait(5000))
                     throw new TimeoutException("Sidecar did not respond to Error.Throw");
@@ -280,7 +280,7 @@ namespace HostTests
                 };
 
                 Console.WriteLine("  [Test] Sending Exit Request: " + s_json.Serialize(exitRequest));
-                connector.Deliver(s_json.Serialize(exitRequest));
+                connector.Deliver(s_json.Serialize(exitRequest), null);
                 
                 // Wait for restart (up to 15s for slow CI)
                 if (!readyEvent.Wait(15000))
@@ -295,7 +295,7 @@ namespace HostTests
                 };
 
                 Console.WriteLine("  [Test] Sending Restart Verification Request: " + s_json.Serialize(restartRequest));
-                connector.Deliver(s_json.Serialize(restartRequest));
+                connector.Deliver(s_json.Serialize(restartRequest), null);
 
                 if (!responseEvent.Wait(10000))
                     throw new TimeoutException("Sidecar did not respond after restart");
