@@ -88,6 +88,12 @@ namespace WebView2AppHost
 
         public string[] BlockRequestPatterns => NavigationPolicy?.BlockRequestPatterns ?? Array.Empty<string>();
 
+        private Regex[]? _openInHostRegexes;
+        private Regex[]? _openInBrowserRegexes;
+        private Regex[]? _blockExternalHostsRegexes;
+        private Regex[]? _allowedExternalSchemesRegexes;
+        private Regex[]? _blockRequestPatternsRegexes;
+
         public bool IsProxyAllowed(Uri uri)
         {
             if (ProxyOrigins == null || ProxyOrigins.Length == 0) return false;
@@ -98,19 +104,19 @@ namespace WebView2AppHost
         }
 
         public bool ShouldOpenInHost(string host)
-            => MatchesAnyWildcard(host, OpenInHost);
+            => MatchesAny(host, _openInHostRegexes);
 
         public bool ShouldOpenInBrowser(string host)
-            => MatchesAnyWildcard(host, OpenInBrowser);
+            => MatchesAny(host, _openInBrowserRegexes);
 
         public bool IsExternalHostBlocked(string host)
-            => MatchesAnyWildcard(host, BlockExternalHosts);
+            => MatchesAny(host, _blockExternalHostsRegexes);
 
         public bool IsExternalSchemeAllowed(string scheme)
-            => MatchesAnyWildcard(scheme, AllowedExternalSchemes);
+            => MatchesAny(scheme, _allowedExternalSchemesRegexes);
 
         public bool IsRequestBlocked(string target)
-            => MatchesAnyWildcard(target, BlockRequestPatterns);
+            => MatchesAny(target, _blockRequestPatternsRegexes);
 
         public static AppConfig? Load(Stream stream)
         {
@@ -211,6 +217,12 @@ namespace WebView2AppHost
                 ? ""
                 : NavigationPolicy.ExternalNavigationMode.Trim().ToLowerInvariant();
 
+            _openInHostRegexes = CompileWildcardPatterns(NavigationPolicy.OpenInHost);
+            _openInBrowserRegexes = CompileWildcardPatterns(NavigationPolicy.OpenInBrowser);
+            _blockExternalHostsRegexes = CompileWildcardPatterns(NavigationPolicy.Block);
+            _allowedExternalSchemesRegexes = CompileWildcardPatterns(NavigationPolicy.AllowedExternalSchemes);
+            _blockRequestPatternsRegexes = CompileWildcardPatterns(NavigationPolicy.BlockRequestPatterns);
+
             NormalizeConnectors();
         }
 
@@ -302,19 +314,29 @@ namespace WebView2AppHost
             return Path.GetFileNameWithoutExtension(executable);
         }
 
-        private static bool MatchesAnyWildcard(string value, string[] patterns)
+        private static bool MatchesAny(string value, Regex[]? regexes)
         {
-            if (patterns == null || patterns.Length == 0 || string.IsNullOrWhiteSpace(value))
+            if (regexes == null || regexes.Length == 0 || string.IsNullOrWhiteSpace(value))
                 return false;
 
-            return patterns.Any(pattern =>
-            {
-                if (string.IsNullOrWhiteSpace(pattern)) return false;
-                var regex = "^" + Regex.Escape(pattern.Trim())
-                    .Replace(@"\*", ".*")
-                    .Replace(@"\?", ".") + "$";
-                return Regex.IsMatch(value, regex, RegexOptions.IgnoreCase);
-            });
+            return regexes.Any(r => r.IsMatch(value));
+        }
+
+        private static Regex[] CompileWildcardPatterns(string[]? patterns)
+        {
+            if (patterns == null || patterns.Length == 0)
+                return Array.Empty<Regex>();
+
+            return patterns
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .Select(p =>
+                {
+                    var pattern = "^" + Regex.Escape(p.Trim())
+                        .Replace(@"\*", ".*")
+                        .Replace(@"\?", ".") + "$";
+                    return new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+                })
+                .ToArray();
         }
     }
 
