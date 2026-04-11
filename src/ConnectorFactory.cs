@@ -12,11 +12,26 @@ namespace WebView2AppHost
     /// </summary>
     public static class ConnectorFactory
     {
-        private static readonly string[] s_browserConnectorTypes = { "browser" };
-        private static readonly string[] s_dllConnectorTypes = { "dll" };
-        private static readonly string[] s_sidecarConnectorTypes = { "sidecar" };
-        private static readonly string[] s_pipeConnectorTypes = { "pipe", "pipe_server" };
-        private static readonly string[] s_mcpConnectorTypes = { "mcp" };
+        private enum ConnectorKind { Browser, Dll, Sidecar, Pipe, Mcp }
+
+        private static bool MatchesType(string type, ConnectorKind kind)
+        {
+            switch (kind)
+            {
+                case ConnectorKind.Browser: return "browser".Equals(type, StringComparison.OrdinalIgnoreCase);
+                case ConnectorKind.Dll: return "dll".Equals(type, StringComparison.OrdinalIgnoreCase);
+                case ConnectorKind.Sidecar: return "sidecar".Equals(type, StringComparison.OrdinalIgnoreCase);
+                case ConnectorKind.Pipe: return "pipe".Equals(type, StringComparison.OrdinalIgnoreCase) || "pipe_server".Equals(type, StringComparison.OrdinalIgnoreCase);
+                case ConnectorKind.Mcp: return "mcp".Equals(type, StringComparison.OrdinalIgnoreCase);
+                default: return false;
+            }
+        }
+
+        private static bool IsKindPresent(AppConfig? config, ConnectorKind kind)
+        {
+            if (config?.Connectors == null) return false;
+            return config.Connectors.Any(c => c != null && MatchesType(c.Type, kind));
+        }
 
         public static IReadOnlyList<string> GetAvailableConnectorNames(
             AppConfig? config = null,
@@ -25,10 +40,10 @@ namespace WebView2AppHost
             var names = new List<string> { "Browser" };
 
 #if SECURE_OFFLINE
-            if (ContainsConnectorType(config, s_dllConnectorTypes))
+            if (IsKindPresent(config, ConnectorKind.Dll))
                 names.Add("Host");
 #else
-            if (ContainsConnectorType(config, s_dllConnectorTypes))
+            if (IsKindPresent(config, ConnectorKind.Dll))
                 names.Add("Host");
 
             if (config?.Sidecars != null)
@@ -40,10 +55,10 @@ namespace WebView2AppHost
                 }
             }
 
-            if (ContainsConnectorType(config, s_pipeConnectorTypes))
+            if (IsKindPresent(config, ConnectorKind.Pipe))
                 names.Add("PipeServer");
 
-            if (enableMcp || ContainsConnectorType(config, s_mcpConnectorTypes))
+            if (enableMcp || IsKindPresent(config, ConnectorKind.Mcp))
                 names.Add("Mcp");
 #endif
 
@@ -66,7 +81,7 @@ namespace WebView2AppHost
 
             RegisterBrowser(bus, webView);
 
-            if (ContainsConnectorType(config, s_dllConnectorTypes))
+            if (IsKindPresent(config, ConnectorKind.Dll))
             {
                 RegisterDll(bus, config);
             }
@@ -93,18 +108,18 @@ namespace WebView2AppHost
                 {
                     if (entry == null || string.IsNullOrWhiteSpace(entry.Type)) continue;
 
-                    if (MatchesType(entry.Type, s_browserConnectorTypes) && browser == null)
+                    if (MatchesType(entry.Type, ConnectorKind.Browser) && browser == null)
                         browser = RegisterBrowser(bus, webView);
-                    else if (MatchesType(entry.Type, s_dllConnectorTypes) && dll == null)
+                    else if (MatchesType(entry.Type, ConnectorKind.Dll) && dll == null)
                         dll = RegisterDll(bus, config);
-                    else if (MatchesType(entry.Type, s_sidecarConnectorTypes) && !sidecarsRegistered)
+                    else if (MatchesType(entry.Type, ConnectorKind.Sidecar) && !sidecarsRegistered)
                     {
                         RegisterSidecars(bus, config, shutdownToken);
                         sidecarsRegistered = true;
                     }
-                    else if (MatchesType(entry.Type, s_pipeConnectorTypes) && pipe == null)
+                    else if (MatchesType(entry.Type, ConnectorKind.Pipe) && pipe == null)
                         pipe = RegisterPipe(bus, shutdownToken);
-                    else if (MatchesType(entry.Type, s_mcpConnectorTypes))
+                    else if (MatchesType(entry.Type, ConnectorKind.Mcp))
                         enableMcp = true;
                 }
             }
@@ -138,12 +153,12 @@ namespace WebView2AppHost
                 {
                     if (entry == null || string.IsNullOrWhiteSpace(entry.Type)) continue;
 
-                    if (MatchesType(entry.Type, s_dllConnectorTypes) && !dllRegistered)
+                    if (MatchesType(entry.Type, ConnectorKind.Dll) && !dllRegistered)
                     {
                         RegisterDll(bus, config);
                         dllRegistered = true;
                     }
-                    else if (MatchesType(entry.Type, s_sidecarConnectorTypes) && !sidecarsRegistered)
+                    else if (MatchesType(entry.Type, ConnectorKind.Sidecar) && !sidecarsRegistered)
                     {
                         RegisterSidecars(bus, config, shutdownToken);
                         sidecarsRegistered = true;
@@ -248,19 +263,6 @@ namespace WebView2AppHost
             return null;
         }
 #endif
-
-        private static bool ContainsConnectorType(AppConfig? config, string[] supportedTypes)
-        {
-            if (config?.Connectors == null || config.Connectors.Length == 0) return false;
-
-            foreach (var entry in config.Connectors)
-            {
-                if (entry == null || string.IsNullOrWhiteSpace(entry.Type)) continue;
-                if (MatchesType(entry.Type, supportedTypes)) return true;
-            }
-
-            return false;
-        }
 
         private static bool MatchesType(string type, string[] supportedTypes)
         {
