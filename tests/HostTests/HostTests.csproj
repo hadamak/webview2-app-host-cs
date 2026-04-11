@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Configurations>Debug;Release;SecureRelease</Configurations>
-    <OutputType>Exe</OutputType>
+    <OutputType>Library</OutputType>
     <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <PlatformTarget>x64</PlatformTarget>
@@ -55,7 +55,11 @@
        テストソース
        ================================ -->
   <ItemGroup>
-    <Compile Include="Program.cs" />
+    <Compile Include="ZipContentProviderTests.cs" />
+    <Compile Include="NavigationPolicyTests.cs" />
+    <Compile Include="AppConfigTests.cs" />
+    <Compile Include="ReflectionDispatcherTests.cs" />
+    <Compile Include="MiscTests.cs" />
     <Compile Include="SecureOfflineTests.cs" />
   </ItemGroup>
 
@@ -74,5 +78,11 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
   </ItemGroup>
 </Project>

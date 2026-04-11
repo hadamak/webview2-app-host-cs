@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using Xunit;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
@@ -9,7 +10,7 @@ using WebView2AppHost;
 
 namespace HostTests
 {
-    internal static class SidecarTests
+    public class SidecarTests
     {
         private static readonly JavaScriptSerializer s_json = new JavaScriptSerializer();
 
@@ -91,11 +92,11 @@ namespace HostTests
                     throw new TimeoutException("Sidecar CLI did not respond");
 
                 var resp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
-                Assert(resp["id"].ToString() == "cli1", "Response ID mismatch");
+                Assert.True(resp["id"].ToString() == "cli1", "Response ID mismatch");
                 
                 var result = resp["result"]?.ToString() ?? "";
-                Assert(result.Contains("FOO=bar"), "FOO param missing");
-                Assert(result.Contains("COUNT=123"), "COUNT param missing");
+                Assert.True(result.Contains("FOO=bar"), "FOO param missing");
+                Assert.True(result.Contains("COUNT=123"), "COUNT param missing");
             }
         }
 
@@ -135,7 +136,7 @@ namespace HostTests
 
                 var resp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
                 var result = resp["result"]?.ToString() ?? "";
-                Assert(result.Contains("--foo") && result.Contains("bar"), "Auto args failed");
+                Assert.True(result.Contains("--foo") && result.Contains("bar"), "Auto args failed");
             }
         }
 
@@ -174,7 +175,7 @@ namespace HostTests
                     throw new TimeoutException("Sidecar CLI did not respond");
 
                 var resp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
-                Assert(resp["result"].ToString().Trim() == "hello-world", "Placeholder replacement failed");
+                Assert.True(resp["result"].ToString().Trim() == "hello-world", "Placeholder replacement failed");
             }
         }
 
@@ -246,8 +247,8 @@ namespace HostTests
                     throw new TimeoutException("Sidecar did not respond to Math.Add");
 
                 var resp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
-                Assert(resp["id"].ToString() == "t1", "Response ID mismatch");
-                Assert(Convert.ToInt32(resp["result"]) == 30, "Math.Add result mismatch");
+                Assert.True(resp["id"].ToString() == "t1", "Response ID mismatch");
+                Assert.True(Convert.ToInt32(resp["result"]) == 30, "Math.Add result mismatch");
 
                 // Error.Throw
                 responseEvent.Reset();
@@ -265,7 +266,7 @@ namespace HostTests
                     throw new TimeoutException("Sidecar did not respond to Error.Throw");
 
                 var errResp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
-                Assert(errResp.ContainsKey("error"), "Response should contain error");
+                Assert.True(errResp.ContainsKey("error"), "Response should contain error");
 
                 // Restart after child process exits
                 responseEvent.Reset();
@@ -301,14 +302,11 @@ namespace HostTests
                     throw new TimeoutException("Sidecar did not respond after restart");
 
                 var restartResp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
-                Assert(restartResp["id"].ToString() == "t4", "Restart response ID mismatch");
-                Assert(Convert.ToInt32(restartResp["result"]) == 15, "Restarted sidecar result mismatch");
+                Assert.True(restartResp["id"].ToString() == "t4", "Restart response ID mismatch");
+                Assert.True(Convert.ToInt32(restartResp["result"]) == 15, "Restarted sidecar result mismatch");
             }
         }
 
-        private static void Assert(bool cond, string label)
-        {
-            if (!cond) throw new Exception("FAILED: " + label);
-        }
+        
     }
 }

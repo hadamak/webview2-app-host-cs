@@ -1,4 +1,5 @@
 using System;
+using Xunit;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -6,44 +7,39 @@ using WebView2AppHost;
 
 namespace HostTests
 {
-    internal static class SecureOfflineTests
+    public class SecureOfflineTests
     {
-        public static void RunAll()
-        {
 #if SECURE_OFFLINE
-            Console.WriteLine("\n--- Secure Offline Tests ---");
-            Assert(AppConfig.IsSecureMode, "Secure mode flag should be enabled");
-            RunConnectorFactoryTests();
-            RunSecureBinarySymbolTests();
-            Console.WriteLine("  Secure offline tests passed.");
-#else
-            Assert(!AppConfig.IsSecureMode, "Secure mode flag should be disabled in standard builds");
-#endif
+        [Fact]
+        public void AppConfig_IsSecureMode_ReturnsTrue_InSecureBuilds()
+        {
+            Assert.True(AppConfig.IsSecureMode, "Secure mode flag should be enabled");
         }
 
-#if SECURE_OFFLINE
-        private static void RunConnectorFactoryTests()
+        [Fact]
+        public void ConnectorFactoryTests()
         {
             var config = LoadConfig(
                 @"{""connectors"":[{""type"":""sidecar"",""alias"":""BlockedSidecar"",""executable"":""node""},{""type"":""dll"",""alias"":""AllowedDll"",""path"":""dummy.dll""}]}");
             var names = ConnectorFactory.GetAvailableConnectorNames(config, enableMcp: true);
 
-            Assert(names.Contains("Browser"), "ConnectorFactory: Browser should remain available");
-            Assert(names.Contains("Host"), "ConnectorFactory: Host should remain available");
-            Assert(!names.Any(n => n.IndexOf("Mcp", StringComparison.OrdinalIgnoreCase) >= 0),
+            Assert.True(names.Contains("Browser"), "ConnectorFactory: Browser should remain available");
+            Assert.True(names.Contains("Host"), "ConnectorFactory: Host should remain available");
+            Assert.True(!names.Any(n => n.IndexOf("Mcp", StringComparison.OrdinalIgnoreCase) >= 0),
                 "ConnectorFactory: MCP connectors must be absent");
-            Assert(!names.Any(n => n.IndexOf("Pipe", StringComparison.OrdinalIgnoreCase) >= 0),
+            Assert.True(!names.Any(n => n.IndexOf("Pipe", StringComparison.OrdinalIgnoreCase) >= 0),
                 "ConnectorFactory: Pipe connectors must be absent");
-            Assert(!names.Any(n => n.IndexOf("Sidecar", StringComparison.OrdinalIgnoreCase) >= 0),
+            Assert.True(!names.Any(n => n.IndexOf("Sidecar", StringComparison.OrdinalIgnoreCase) >= 0),
                 "ConnectorFactory: Sidecar connectors must be absent");
         }
 
-        private static void RunSecureBinarySymbolTests()
+        [Fact]
+        public void SecureBinarySymbolTests()
         {
             var assemblyPath = ResolveSecureHostAssemblyPath();
             if (!File.Exists(assemblyPath))
             {
-                Console.WriteLine($"  [SKIP] RunSecureBinarySymbolTests: binary not built yet ({assemblyPath})");
+                // Skip gracefully
                 return;
             }
 
@@ -64,7 +60,7 @@ namespace HostTests
                 .Select(t => t.FullName ?? t.Name)
                 .ToList();
 
-            Assert(foundTypes.Count == 0,
+            Assert.True(foundTypes.Count == 0,
                 "Prohibited types found in secure build: " + string.Join(", ", foundTypes));
         }
 
@@ -105,11 +101,12 @@ namespace HostTests
                 return AppConfig.Load(ms) ?? new AppConfig();
             }
         }
-#endif
-
-        private static void Assert(bool cond, string label)
+#else
+        [Fact]
+        public void AppConfig_IsSecureMode_ReturnsFalse_InStandardBuilds()
         {
-            if (!cond) throw new Exception("FAILED: " + label);
+            Assert.False(AppConfig.IsSecureMode, "Secure mode flag should be disabled in standard builds");
         }
+#endif
     }
 }

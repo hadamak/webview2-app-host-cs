@@ -1,4 +1,5 @@
 using System;
+using Xunit;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
@@ -13,34 +14,27 @@ namespace HostTests
     /// McpBridge および McpConnector（stdio MCP）のユニットテスト。
     /// WebView2 への依存はなく、StringReader / StringWriter でシミュレートする。
     /// </summary>
-    internal static class McpTests
+    public class McpTests : IDisposable
     {
-        internal static void RunAll()
+        private readonly TextWriter _oldLog;
+
+        public McpTests()
         {
-            var old = AppLog.Override;
+            _oldLog = AppLog.Override;
             AppLog.Override = TextWriter.Null;
-            try
-            {
-                RunMcpBridgeTests();
-                RunMcpServerInitializeTests();
-                RunMcpServerToolsListTests();
-                RunMcpServerToolsCallTests();
-                RunMcpServerEventForwardingTests();
-                RunMcpServerEdgeCaseTests();
-                RunBrowserToolTests();
-                Console.WriteLine("  MCP tests passed.");
-            }
-            finally
-            {
-                AppLog.Override = old;
-            }
+        }
+
+        public void Dispose()
+        {
+            AppLog.Override = _oldLog;
         }
 
         // =====================================================================
         // McpBridge
         // =====================================================================
 
-        private static void RunMcpBridgeTests()
+        [Fact]
+        public void McpBridgeTests()
         {
             // --- 正常系: Dispatch が CallAsync の TCS を完了させる ---
             {
@@ -55,9 +49,9 @@ namespace HostTests
 
                 callTask.Wait(1000);
 
-                Assert(sent == request,          "McpBridge: リクエスト JSON が sendToPlugin に渡る");
-                Assert(callTask.IsCompleted,      "McpBridge: CallAsync が完了する");
-                Assert(callTask.Result == response, "McpBridge: 応答 JSON が返る");
+                Assert.True(sent == request,          "McpBridge: リクエスト JSON が sendToPlugin に渡る");
+                Assert.True(callTask.IsCompleted,      "McpBridge: CallAsync が完了する");
+                Assert.True(callTask.Result == response, "McpBridge: 応答 JSON が返る");
             }
 
             // --- 正常系: Dispatch が先に来ても CallAsync は結果を受け取る ---
@@ -72,7 +66,7 @@ namespace HostTests
                 // 別スレッドから少し後に Dispatch
                 Task.Delay(20).ContinueWith(_ => bridge.Dispatch(response, null));
                 callTask.Wait(2000);
-                Assert(callTask.IsCompleted && callTask.Result == response,
+                Assert.True(callTask.IsCompleted && callTask.Result == response,
                     "McpBridge: 遅延 Dispatch でも結果を受け取れる");
             }
 
@@ -86,7 +80,7 @@ namespace HostTests
                           .Wait(500);
                 }
                 catch (AggregateException ae) { ex = ae.InnerException; }
-                Assert(ex is TimeoutException, "McpBridge: タイムアウトで TimeoutException");
+                Assert.True(ex is TimeoutException, "McpBridge: タイムアウトで TimeoutException");
             }
 
             // --- キャンセル ---
@@ -99,7 +93,7 @@ namespace HostTests
                 cts.CancelAfter(30);
                 try { task.Wait(500); }
                 catch (AggregateException ae) { ex = ae.InnerException; }
-                Assert(ex is OperationCanceledException, "McpBridge: キャンセルで OperationCanceledException");
+                Assert.True(ex is OperationCanceledException, "McpBridge: キャンセルで OperationCanceledException");
             }
 
             // --- id 不一致(MCP起因) → ログのみで UnsolicitedMessage には流れない ---
@@ -110,7 +104,7 @@ namespace HostTests
 
                 var orphan = @"{""jsonrpc"":""2.0"",""id"":""mcp-no-match"",""result"":""late""}";
                 bridge.Dispatch(orphan, null);
-                Assert(unsolicited == null, "McpBridge: MCP起因のid不一致は UnsolicitedMessage に流れない");
+                Assert.True(unsolicited == null, "McpBridge: MCP起因のid不一致は UnsolicitedMessage に流れない");
             }
 
             // --- 他コネクターのリクエスト(idあり) → 無視 ---
@@ -121,7 +115,7 @@ namespace HostTests
 
                 var otherReq = @"{""jsonrpc"":""2.0"",""id"":1,""method"":""Browser.doSomething"",""params"":[]}";
                 bridge.Dispatch(otherReq, null);
-                Assert(unsolicited == null, "McpBridge: 他コネクターのリクエストは無視される");
+                Assert.True(unsolicited == null, "McpBridge: 他コネクターのリクエストは無視される");
             }
 
             // --- id なし (JSON-RPC 2.0 通知) → UnsolicitedMessage イベント ---
@@ -132,7 +126,7 @@ namespace HostTests
 
                 var evt = @"{""jsonrpc"":""2.0"",""method"":""Node.onData"",""params"":{""value"":42}}";
                 bridge.Dispatch(evt, null);
-                Assert(unsolicited == evt, "McpBridge: id なし (2.0通知) は UnsolicitedMessage に流れる");
+                Assert.True(unsolicited == evt, "McpBridge: id なし (2.0通知) は UnsolicitedMessage に流れる");
             }
 
             // --- 重複 id はエラー ---
@@ -143,7 +137,7 @@ namespace HostTests
                 try { bridge.CallAsync("{}", "dup", _ => { }, TimeSpan.FromSeconds(5)).Wait(100); }
                 catch (InvalidOperationException ioe) { ex = ioe; }
                 catch (AggregateException ae) { ex = ae.InnerException; }
-                Assert(ex is InvalidOperationException, "McpBridge: 重複 id は InvalidOperationException");
+                Assert.True(ex is InvalidOperationException, "McpBridge: 重複 id は InvalidOperationException");
             }
 
             Console.WriteLine("    McpBridge tests passed.");
@@ -197,23 +191,24 @@ namespace HostTests
         // McpConnector: initialize
         // =====================================================================
 
-        private static void RunMcpServerInitializeTests()
+        [Fact]
+        public void McpServerInitializeTests()
         {
             var lines = RunServer(new[]
             {
                 @"{""jsonrpc"":""2.0"",""id"":1,""method"":""initialize"",""params"":{""protocolVersion"":""2024-11-05"",""capabilities"":{},""clientInfo"":{""name"":""TestClient"",""version"":""1.0""}}}"
             });
 
-            Assert(lines.Count >= 1, "McpServer.initialize: 応答が1行以上ある");
+            Assert.True(lines.Count >= 1, "McpServer.initialize: 応答が1行以上ある");
 
             var resp = ParseJson(lines[0]);
-            Assert(resp.ContainsKey("result"), "McpServer.initialize: result フィールドがある");
+            Assert.True(resp.ContainsKey("result"), "McpServer.initialize: result フィールドがある");
 
             var result = resp["result"] as Dictionary<string, object>;
-            Assert(result != null, "McpServer.initialize: result がオブジェクト");
-            Assert(result!.ContainsKey("protocolVersion"), "McpServer.initialize: protocolVersion がある");
-            Assert(result.ContainsKey("capabilities"),     "McpServer.initialize: capabilities がある");
-            Assert(result.ContainsKey("serverInfo"),       "McpServer.initialize: serverInfo がある");
+            Assert.True(result != null, "McpServer.initialize: result がオブジェクト");
+            Assert.True(result!.ContainsKey("protocolVersion"), "McpServer.initialize: protocolVersion がある");
+            Assert.True(result.ContainsKey("capabilities"),     "McpServer.initialize: capabilities がある");
+            Assert.True(result.ContainsKey("serverInfo"),       "McpServer.initialize: serverInfo がある");
 
             Console.WriteLine("    McpConnector.initialize tests passed.");
         }
@@ -222,26 +217,27 @@ namespace HostTests
         // McpConnector: tools/list
         // =====================================================================
 
-        private static void RunMcpServerToolsListTests()
+        [Fact]
+        public void McpServerToolsListTests()
         {
             var lines = RunServer(new[]
             {
                 @"{""jsonrpc"":""2.0"",""id"":2,""method"":""tools/list"",""params"":{}}"
             }, configure: m => m.EnableBrowserProxy());
 
-            Assert(lines.Count >= 1, "McpServer.tools/list: 応答がある");
+            Assert.True(lines.Count >= 1, "McpServer.tools/list: 応答がある");
 
             var resp   = ParseJson(lines[0]);
             var result = resp["result"] as Dictionary<string, object>;
-            Assert(result != null, "McpServer.tools/list: result がある");
+            Assert.True(result != null, "McpServer.tools/list: result がある");
 
             var tools = result!["tools"] as System.Collections.ArrayList;
-            Assert(tools != null && tools.Count >= 1, "McpServer.tools/list: ツールが1つ以上ある");
+            Assert.True(tools != null && tools.Count >= 1, "McpServer.tools/list: ツールが1つ以上ある");
 
             var first = tools![0] as Dictionary<string, object>;
-            Assert(first != null && first!["name"]?.ToString() == "browser_evaluate",
+            Assert.True(first != null && first!["name"]?.ToString() == "browser_evaluate",
                 "McpServer.tools/list: browser_evaluate ツールが含まれる");
-            Assert(first.ContainsKey("inputSchema"),
+            Assert.True(first.ContainsKey("inputSchema"),
                 "McpServer.tools/list: inputSchema がある");
 
             Console.WriteLine("    McpConnector.tools/list tests passed.");
@@ -251,7 +247,8 @@ namespace HostTests
         // McpConnector: tools/call
         // =====================================================================
 
-        private static void RunMcpServerToolsCallTests()
+        [Fact]
+        public void McpServerToolsCallTests()
         {
             // --- 正常系: handleWebMessage がリクエスト id で応答する ---
             {
@@ -270,13 +267,13 @@ namespace HostTests
                     },
                     configure: m => m.EnableBrowserProxy());
 
-                Assert(lines.Count >= 1, "McpServer.tools/call 正常系: 応答がある");
+                Assert.True(lines.Count >= 1, "McpServer.tools/call 正常系: 応答がある");
                 var resp   = ParseJson(lines[0]);
                 var result = resp["result"] as Dictionary<string, object>;
-                Assert(result != null,                                       "McpServer.tools/call 正常系: result がある");
-                Assert((bool)(result!["isError"]) == false,                  "McpServer.tools/call 正常系: isError=false");
+                Assert.True(result != null,                                       "McpServer.tools/call 正常系: result がある");
+                Assert.True((bool)(result!["isError"]) == false,                  "McpServer.tools/call 正常系: isError=false");
                 var content = result["content"] as System.Collections.ArrayList;
-                Assert(content != null && content.Count >= 1,                "McpServer.tools/call 正常系: content がある");
+                Assert.True(content != null && content.Count >= 1,                "McpServer.tools/call 正常系: content がある");
             }
 
             // --- タイムアウト: handleWebMessage が応答しない ---
@@ -289,10 +286,10 @@ namespace HostTests
                     handleWebMessage: (_, __) => { /* 応答しない */ },
                     configure: m => m.EnableBrowserProxy());
 
-                Assert(lines.Count >= 1, "McpServer.tools/call タイムアウト: 応答がある");
+                Assert.True(lines.Count >= 1, "McpServer.tools/call タイムアウト: 応答がある");
                 var resp   = ParseJson(lines[0]);
                 var result = resp["result"] as Dictionary<string, object>;
-                Assert(result != null && (bool)result!["isError"] == true,
+                Assert.True(result != null && (bool)result!["isError"] == true,
                     "McpServer.tools/call タイムアウト: isError=true");
             }
 
@@ -302,9 +299,9 @@ namespace HostTests
                 {
                     @"{""jsonrpc"":""2.0"",""id"":5,""method"":""tools/call"",""params"":{""arguments"":{}}}"
                 });
-                Assert(lines.Count >= 1, "McpServer.tools/call: name 未指定エラーの応答がある");
+                Assert.True(lines.Count >= 1, "McpServer.tools/call: name 未指定エラーの応答がある");
                 var result = ParseJson(lines[0])["result"] as Dictionary<string, object>;
-                Assert(result != null && (bool)result!["isError"] == true,
+                Assert.True(result != null && (bool)result!["isError"] == true,
                     "McpServer.tools/call: name 未指定は isError=true");
             }
 
@@ -314,16 +311,17 @@ namespace HostTests
                 {
                     @"{""jsonrpc"":""2.0"",""id"":6,""method"":""tools/call"",""params"":{""name"":""unknown_tool"",""arguments"":{}}}"
                 });
-                Assert(lines.Count >= 1, "McpServer.tools/call: 未知ツールの応答がある");
+                Assert.True(lines.Count >= 1, "McpServer.tools/call: 未知ツールの応答がある");
                 var result = ParseJson(lines[0])["result"] as Dictionary<string, object>;
-                Assert(result != null && (bool)result!["isError"] == true,
+                Assert.True(result != null && (bool)result!["isError"] == true,
                     "McpServer.tools/call: 未知ツールは isError=true");
             }
 
             Console.WriteLine("    McpServer.tools/call tests passed.");
         }
 
-        private static void RunMcpServerEventForwardingTests()
+        [Fact]
+        public void McpServerEventForwardingTests()
         {
             var outBuf = new StringBuilder();
             var output = new StringWriter(outBuf);
@@ -349,10 +347,10 @@ namespace HostTests
             }
 
             var notif1 = lines.Find(l => l.Contains("plugin/event/Node/onData"));
-            Assert(notif1 != null, "McpServer.event: 通知1が出力される");
+            Assert.True(notif1 != null, "McpServer.event: 通知1が出力される");
 
             var notif2 = lines.Find(l => l.Contains("plugin/event/Browser/OnTestEvent"));
-            Assert(notif2 != null, "McpServer.event: 通知2が出力される");
+            Assert.True(notif2 != null, "McpServer.event: 通知2が出力される");
 
             Console.WriteLine("    McpServer event forwarding tests passed.");
         }
@@ -361,7 +359,8 @@ namespace HostTests
         // McpServer: エッジケース
         // =====================================================================
 
-        private static void RunMcpServerEdgeCaseTests()
+        [Fact]
+        public void McpServerEdgeCaseTests()
         {
             // --- ping ---
             {
@@ -369,9 +368,9 @@ namespace HostTests
                 {
                     @"{""jsonrpc"":""2.0"",""id"":10,""method"":""ping""}"
                 });
-                Assert(lines.Count >= 1, "McpServer.ping: 応答がある");
+                Assert.True(lines.Count >= 1, "McpServer.ping: 応答がある");
                 var resp = ParseJson(lines[0]);
-                Assert(resp.ContainsKey("result"), "McpServer.ping: result がある");
+                Assert.True(resp.ContainsKey("result"), "McpServer.ping: result がある");
             }
 
             // --- initialized 通知（応答不要）---
@@ -381,17 +380,17 @@ namespace HostTests
                     @"{""jsonrpc"":""2.0"",""method"":""initialized""}"
                 });
                 // initialized に対しては何も返さない
-                Assert(lines.Count == 0, "McpServer.initialized: 応答を返さない");
+                Assert.True(lines.Count == 0, "McpServer.initialized: 応答を返さない");
             }
 
             // --- 不正 JSON ---
             {
                 var lines = RunServer(new[] { "not-json-at-all" });
-                Assert(lines.Count >= 1, "McpServer: 不正 JSON にはエラー応答");
+                Assert.True(lines.Count >= 1, "McpServer: 不正 JSON にはエラー応答");
                 var resp = ParseJson(lines[0]);
-                Assert(resp.ContainsKey("error"), "McpServer: 不正 JSON は error フィールド");
+                Assert.True(resp.ContainsKey("error"), "McpServer: 不正 JSON は error フィールド");
                 var err = resp["error"] as Dictionary<string, object>;
-                Assert(err != null && Convert.ToInt32(err!["code"]) == -32700,
+                Assert.True(err != null && Convert.ToInt32(err!["code"]) == -32700,
                     "McpServer: ParseError は -32700");
             }
 
@@ -401,10 +400,10 @@ namespace HostTests
                 {
                     @"{""jsonrpc"":""2.0"",""id"":99,""method"":""no/such/method""}"
                 });
-                Assert(lines.Count >= 1, "McpServer: 未知メソッドにはエラー応答");
+                Assert.True(lines.Count >= 1, "McpServer: 未知メソッドにはエラー応答");
                 var resp = ParseJson(lines[0]);
                 var err  = resp["error"] as Dictionary<string, object>;
-                Assert(err != null && Convert.ToInt32(err!["code"]) == -32601,
+                Assert.True(err != null && Convert.ToInt32(err!["code"]) == -32601,
                     "McpServer: MethodNotFound は -32601");
             }
 
@@ -414,7 +413,7 @@ namespace HostTests
                 {
                     @"{""jsonrpc"":""2.0"",""method"":""unknown/notification""}"
                 });
-                Assert(lines.Count == 0, "McpServer: 未知通知は無応答");
+                Assert.True(lines.Count == 0, "McpServer: 未知通知は無応答");
             }
 
             Console.WriteLine("    McpServer edge case tests passed.");
@@ -428,7 +427,8 @@ namespace HostTests
         // ブラウザツール（BrowserContext なしの場合の動作）
         // =====================================================================
 
-        private static void RunBrowserToolTests()
+        [Fact]
+        public void BrowserToolTests()
         {
             // --- BrowserContext なし（Mode 1）: ツールリストにブラウザツールが出ない ---
             {
@@ -436,10 +436,10 @@ namespace HostTests
                 {
                     @"{""jsonrpc"":""2.0"",""id"":20,""method"":""tools/list"",""params"":{}}"
                 });
-                Assert(lines.Count >= 1, "BrowserTools (Mode1): tools/list 応答がある");
+                Assert.True(lines.Count >= 1, "BrowserTools (Mode1): tools/list 応答がある");
                 var result = ParseJson(lines[0])["result"] as Dictionary<string, object>;
                 var tools  = result!["tools"] as System.Collections.ArrayList;
-                Assert(tools != null, "BrowserTools (Mode1): tools がある");
+                Assert.True(tools != null, "BrowserTools (Mode1): tools がある");
 
                 // ブラウザツールが含まれていないことを確認
                 bool hasBrowser = false;
@@ -449,7 +449,7 @@ namespace HostTests
                     if (td?["name"]?.ToString()?.StartsWith("browser_") == true)
                         hasBrowser = true;
                 }
-                Assert(!hasBrowser, "BrowserTools (Mode1): ブラウザツールは含まれない");
+                Assert.True(!hasBrowser, "BrowserTools (Mode1): ブラウザツールは含まれない");
             }
 
             // --- BrowserContext なし: browser_* を呼ぶとエラー ---
@@ -458,13 +458,13 @@ namespace HostTests
                 {
                     @"{""jsonrpc"":""2.0"",""id"":21,""method"":""tools/call"",""params"":{""name"":""browser_evaluate"",""arguments"":{""script"":""document.title""}}}"
                 });
-                Assert(lines.Count >= 1, "BrowserTools (Mode1): browser_evaluate はエラー応答");
+                Assert.True(lines.Count >= 1, "BrowserTools (Mode1): browser_evaluate はエラー応答");
                 var result = ParseJson(lines[0])["result"] as Dictionary<string, object>;
-                Assert(result != null && (bool)result!["isError"] == true,
+                Assert.True(result != null && (bool)result!["isError"] == true,
                     "BrowserTools (Mode1): browser_evaluate は isError=true");
                 var content = result["content"] as System.Collections.ArrayList;
                 var first   = content?[0] as Dictionary<string, object>;
-                Assert(first?["text"]?.ToString()?.Contains("--mcp") == true,
+                Assert.True(first?["text"]?.ToString()?.Contains("--mcp") == true,
                     "BrowserTools (Mode1): エラーメッセージに --mcp の説明がある");
             }
 
@@ -475,7 +475,7 @@ namespace HostTests
                     @"{""jsonrpc"":""2.0"",""id"":22,""method"":""tools/call"",""params"":{""name"":""browser_screenshot"",""arguments"":{}}}"
                 });
                 var result = ParseJson(lines[0])["result"] as Dictionary<string, object>;
-                Assert(result != null && (bool)result!["isError"] == true,
+                Assert.True(result != null && (bool)result!["isError"] == true,
                     "BrowserTools (Mode1): browser_screenshot は isError=true");
             }
 
@@ -487,16 +487,11 @@ namespace HostTests
                 });
                 // BrowserContext なしなので Mode 1 エラー（script 未指定より先にチェックされる）
                 var result = ParseJson(lines[0])["result"] as Dictionary<string, object>;
-                Assert(result != null && (bool)result!["isError"] == true,
+                Assert.True(result != null && (bool)result!["isError"] == true,
                     "BrowserTools: browser_evaluate 引数なしはエラー");
             }
 
             Console.WriteLine("    Browser tool tests passed.");
-        }
-
-        private static void Assert(bool cond, string label)
-        {
-            if (!cond) throw new InvalidOperationException($"FAILED: {label}");
         }
     }
 }
