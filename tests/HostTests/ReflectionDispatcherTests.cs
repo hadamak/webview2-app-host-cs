@@ -127,5 +127,49 @@ namespace HostTests
             Assert.NotNull(dispatcher.LastNotification);
             Assert.Equal("OnEvent", dispatcher.LastNotification!.EventName);
         }
+
+        [Fact]
+        public void ConvertArg_WithEnum_ConvertsCorrectly()
+        {
+            var dispatcher = new TestJsonRpcDispatcher();
+            var method = typeof(ReflectionDispatcherBase).GetMethod("ConvertArg", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(method);
+
+            // Test string enum
+            var result = method!.Invoke(dispatcher, new object[] { "Warn", typeof(AppLog.LogLevel) });
+            Assert.Equal(AppLog.LogLevel.Warn, result);
+
+            // Test int enum
+            var result2 = method!.Invoke(dispatcher, new object[] { 1, typeof(AppLog.LogLevel) }); // 1 usually aligns with Warn depending on enum definition
+            Assert.Equal((AppLog.LogLevel)1, result2);
+        }
+
+        [Fact]
+        public void ConvertArg_WithByteArray_ConvertsFromBase64()
+        {
+            var dispatcher = new TestJsonRpcDispatcher();
+            var method = typeof(ReflectionDispatcherBase).GetMethod("ConvertArg", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(method);
+
+            var base64 = Convert.ToBase64String(new byte[] { 1, 2, 3 });
+            var result = method!.Invoke(dispatcher, new object[] { base64, typeof(byte[]) });
+            Assert.Equal(new byte[] { 1, 2, 3 }, result);
+        }
+
+        [Fact]
+        public void ConvertArg_WithNullable_ConvertsCorrectly()
+        {
+            var dispatcher = new TestJsonRpcDispatcher();
+            var method = typeof(ReflectionDispatcherBase).GetMethod("ConvertArg", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(method);
+
+            // Null into Nullable
+            var resultNull = method!.Invoke(dispatcher, new object?[] { null, typeof(int?) });
+            Assert.Null(resultNull);
+
+            // Value into Nullable
+            var resultVal = method!.Invoke(dispatcher, new object[] { 42, typeof(int?) });
+            Assert.Equal(42, resultVal);
+        }
     }
 }

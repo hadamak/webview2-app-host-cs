@@ -27,6 +27,30 @@ namespace HostTests
         }
 
         [Fact]
+        public void ParseRange_EdgeCases_HandlesCorrectly()
+        {
+            // Clamping end to total-1
+            var r1 = WebResourceHandler.ParseRange("bytes=0-2000", 1000);
+            Assert.Equal(999, r1!.Value.end);
+
+            // Suffix range: last 500 bytes
+            var r2 = WebResourceHandler.ParseRange("bytes=-500", 1000);
+            Assert.Equal(500, r2!.Value.start);
+            Assert.Equal(999, r2.Value.end);
+
+            // Open ended range
+            var r3 = WebResourceHandler.ParseRange("bytes=500-", 1000);
+            Assert.Equal(500, r3!.Value.start);
+            Assert.Equal(999, r3.Value.end);
+
+            // Invalid formats should return null
+            Assert.Null(WebResourceHandler.ParseRange("invalid", 1000));
+            Assert.Null(WebResourceHandler.ParseRange("bytes=500-200", 1000)); // Reversed
+            Assert.Null(WebResourceHandler.ParseRange("bytes=1000-1100", 1000)); // Out of bounds
+            Assert.Null(WebResourceHandler.ParseRange("bytes=0-499, 500-999", 1000)); // Multi-range (not supported)
+        }
+
+        [Fact]
         public void SubStream_Length_ReturnsCorrectValue()
         {
             using var ms = new MemoryStream(Encoding.ASCII.GetBytes("0123456789"));
@@ -105,10 +129,42 @@ namespace HostTests
         }
 
         [Fact]
-        public void CloseRequestState_Initially_IsNotConfirmed()
+        public void CloseRequestState_StateTransitions_WorkCorrectly()
         {
             var s = new CloseRequestState();
+            
+            // Initial -> InProgress
             Assert.False(s.IsClosingConfirmed);
+            Assert.False(s.IsClosingInProgress);
+            s.BeginHostCloseNavigation();
+            Assert.True(s.IsClosingInProgress);
+            
+            // InProgress -> Cancelled (Initial)
+            s.CancelHostCloseNavigation();
+            Assert.False(s.IsClosingInProgress);
+            
+            // InProgress -> Confirmed (Success)
+            s.BeginHostCloseNavigation();
+            bool success = s.TryCompleteCloseNavigation(true);
+            Assert.True(success);
+            Assert.True(s.IsClosingConfirmed);
+            Assert.False(s.IsClosingInProgress);
+            
+            // Confirmed state is sticky for TryComplete (should return false if not InProgress)
+            Assert.False(s.TryCompleteCloseNavigation(true));
+            
+            // Reset and test Failure path
+            var s2 = new CloseRequestState();
+            s2.BeginHostCloseNavigation();
+            bool failResult = s2.TryCompleteCloseNavigation(false);
+            Assert.False(failResult);
+            Assert.False(s2.IsClosingConfirmed);
+            Assert.False(s2.IsClosingInProgress);
+            
+            // Direct Close
+            var s3 = new CloseRequestState();
+            s3.ConfirmDirectClose();
+            Assert.True(s3.IsClosingConfirmed);
         }
 
         [Fact]

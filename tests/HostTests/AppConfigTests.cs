@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using Xunit;
 using WebView2AppHost;
 
@@ -148,6 +149,63 @@ namespace HostTests
             Assert.Contains("PipeServer", directConnectorNames);
             Assert.Contains("Mcp", directConnectorNames);
 #endif
+        }
+
+        [Fact]
+        public void NormalizeConnectors_WithDuplicateAliases_KeepsFirstOrThrows()
+        {
+            var json = @"
+            {
+              ""connectors"": [
+                { ""type"": ""dll"", ""alias"": ""Test"", ""path"": ""first.dll"" },
+                { ""type"": ""dll"", ""alias"": ""Test"", ""path"": ""second.dll"" }
+              ]
+            }";
+            var cfg = LoadConfig(json);
+            Assert.NotNull(cfg);
+            // Verify that only the first alias is retained or it handles dupes gracefully depending on AppConfig implementation.
+            // Currently AppConfig uses aliases for dictionaries, so we just want to ensure it parses without crashing,
+            // or the first one wins.
+            Assert.Contains(cfg!.LoadDlls, x => x.Alias == "Test");
+            Assert.Equal(1, cfg.LoadDlls.Count(x => x.Alias == "Test"));
+        }
+
+        [Fact]
+        public void NormalizeConnectors_WithInvalidPaths_BoundaryValues()
+        {
+            var json = @"
+            {
+              ""connectors"": [
+                { ""type"": ""dll"", ""alias"": ""EmptyPath"", ""path"": """" },
+                { ""type"": ""sidecar"", ""alias"": ""EmptyExe"", ""executable"": """" }
+              ]
+            }";
+            var cfg = LoadConfig(json);
+            Assert.NotNull(cfg);
+            // Assuming empty paths are either ignored or loaded as is without throwing exception during load.
+            Assert.Empty(cfg!.LoadDlls);
+#if !SECURE_OFFLINE
+            Assert.Empty(cfg.Sidecars);
+#endif
+        }
+
+        [Fact]
+        public void ConnectorFactory_BuildHeadless_BuildsCorrectly()
+        {
+            var json = @"
+            {
+              ""connectors"": [
+                { ""type"": ""dll"", ""alias"": ""Test"", ""path"": ""test.dll"" },
+                { ""type"": ""sidecar"", ""alias"": ""Sidecar"", ""executable"": ""node"" }
+              ]
+            }";
+            var cfg = LoadConfig(json);
+            Assert.NotNull(cfg);
+            
+            var (bus, mcp) = ConnectorFactory.BuildHeadless(cfg!, CancellationToken.None);
+            
+            Assert.NotNull(bus);
+            Assert.NotNull(mcp);
         }
     }
 }
