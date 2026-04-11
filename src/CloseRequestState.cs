@@ -32,22 +32,29 @@ namespace WebView2AppHost
     /// </summary>
     internal sealed class CloseRequestState
     {
-        public bool IsClosingConfirmed { get; private set; }
+        private enum State
+        {
+            None = 0,
+            InProgress = 1,
+            Confirmed = 2
+        }
 
-        public bool IsClosingInProgress { get; private set; }
+        private int _state = (int)State.None;
 
-        public bool IsHostCloseNavigationPending { get; private set; }
+        public bool IsClosingConfirmed => System.Threading.Volatile.Read(ref _state) == (int)State.Confirmed;
+
+        public bool IsClosingInProgress => System.Threading.Volatile.Read(ref _state) == (int)State.InProgress;
+
+        public bool IsHostCloseNavigationPending => System.Threading.Volatile.Read(ref _state) == (int)State.InProgress;
 
         public void BeginHostCloseNavigation()
         {
-            IsClosingInProgress = true;
-            IsHostCloseNavigationPending = true;
+            System.Threading.Interlocked.CompareExchange(ref _state, (int)State.InProgress, (int)State.None);
         }
 
         public void CancelHostCloseNavigation()
         {
-            IsClosingInProgress = false;
-            IsHostCloseNavigationPending = false;
+            System.Threading.Interlocked.CompareExchange(ref _state, (int)State.None, (int)State.InProgress);
         }
 
         /// <summary>
@@ -56,26 +63,31 @@ namespace WebView2AppHost
         /// </summary>
         public void ConfirmDirectClose()
         {
-            IsClosingConfirmed = true;
+            System.Threading.Interlocked.Exchange(ref _state, (int)State.Confirmed);
         }
 
         public bool ShouldConvertPageCloseRequestToHostClose()
         {
-            return !IsClosingConfirmed && !IsHostCloseNavigationPending;
+            var s = System.Threading.Volatile.Read(ref _state);
+            return s != (int)State.Confirmed && s != (int)State.InProgress;
         }
 
         public bool TryCompleteCloseNavigation(bool isSuccess)
         {
-            if (!IsHostCloseNavigationPending)
+            if (System.Threading.Volatile.Read(ref _state) != (int)State.InProgress)
                 return false;
 
-            IsClosingInProgress = false;
-            IsHostCloseNavigationPending = false;
-            if (!isSuccess)
+            if (isSuccess)
+            {
+                // InProgress -> Confirmed への遷移に成功した場合のみ true を返す
+                return System.Threading.Interlocked.CompareExchange(ref _state, (int)State.Confirmed, (int)State.InProgress) == (int)State.InProgress;
+            }
+            else
+            {
+                // 失敗時は None に戻す
+                System.Threading.Interlocked.CompareExchange(ref _state, (int)State.None, (int)State.InProgress);
                 return false;
-
-            IsClosingConfirmed = true;
-            return true;
+            }
         }
     }
 }

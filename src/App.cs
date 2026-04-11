@@ -629,9 +629,6 @@ namespace WebView2AppHost
 
             e.Cancel = true;
 
-            if (_closeState.IsClosingInProgress)
-                return;
-
             StartCloseNavigation();
         }
 
