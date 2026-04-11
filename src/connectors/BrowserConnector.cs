@@ -33,7 +33,19 @@ namespace WebView2AppHost
         }
 
         public string Name => "Browser";
-        public Action<string> Publish { set { _publish = value; _postMessage = msg => { _publish?.Invoke(msg); PostToWebView(msg); }; } }
+        public Action<string> Publish
+        {
+            set
+            {
+                _publish = value;
+                // BrowserConnector は WebView2 への送信とバスへの送信を同時に行う
+                _postMessage = msg =>
+                {
+                    _publish?.Invoke(msg);
+                    PostToWebView(msg);
+                };
+            }
+        }
 
         public void Deliver(string messageJson, Dictionary<string, object>? messageDict)
         {
