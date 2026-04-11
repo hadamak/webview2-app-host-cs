@@ -299,6 +299,8 @@ namespace WebView2AppHost
             public Stream? OpenEntry(string virtualPath)
             {
                 var entryName = virtualPath.TrimStart('/');
+                if (string.IsNullOrEmpty(entryName) || entryName.Contains("..")) return null;
+
                 if (_cache.TryGetValue(entryName, out var cached))
                     return new MemoryStream(cached, writable: false);
 
