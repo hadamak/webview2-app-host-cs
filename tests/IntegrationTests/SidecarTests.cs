@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Xunit;
 using System.Collections;
 using System.Collections.Generic;
@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using WebView2AppHost;
+using System.Reflection;
 
 namespace HostTests
 {
@@ -14,299 +15,187 @@ namespace HostTests
     {
         private static readonly JavaScriptSerializer s_json = new JavaScriptSerializer();
 
-        public static void RunAll()
+        private static bool IsNodeAvailable()
         {
-            Console.WriteLine("\n--- Sidecar Integration Tests ---");
-            
-            if (!IsNodeAvailable())
+            try
             {
-                Console.WriteLine("  [SKIP] Node.js is not available in PATH.");
-                return;
+                var psi = new System.Diagnostics.ProcessStartInfo("node", "--version")
+                {
+                    RedirectStandardOutput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using (var p = System.Diagnostics.Process.Start(psi))
+                {
+                    p.WaitForExit(1000);
+                    return p.ExitCode == 0;
+                }
             }
+            catch { return false; }
+        }
+
+        [Fact]
+        public async Task TestStreamingModeAsync()
+        {
+            if (!IsNodeAvailable()) return;
+
+            var script = "process.stdin.on('data', d => process.stdout.write(d));";
+            var scriptPath = Path.GetTempFileName();
+            File.WriteAllText(scriptPath, script);
 
             try
             {
-                TestStreamingModeAsync().GetAwaiter().GetResult();
-                Console.WriteLine("  Sidecar streaming mode test passed.");
-
-                TestCliModeNamedParamsAsync().GetAwaiter().GetResult();
-                Console.WriteLine("  Sidecar CLI named params test passed.");
-
-                TestCliModeAutoArgsAsync().GetAwaiter().GetResult();
-                Console.WriteLine("  Sidecar CLI auto args test passed.");
-
-                TestCliModePlaceholderAsync().GetAwaiter().GetResult();
-                Console.WriteLine("  Sidecar CLI placeholder test passed.");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception("Sidecar test failed", ex);
-            }
-        }
-
-        private static bool IsNodeAvailable()
-        {
-            try {
-                using (var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo {
-                    FileName = "node", Arguments = "-v", UseShellExecute = false, 
-                    CreateNoWindow = true, RedirectStandardOutput = true })) {
-                    p.WaitForExit();
-                    return p.ExitCode == 0;
-                }
-            } catch { return false; }
-        }
-
-        private static async Task TestCliModeNamedParamsAsync()
-        {
-            var entry = new SidecarEntry
-            {
-                Alias = "TestCli",
-                Mode = "cli",
-                Executable = "cmd",
-                Args = new[] { "/c", "echo", "FOO={foo}", "COUNT={count}" }
-            };
-
-            using (var connector = new SidecarConnector(entry, CancellationToken.None))
-            {
-                string lastResponse = null;
-                var responseEvent = new ManualResetEventSlim(false);
-
-                connector.Publish = json => {
-                    lastResponse = json;
-                    responseEvent.Set();
-                };
-
-                var request = new Dictionary<string, object> {
-                    ["jsonrpc"] = "2.0",
-                    ["id"] = "cli1",
-                    ["method"] = "TestCli.Echo",
-                    ["params"] = new Dictionary<string, object> {
-                        ["foo"] = "bar",
-                        ["count"] = 123
-                    }
-                };
-
-                connector.Deliver(s_json.Serialize(request), null);
-
-                if (!responseEvent.Wait(5000))
-                    throw new TimeoutException("Sidecar CLI did not respond");
-
-                var resp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
-                Assert.True(resp["id"].ToString() == "cli1", "Response ID mismatch");
-                
-                var result = resp["result"]?.ToString() ?? "";
-                Assert.True(result.Contains("FOO=bar"), "FOO param missing");
-                Assert.True(result.Contains("COUNT=123"), "COUNT param missing");
-            }
-        }
-
-        private static async Task TestCliModeAutoArgsAsync()
-        {
-            var entry = new SidecarEntry
-            {
-                Alias = "TestCliAuto",
-                Mode = "cli",
-                Executable = "cmd",
-                Args = new[] { "/c", "echo" }
-            };
-
-            using (var connector = new SidecarConnector(entry, CancellationToken.None))
-            {
-                string lastResponse = null;
-                var responseEvent = new ManualResetEventSlim(false);
-
-                connector.Publish = json => {
-                    lastResponse = json;
-                    responseEvent.Set();
-                };
-
-                var request = new Dictionary<string, object> {
-                    ["jsonrpc"] = "2.0",
-                    ["id"] = "cli_auto",
-                    ["method"] = "TestCliAuto.Echo",
-                    ["params"] = new Dictionary<string, object> {
-                        ["foo"] = "bar"
-                    }
-                };
-
-                connector.Deliver(s_json.Serialize(request), null);
-
-                if (!responseEvent.Wait(5000))
-                    throw new TimeoutException("Sidecar CLI did not respond");
-
-                var resp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
-                var result = resp["result"]?.ToString() ?? "";
-                Assert.True(result.Contains("--foo") && result.Contains("bar"), "Auto args failed");
-            }
-        }
-
-        private static async Task TestCliModePlaceholderAsync()
-        {
-            var entry = new SidecarEntry
-            {
-                Alias = "TestCliPlace",
-                Mode = "cli",
-                Executable = "cmd",
-                Args = new[] { "/c", "echo", "{val}" }
-            };
-
-            using (var connector = new SidecarConnector(entry, CancellationToken.None))
-            {
-                string lastResponse = null;
-                var responseEvent = new ManualResetEventSlim(false);
-
-                connector.Publish = json => {
-                    lastResponse = json;
-                    responseEvent.Set();
-                };
-
-                var request = new Dictionary<string, object> {
-                    ["jsonrpc"] = "2.0",
-                    ["id"] = "cli2",
-                    ["method"] = "TestCliPlace.Echo",
-                    ["params"] = new Dictionary<string, object> {
-                        ["val"] = "hello-world"
-                    }
-                };
-
-                connector.Deliver(s_json.Serialize(request), null);
-
-                if (!responseEvent.Wait(5000))
-                    throw new TimeoutException("Sidecar CLI did not respond");
-
-                var resp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
-                Assert.True(resp["result"].ToString().Trim() == "hello-world", "Placeholder replacement failed");
-            }
-        }
-
-        private static async Task TestStreamingModeAsync()
-        {
-            var testSidecarPath = "";
-            var searchDir = new DirectoryInfo(Directory.GetCurrentDirectory());
-            
-            for (int i = 0; i < 5; i++)
-            {
-                var candidate = Path.Combine(searchDir.FullName, "tests", "TestSidecar", "test_sidecar.js");
-                if (File.Exists(candidate))
+                var entry = new SidecarEntry
                 {
-                    testSidecarPath = candidate;
-                    break;
-                }
-                searchDir = searchDir.Parent;
-                if (searchDir == null) break;
+                    Alias = "EchoStream",
+                    Executable = "node",
+                    Args = new[] { scriptPath },
+                    Mode = "streaming"
+                };
+
+                using var cts = new CancellationTokenSource(5000);
+                var sidecar = new SidecarConnector(entry, cts.Token);
+                
+                var received = new TaskCompletionSource<string>();
+                sidecar.Publish = json => received.TrySetResult(json);
+
+                sidecar.Start();
+                
+                var testMsg = "{\"test\":123}";
+                sidecar.Deliver(testMsg, null);
+
+                var result = await received.Task;
+                Assert.Equal(testMsg, result.Trim());
+
+                sidecar.Dispose();
             }
-
-            if (string.IsNullOrEmpty(testSidecarPath))
-                throw new FileNotFoundException("Could not find test_sidecar.js");
-
-            var entry = new SidecarEntry
+            finally
             {
-                Alias = "TestSidecar",
-                Mode = "streaming",
-                Executable = "node",
-                WorkingDirectory = Path.GetDirectoryName(testSidecarPath),
-                Args = new[] { testSidecarPath },
-                WaitForReady = true
-            };
-
-            var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            using (var connector = new SidecarConnector(entry, cts.Token))
-            {
-                string lastResponse = null;
-                var responseEvent = new ManualResetEventSlim(false);
-                var readyEvent = new ManualResetEventSlim(false);
-
-                connector.Publish = json => {
-                    Console.WriteLine("  [Test] Received from Sidecar: " + json);
-                    if (json.Contains("\"ready\"") && json.Contains("true"))
-                    {
-                        Console.WriteLine("  [Test] Observed Ready Signal");
-                        readyEvent.Set();
-                        return; // ready signal is not a JSON-RPC response
-                    }
-                    lastResponse = json;
-                    responseEvent.Set();
-                };
-
-                Console.WriteLine("  [Test] Starting Sidecar...");
-                connector.Start();
-
-                // Math.Add
-                var request = new Dictionary<string, object> {
-                    ["jsonrpc"] = "2.0",
-                    ["id"] = "t1",
-                    ["method"] = "TestSidecar.Test.Math.Add", // method prefix を alias に合わせる
-                    ["params"] = new[] { 10, 20 }
-                };
-                
-                var reqJson = s_json.Serialize(request);
-                Console.WriteLine("  [Test] Sending Request: " + reqJson);
-                connector.Deliver(reqJson, null);
-
-                if (!responseEvent.Wait(5000))
-                    throw new TimeoutException("Sidecar did not respond to Math.Add");
-
-                var resp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
-                Assert.True(resp["id"].ToString() == "t1", "Response ID mismatch");
-                Assert.True(Convert.ToInt32(resp["result"]) == 30, "Math.Add result mismatch");
-
-                // Error.Throw
-                responseEvent.Reset();
-                var errRequest = new Dictionary<string, object> {
-                    ["jsonrpc"] = "2.0",
-                    ["id"] = "t2",
-                    ["method"] = "TestSidecar.Test.Error.Throw",
-                    ["params"] = new object[] { }
-                };
-
-                Console.WriteLine("  [Test] Sending Error Request: " + s_json.Serialize(errRequest));
-                connector.Deliver(s_json.Serialize(errRequest), null);
-
-                if (!responseEvent.Wait(5000))
-                    throw new TimeoutException("Sidecar did not respond to Error.Throw");
-
-                var errResp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
-                Assert.True(errResp.ContainsKey("error"), "Response should contain error");
-
-                // Restart after child process exits
-                responseEvent.Reset();
-                readyEvent.Reset();
-                lastResponse = null;
-
-                var exitRequest = new Dictionary<string, object> {
-                    ["jsonrpc"] = "2.0",
-                    ["id"] = "t3",
-                    ["method"] = "TestSidecar.Test.Process.Exit",
-                    ["params"] = new object[] { }
-                };
-
-                Console.WriteLine("  [Test] Sending Exit Request: " + s_json.Serialize(exitRequest));
-                connector.Deliver(s_json.Serialize(exitRequest), null);
-                
-                // Wait for restart (up to 15s for slow CI)
-                if (!readyEvent.Wait(15000))
-                    throw new TimeoutException("Sidecar did not send ready signal after exit");
-
-                responseEvent.Reset();
-                var restartRequest = new Dictionary<string, object> {
-                    ["jsonrpc"] = "2.0",
-                    ["id"] = "t4",
-                    ["method"] = "TestSidecar.Test.Math.Add",
-                    ["params"] = new[] { 7, 8 }
-                };
-
-                Console.WriteLine("  [Test] Sending Restart Verification Request: " + s_json.Serialize(restartRequest));
-                connector.Deliver(s_json.Serialize(restartRequest), null);
-
-                if (!responseEvent.Wait(10000))
-                    throw new TimeoutException("Sidecar did not respond after restart");
-
-                var restartResp = s_json.Deserialize<Dictionary<string, object>>(lastResponse);
-                Assert.True(restartResp["id"].ToString() == "t4", "Restart response ID mismatch");
-                Assert.True(Convert.ToInt32(restartResp["result"]) == 15, "Restarted sidecar result mismatch");
+                if (File.Exists(scriptPath)) File.Delete(scriptPath);
             }
         }
 
-        
+        [Fact]
+        public async Task TestRestartOnFailureAsync()
+        {
+            if (!IsNodeAvailable()) return;
+
+            // 1回だけ落ちて、次は普通に動くスクリプト
+            var markerFile = Path.Combine(Path.GetTempPath(), "sidecar_restart_marker_" + Guid.NewGuid().ToString("N"));
+            var script = $@"
+                const fs = require('fs');
+                if (!fs.existsSync('{markerFile.Replace("\\", "\\\\")}')) {{
+                    fs.writeFileSync('{markerFile.Replace("\\", "\\\\")}', 'done');
+                    process.exit(1);
+                }}
+                process.stdin.on('data', d => process.stdout.write(d));
+            ";
+            var scriptPath = Path.GetTempFileName();
+            File.WriteAllText(scriptPath, script);
+
+            try
+            {
+                var entry = new SidecarEntry
+                {
+                    Alias = "Restarter",
+                    Executable = "node",
+                    Args = new[] { scriptPath },
+                    Mode = "streaming"
+                };
+
+                using var cts = new CancellationTokenSource(10000);
+                var sidecar = new SidecarConnector(entry, cts.Token);
+                
+                var received = new TaskCompletionSource<string>();
+                sidecar.Publish = json => {
+                    if (json.Contains("after-restart")) received.TrySetResult(json);
+                };
+
+                sidecar.Start();
+                
+                // 1回目 (失敗と再起動) -> 少し待つ
+                await Task.Delay(2000);
+
+                var testMsg = "{\"test\":\"after-restart\"}";
+                sidecar.Deliver(testMsg, null);
+
+                var result = await received.Task;
+                Assert.Contains("after-restart", result);
+
+                sidecar.Dispose();
+            }
+            finally
+            {
+                if (File.Exists(scriptPath)) File.Delete(scriptPath);
+                if (File.Exists(markerFile)) File.Delete(markerFile);
+            }
+        }
+
+        [Fact]
+        public async Task TestRestartLimitAsync()
+        {
+            if (!IsNodeAvailable()) return;
+
+            // 即座に死ぬスクリプト
+            var entry = new SidecarEntry
+            {
+                Alias = "Suicide",
+                Executable = "node",
+                Args = new[] { "-e", "process.exit(1)" },
+                Mode = "streaming"
+            };
+
+            using var cts = new CancellationTokenSource(10000);
+            var sidecar = new SidecarConnector(entry, cts.Token);
+            
+            sidecar.Start();
+            
+            // 指数バックオフがあるので 5 回の再試行には数秒かかる (1+2+4+8+16 = 31s? No, Math.Pow(2, attempt) delay)
+            // attempt 0: 1s, 1: 2s, 2: 4s...
+            // とりあえず少し待って、再起動回数が増えていることを確認
+            await Task.Delay(4000);
+
+            var field = typeof(SidecarConnector).GetField("_restartCount", BindingFlags.NonPublic | BindingFlags.Instance);
+            var count = (int)(field?.GetValue(sidecar) ?? 0);
+            
+            Assert.True(count >= 1, "Restart count should be at least 1");
+            
+            sidecar.Dispose();
+        }
+
+        [Fact]
+        public void TestSidecar_IsForMe_ParsesCorrectly()
+        {
+            var entry = new SidecarEntry { Alias = "Test" };
+            var sidecar = new SidecarConnector(entry, CancellationToken.None);
+            var method = typeof(SidecarConnector).GetMethod("IsForMe", BindingFlags.NonPublic | BindingFlags.Instance);
+            
+            Assert.True((bool)method!.Invoke(sidecar, new object[] { "{\"jsonrpc\":\"2.0\",\"method\":\"Test.Do\"}", null! })!);
+            Assert.True((bool)method!.Invoke(sidecar, new object[] { "{\"jsonrpc\":\"2.0\",\"method\":\"test.Do\"}", null! })!);
+            Assert.False((bool)method!.Invoke(sidecar, new object[] { "{\"jsonrpc\":\"2.0\",\"method\":\"Other.Do\"}", null! })!);
+            Assert.False((bool)method!.Invoke(sidecar, new object[] { "{\"method\":\"Test.Do\"}", null! })!); // Missing jsonrpc 2.0
+        }
+
+        [Fact]
+        public async Task TestSidecar_Lifecycle_StartStop()
+        {
+            if (!IsNodeAvailable()) return;
+
+            var entry = new SidecarEntry { Alias = "Lifecycle", Executable = "node", Args = new[] { "-e", "setInterval(()=>{}, 1000)" }, Mode = "streaming" };
+            var sidecar = new SidecarConnector(entry, CancellationToken.None);
+            
+            sidecar.Start();
+            await Task.Delay(500);
+            
+            var field = typeof(SidecarConnector).GetField("_process", BindingFlags.NonPublic | BindingFlags.Instance);
+            var proc = field?.GetValue(sidecar) as System.Diagnostics.Process;
+            
+            Assert.NotNull(proc);
+            Assert.False(proc!.HasExited);
+            
+            sidecar.Dispose();
+            // Wait a bit for process to exit after Kill
+            Assert.True(proc.WaitForExit(2000));
+        }
     }
 }

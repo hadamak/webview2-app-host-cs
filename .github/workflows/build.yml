@@ -16,26 +16,20 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v3
 
-    - name: Build
+    - name: Build Standard
       run: msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=Release /p:Platform=x64
 
     - name: Build SecureRelease
       run: msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=SecureRelease /p:Platform=x64
 
-    - name: Run UnitTests
-      run: dotnet test tests\UnitTests\UnitTests.csproj -c Debug
+    - name: Run Standard Tests (Debug)
+      run: |
+        dotnet test tests\UnitTests\UnitTests.csproj -c Debug
+        dotnet test tests\IntegrationTests\IntegrationTests.csproj -c Debug
+        dotnet test tests\StressTests\StressTests.csproj -c Debug
 
-    - name: Run UnitTests SecureRelease
-      run: dotnet test tests\UnitTests\UnitTests.csproj -c SecureRelease
-
-    - name: Run IntegrationTests
-      run: dotnet test tests\IntegrationTests\IntegrationTests.csproj -c Debug
-
-    - name: Run IntegrationTests SecureRelease
-      run: dotnet test tests\IntegrationTests\IntegrationTests.csproj -c SecureRelease
-
-    - name: Run StressTests
-      run: dotnet test tests\StressTests\StressTests.csproj -c Debug
+    - name: Run SecureTests (SecureRelease)
+      run: dotnet test tests\SecureTests\SecureTests.csproj -c SecureRelease
 
     - name: Run host.js unit tests
       run: node tests/host-js/host.test.js

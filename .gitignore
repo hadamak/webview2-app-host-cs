@@ -7,15 +7,20 @@ src/bin/
 src/obj/
 src/app.zip
 
-tests/UnitTests/bin/
-tests/UnitTests/obj/
 tests/IntegrationTests/bin/
 tests/IntegrationTests/obj/
+
+tests/SecureTests/bin
+tests/SecureTests/obj
+
 tests/StressTests/bin/
 tests/StressTests/obj/
+
+tests/TestDll/bin/
+tests/TestDll/obj/
 
 tests/TestSidecar/bin/
 tests/TestSidecar/obj/
 
-tests/TestDll/bin/
-tests/TestDll/obj/
+tests/UnitTests/bin/
+tests/UnitTests/obj/

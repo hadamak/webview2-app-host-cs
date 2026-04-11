@@ -113,17 +113,15 @@ namespace HostTests
             Assert.Single(cfg.LoadDlls);
             Assert.Equal("Steam", cfg.LoadDlls[0].Alias);
 
-#if !SECURE_OFFLINE
             Assert.Single(cfg.Sidecars);
             Assert.Equal("Node", cfg.Sidecars[0].Alias);
-#endif
+
             Assert.True(cfg.ShouldOpenInBrowser("api.github.com"));
             Assert.True(cfg.IsRequestBlocked("https://cdn.example.com/ads/banner.js"));
 
             var directNames = ConnectorFactory.GetAvailableConnectorNames(cfg, enableMcp: false);
             Assert.Contains("Browser", directNames);
             Assert.Contains("Host", directNames);
-#if !SECURE_OFFLINE
             Assert.Contains("Node", directNames);
 
             var directCfg = LoadConfig(@"{
@@ -148,7 +146,6 @@ namespace HostTests
             Assert.Contains("PythonRuntime", directConnectorNames);
             Assert.Contains("PipeServer", directConnectorNames);
             Assert.Contains("Mcp", directConnectorNames);
-#endif
         }
 
         [Fact]
@@ -163,9 +160,6 @@ namespace HostTests
             }";
             var cfg = LoadConfig(json);
             Assert.NotNull(cfg);
-            // Verify that only the first alias is retained or it handles dupes gracefully depending on AppConfig implementation.
-            // Currently AppConfig uses aliases for dictionaries, so we just want to ensure it parses without crashing,
-            // or the first one wins.
             Assert.Contains(cfg!.LoadDlls, x => x.Alias == "Test");
             Assert.Equal(1, cfg.LoadDlls.Count(x => x.Alias == "Test"));
         }
@@ -182,14 +176,10 @@ namespace HostTests
             }";
             var cfg = LoadConfig(json);
             Assert.NotNull(cfg);
-            // Assuming empty paths are either ignored or loaded as is without throwing exception during load.
             Assert.Empty(cfg!.LoadDlls);
-#if !SECURE_OFFLINE
             Assert.Empty(cfg.Sidecars);
-#endif
         }
 
-#if !SECURE_OFFLINE
         [Fact]
         public void ConnectorFactory_BuildHeadless_BuildsCorrectly()
         {
@@ -208,6 +198,5 @@ namespace HostTests
             Assert.NotNull(bus);
             Assert.NotNull(mcp);
         }
-#endif
     }
 }
