@@ -164,9 +164,8 @@ namespace WebView2AppHost
             try {
                 var msg = s_json.Deserialize<Dictionary<string, object>>(json);
                 if (msg == null) return;
-                if (msg.ContainsKey("event") && msg.ContainsKey("source")) {
-                    Write(new { jsonrpc = "2.0", method = $"plugin/event/{msg["source"]}/{msg["event"]}", @params = msg.ContainsKey("params") ? msg["params"] : new { } });
-                } else if (msg.ContainsKey("jsonrpc") && msg.ContainsKey("method")) {
+                
+                if (msg.ContainsKey("jsonrpc") && msg.ContainsKey("method")) {
                     var m = msg["method"].ToString();
                     var p = m.Split('.');
                     if (p.Length >= 2) {

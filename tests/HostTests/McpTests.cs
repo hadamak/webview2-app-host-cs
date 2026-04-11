@@ -124,15 +124,15 @@ namespace HostTests
                 Assert(unsolicited == null, "McpBridge: 他コネクターのリクエストは無視される");
             }
 
-            // --- id なし → UnsolicitedMessage イベント ---
+            // --- id なし (JSON-RPC 2.0 通知) → UnsolicitedMessage イベント ---
             {
                 var bridge     = new McpBridge();
                 var unsolicited= (string?)null;
                 bridge.UnsolicitedMessage += json => unsolicited = json;
 
-                var evt = @"{""source"":""Node"",""event"":""onData"",""params"":{""value"":42}}";
+                var evt = @"{""jsonrpc"":""2.0"",""method"":""Node.onData"",""params"":{""value"":42}}";
                 bridge.Dispatch(evt, null);
-                Assert(unsolicited == evt, "McpBridge: id なし JSON は UnsolicitedMessage に流れる");
+                Assert(unsolicited == evt, "McpBridge: id なし (2.0通知) は UnsolicitedMessage に流れる");
             }
 
             // --- 重複 id はエラー ---
@@ -334,9 +334,9 @@ namespace HostTests
             using var cts = new CancellationTokenSource(500);
             var runTask = mcp.RunAsync(cts.Token);
 
-            // 少し待ってから id なし JSON を Dispatch → UnsolicitedMessage 発火
+            // 少し待ってから id なし 2.0 通知を Dispatch → UnsolicitedMessage 発火
             System.Threading.Thread.Sleep(30);
-            mcp.Deliver(@"{""source"":""Node"",""event"":""onData"",""params"":{""value"":99}}", null);
+            mcp.Deliver(@"{""jsonrpc"":""2.0"",""method"":""Node.onData"",""params"":{""value"":99}}", null);
             mcp.Deliver(@"{""jsonrpc"":""2.0"",""method"":""Browser.OnTestEvent"",""params"":{""val"":1}}", null);
 
             runTask.Wait(1000);
@@ -349,10 +349,10 @@ namespace HostTests
             }
 
             var notif1 = lines.Find(l => l.Contains("plugin/event/Node/onData"));
-            Assert(notif1 != null, "McpServer.event: 旧形式通知が出力される");
+            Assert(notif1 != null, "McpServer.event: 通知1が出力される");
 
             var notif2 = lines.Find(l => l.Contains("plugin/event/Browser/OnTestEvent"));
-            Assert(notif2 != null, "McpServer.event: 新形式通知が出力される");
+            Assert(notif2 != null, "McpServer.event: 通知2が出力される");
 
             Console.WriteLine("    McpServer event forwarding tests passed.");
         }

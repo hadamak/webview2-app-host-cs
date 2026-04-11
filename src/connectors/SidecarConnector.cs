@@ -97,10 +97,6 @@ namespace WebView2AppHost
                             return string.Equals(mv.ToString()!.Substring(0, idx), Name, StringComparison.OrdinalIgnoreCase);
                     }
                 }
-                else if (dict.TryGetValue("source", out var sv))
-                {
-                    return string.Equals(sv?.ToString(), Name, StringComparison.OrdinalIgnoreCase);
-                }
                 return false;
             }
             catch { return false; }

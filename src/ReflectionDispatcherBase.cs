@@ -162,8 +162,6 @@ namespace WebView2AppHost
                 if (!msg.TryGetValue("jsonrpc", out var jsonrpcObj) ||
                     !string.Equals(jsonrpcObj?.ToString(), "2.0", StringComparison.OrdinalIgnoreCase))
                 {
-                    // legacy フォーマットへの対応
-                    HandleLegacyMessage(msg);
                     return;
                 }
 
@@ -209,50 +207,6 @@ namespace WebView2AppHost
             }
         }
 
-        /// <summary>legacy フォーマット（jsonrpc なし）のメッセージを処理する。</summary>
-        private void HandleLegacyMessage(Dictionary<string, object>? msg)
-        {
-            if (msg == null) return;
-
-            // source フィルタ
-            if (!msg.TryGetValue("source", out var srcObj))
-                return;
-
-            var source = srcObj?.ToString();
-
-            msg.TryGetValue("messageId", out var midObj);
-            var messageId = midObj?.ToString();
-
-            msg.TryGetValue("asyncId", out var asyncId);
-
-            // release: ハンドル解放
-            if (messageId == "release")
-            {
-                if (msg.TryGetValue("params", out var pObj) && pObj is Dictionary<string, object> pDict
-                    && pDict.TryGetValue("handleId", out var hidObj) && hidObj is IConvertible hid)
-                {
-                    _handles.TryRemove(hid.ToInt64(null), out _);
-#if DEBUG
-                    AppLog.Log("INFO", $"{GetType().Name}.Release",
-                        $"ハンドル {hid.ToInt64(null)} を解放しました");
-#endif
-                }
-                return;
-            }
-
-            if (messageId != "invoke")
-            {
-                AppLog.Log("WARN", $"{GetType().Name}.HandleWebMessage",
-                    $"未知の messageId: {messageId}");
-                return;
-            }
-
-            if (!msg.TryGetValue("params", out var paramsVal)
-                || !(paramsVal is Dictionary<string, object> paramsObj))
-                return;
-
-            Task.Run(async () => await DispatchInvokeAsync(source, paramsObj, asyncId));
-        }
 
         /// <summary>通知メッセージ（id なし）を処理する。</summary>
         protected virtual void OnNotificationReceived(string eventName, object? eventParams)
@@ -270,10 +224,25 @@ namespace WebView2AppHost
             {
                 var paramsVal = msg.TryGetValue("params", out var pv) ? pv : null;
 
-                // インスタンス呼び出し（params に handleId がある場合）
-                if (paramsVal is Dictionary<string, object> pDict && pDict.TryGetValue("handleId", out _))
+                // release: ハンドル解放 (method: "Host.release")
+                if (methodParts.Last() == "release")
                 {
-                    var handleId = pDict["handleId"] is IConvertible hcv ? hcv.ToInt64(null) : 0L;
+                    if (paramsVal is Dictionary<string, object> relDict && relDict.TryGetValue("handleId", out var hidObj) && hidObj is IConvertible hid)
+                    {
+                        var handleId = hid.ToInt64(null);
+                        _handles.TryRemove(handleId, out _);
+#if DEBUG
+                        AppLog.Log("INFO", $"{GetType().Name}.Release", $"ハンドル {handleId} を解放しました");
+#endif
+                    }
+                    SendJsonRpcResult(id, "ok", null);
+                    return;
+                }
+
+                // インスタンス呼び出し（params に handleId がある場合）
+                if (paramsVal is Dictionary<string, object> instDict && instDict.TryGetValue("handleId", out _))
+                {
+                    var handleId = instDict["handleId"] is IConvertible hcv ? hcv.ToInt64(null) : 0L;
                     if (!_handles.TryGetValue(handleId, out var inst))
                         throw new InvalidOperationException(
                             $"handleId {handleId} が見つかりません。Release 後に使用した可能性があります。");
@@ -282,7 +251,7 @@ namespace WebView2AppHost
                     var methodName = methodParts.Length >= 2 ? methodParts.Last() : "Unknown";
                     logCtx = $"{inst.GetType().Name}.{methodName}";
 
-                    var instArgs = ExtractArgs(pDict);
+                    var instArgs = ExtractArgsFromParams(instDict);
                     var instResult = InvokeInstanceMember(inst, methodName, instArgs);
                     instResult = await UnwrapTaskAsync(instResult);
                     SendJsonRpcResult(id, instResult, null);
@@ -370,86 +339,6 @@ namespace WebView2AppHost
         // 共通: ディスパッチャ（テンプレートメソッド）
         // ---------------------------------------------------------------------------
 
-        /// <summary>
-        /// invoke メッセージを処理する共通フロー。
-        ///
-        /// <para>
-        /// 優先順位:
-        /// <list type="number">
-        ///   <item>handleId あり → インスタンスメソッド / プロパティ / フィールド</item>
-        ///   <item>methodName == ".ctor" / "Create" → コンストラクタ</item>
-        ///   <item>静的メソッド（引数数が一致するオーバーロード優先）</item>
-        ///   <item>静的プロパティ getter（③で見つからない場合）</item>
-        ///   <item>静的フィールド（④で見つからない場合）</item>
-        /// </list>
-        /// Type の解決は <see cref="ResolveTypeAsync"/> に委譲する。
-        /// </para>
-        /// </summary>
-        protected async Task DispatchInvokeAsync(string? source, Dictionary<string, object> p, object? asyncId)
-        {
-            var logCtx = "?";
-            try
-            {
-                var argsRaw = p.TryGetValue("args", out var argsVal) && argsVal is ArrayList arr
-                    ? arr.Cast<object?>().ToArray()
-                    : Array.Empty<object?>();
-
-                // ---- インスタンス呼び出し（handleId あり） ----
-                if (p.TryGetValue("handleId", out var htok) && htok != null)
-                {
-                    var handleId = (htok is IConvertible hcv) ? hcv.ToInt64(null) : 0L;
-                    if (!_handles.TryGetValue(handleId, out var inst))
-                        throw new InvalidOperationException(
-                            $"handleId {handleId} が見つかりません。Release 後に使用した可能性があります。");
-
-                    var mname = p.TryGetValue("methodName", out var mn) ? mn?.ToString() : null;
-                    if (string.IsNullOrEmpty(mname))
-                        throw new ArgumentException("インスタンス呼び出しに methodName が指定されていません。");
-
-                    logCtx = $"{inst.GetType().Name}.{mname}";
-                    var instResult = InvokeInstanceMember(inst, mname!, argsRaw);
-                    instResult = await UnwrapTaskAsync(instResult);
-                    SendResult(asyncId, instResult, null);
-                    return;
-                }
-
-                // ---- 静的呼び出し ----
-                var className  = p.TryGetValue("className",  out var cn)  ? cn?.ToString()  : null;
-                var methodName = p.TryGetValue("methodName", out var mn2) ? mn2?.ToString() : null;
-
-                if (string.IsNullOrEmpty(className))
-                    throw new ArgumentException("className が空です。");
-                if (string.IsNullOrEmpty(methodName))
-                    throw new ArgumentException("methodName が空です。");
-
-                logCtx = $"{className}.{methodName}";
-
-                // サブクラスが型を解決する（特例処理を自前で完結した場合は null を返す）
-                var resolved = await ResolveTypeAsync(source, p, className!, methodName!, argsRaw, asyncId);
-                if (resolved == null) return; // 特例処理済み（TriggerScreenshot など）
-
-                object? result;
-                if (resolved is Type type)
-                {
-                    result = (methodName == ".ctor" || methodName == "Create")
-                        ? InvokeConstructor(type, argsRaw)
-                        : InvokeStaticMember(type, methodName!, argsRaw);
-                }
-                else
-                {
-                    result = InvokeInstanceMember(resolved, methodName!, argsRaw);
-                }
-
-                result = await UnwrapTaskAsync(result);
-                SendResult(asyncId, result, null);
-            }
-            catch (Exception ex)
-            {
-                var inner = ex is TargetInvocationException tie ? tie.InnerException ?? ex : ex;
-                AppLog.Log("ERROR", $"{GetType().Name}.Dispatch[{logCtx}]", inner.Message, inner);
-                SendResult(asyncId, null, inner.Message);
-            }
-        }
 
         // ---------------------------------------------------------------------------
         // 共通: メンバー呼び出し
@@ -748,11 +637,6 @@ namespace WebView2AppHost
             }
         }
 
-        /// <summary>invoke-result メッセージを JS へ送信する（legacy フォーマット）。</summary>
-        protected void SendResult(object? asyncId, object? result, string? error)
-        {
-            SendJsonRpcResult(asyncId, result, error);
-        }
 
         /// <summary>
         /// イベント通知メッセージ（JSON-RPC 2.0 通知）を JS へ送信する。
