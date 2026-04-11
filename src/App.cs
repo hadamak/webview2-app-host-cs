@@ -399,69 +399,6 @@ namespace WebView2AppHost
             }
         }
 
-#if !SECURE_OFFLINE
-        private async Task HandleProxyRequestAsync(CoreWebView2WebResourceRequestedEventArgs e, Uri targetUri)
-        {
-            var deferral = e.GetDeferral();
-            try
-            {
-                var method  = new HttpMethod(e.Request.Method ?? "GET");
-                var request = new HttpRequestMessage(method, targetUri);
-
-                foreach (var header in e.Request.Headers)
-                {
-                    var name = header.Key;
-                    if (name.Equals("Host",    StringComparison.OrdinalIgnoreCase) ||
-                        name.Equals("Origin",  StringComparison.OrdinalIgnoreCase) ||
-                        name.Equals("Referer", StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    try { request.Headers.TryAddWithoutValidation(name, header.Value); } catch { }
-                }
-
-                var response = await _httpClient.SendAsync(
-                    request, HttpCompletionOption.ResponseContentRead);
-
-                var body = await response.Content.ReadAsByteArrayAsync();
-                var ms   = new System.IO.MemoryStream(body);
-
-                var contentType = response.Content.Headers.ContentType?.ToString()
-                    ?? "application/octet-stream";
-                var headers = $"Content-Type: {contentType}\r\n"
-                    + $"Content-Length: {body.Length}\r\n"
-                    + "Access-Control-Allow-Origin: *\r\n"
-                    + "Cache-Control: no-store";
-
-                e.Response = _webView.CoreWebView2.Environment
-                    .CreateWebResourceResponse(
-                        ms,
-                        (int)response.StatusCode,
-                        response.ReasonPhrase ?? "OK",
-                        headers);
-            }
-            catch (TaskCanceledException)
-            {
-                AppLog.Log("WARN", "App.HandleProxyRequestAsync",
-                    $"プロキシ転送がタイムアウトしました (15s): {targetUri.AbsoluteUri}");
-                e.Response = _webView.CoreWebView2.Environment
-                    .CreateWebResourceResponse(null, 504, "Gateway Timeout",
-                        "Content-Type: text/plain");
-            }
-            catch (Exception ex)
-            {
-                AppLog.Log("ERROR", "App.HandleProxyRequestAsync",
-                    $"プロキシ転送失敗: {AppLog.DescribeUri(targetUri.AbsoluteUri)}", ex);
-                e.Response = _webView.CoreWebView2.Environment
-                    .CreateWebResourceResponse(null, 502, "Bad Gateway",
-                        "Content-Type: text/plain");
-                throw;
-            }
-            finally
-            {
-                deferral.Complete();
-            }
-        }
-#endif
-
         // ---------------------------------------------------------------------------
         // フルスクリーン
         // ---------------------------------------------------------------------------
