@@ -263,15 +263,5 @@ namespace WebView2AppHost
             return null;
         }
 #endif
-
-        private static bool MatchesType(string type, string[] supportedTypes)
-        {
-            foreach (var supportedType in supportedTypes)
-            {
-                if (string.Equals(type, supportedType, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-            return false;
-        }
     }
-}
+}
