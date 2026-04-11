@@ -275,7 +275,7 @@ namespace WebView2AppHost
                     }
 
                     long zipStart = fs.Length - totalZipSize;
-                    return new OffsetStream(fs, zipStart, totalZipSize);
+                    return new SubStream(fs, zipStart, totalZipSize);
                 }
                 catch (Exception ex)
                 {
@@ -338,67 +338,5 @@ namespace WebView2AppHost
             }
         }
 
-        /// <summary>
-        /// ZipArchive 用のシーク可能な部分ストリームラッパー。
-        /// </summary>
-        private sealed class OffsetStream : Stream
-        {
-            private readonly Stream _base;
-            private readonly long _offset;
-            private readonly long _length;
-            private long _position;
-
-            public OffsetStream(Stream baseStream, long offset, long length)
-            {
-                _base = baseStream;
-                _offset = offset;
-                _length = length;
-            }
-
-            public override bool CanRead => _base.CanRead;
-            public override bool CanSeek => _base.CanSeek;
-            public override bool CanWrite => false;
-            public override long Length => _length;
-
-            public override long Position
-            {
-                get => _position;
-                set => _position = Math.Max(0, Math.Min(value, _length));
-            }
-
-            public override int Read(byte[] buffer, int offset, int count)
-            {
-                long remaining = _length - _position;
-                if (remaining <= 0) return 0;
-                if (count > remaining) count = (int)remaining;
-
-                _base.Seek(_offset + _position, SeekOrigin.Begin);
-                int read = _base.Read(buffer, offset, count);
-                _position += read;
-                return read;
-            }
-
-            public override long Seek(long offset, SeekOrigin origin)
-            {
-                switch (origin)
-                {
-                    case SeekOrigin.Begin: _position = offset; break;
-                    case SeekOrigin.Current: _position += offset; break;
-                    case SeekOrigin.End: _position = _length + offset; break;
-                }
-                _position = Math.Max(0, Math.Min(_position, _length));
-                return _position;
-            }
-
-            public override void Flush() => _base.Flush();
-            public override void SetLength(long value) => throw new NotSupportedException();
-            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-
-            protected override void Dispose(bool disposing)
-            {
-                if (disposing) _base.Dispose();
-                base.Dispose(disposing);
-            }
-        }
     }
 }
