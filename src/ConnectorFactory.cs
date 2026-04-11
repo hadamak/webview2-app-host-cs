@@ -22,25 +22,16 @@ namespace WebView2AppHost
             AppConfig? config = null,
             bool enableMcp = false)
         {
-            var names = new List<string>();
+            var names = new List<string> { "Browser" };
 
 #if SECURE_OFFLINE
-            // In SECURE_OFFLINE mode, BuildWithBrowser always registers a BrowserConnector
-            // unconditionally, regardless of the connectors list.
-            names.Add("Browser");
-
-            if (ShouldRegisterDll(config))
+            if (ContainsConnectorType(config, s_dllConnectorTypes))
                 names.Add("Host");
 #else
-            if (ShouldRegisterBrowser(config))
-                names.Add("Browser");
-
-            if (ShouldRegisterDll(config))
+            if (ContainsConnectorType(config, s_dllConnectorTypes))
                 names.Add("Host");
-#endif
 
-#if !SECURE_OFFLINE
-            if (ShouldRegisterSidecars(config) && config?.Sidecars != null)
+            if (config?.Sidecars != null)
             {
                 foreach (var sidecar in config.Sidecars)
                 {
@@ -49,10 +40,10 @@ namespace WebView2AppHost
                 }
             }
 
-            if (ShouldRegisterPipeServer(config))
+            if (ContainsConnectorType(config, s_pipeConnectorTypes))
                 names.Add("PipeServer");
 
-            if (ShouldRegisterMcp(config, enableMcp))
+            if (enableMcp || ContainsConnectorType(config, s_mcpConnectorTypes))
                 names.Add("Mcp");
 #endif
 
@@ -65,9 +56,6 @@ namespace WebView2AppHost
         public static string GetServerExePath() =>
             Process.GetCurrentProcess().MainModule!.FileName!;
 
-        /// <summary>
-        /// Mode 2 用（WebView2 あり）の MessageBus を構築する。
-        /// </summary>
 #if SECURE_OFFLINE
         public static MessageBus BuildWithBrowser(
             WebView2 webView,
@@ -76,14 +64,11 @@ namespace WebView2AppHost
         {
             var bus = new MessageBus();
 
-            var browser = new BrowserConnector(webView);
-            bus.Register(browser);
+            RegisterBrowser(bus, webView);
 
-            if (ShouldRegisterDll(config))
+            if (ContainsConnectorType(config, s_dllConnectorTypes))
             {
-                var dll = new DllConnector();
-                dll.Initialize(config);
-                bus.Register(dll);
+                RegisterDll(bus, config);
             }
 
             return bus;
@@ -96,95 +81,37 @@ namespace WebView2AppHost
             System.Threading.CancellationToken shutdownToken = default)
         {
             var bus = new MessageBus();
-            enableMcp = ShouldRegisterMcp(config, enableMcp);
 
             BrowserConnector? browser = null;
             DllConnector? dll = null;
             PipeServerConnector? pipe = null;
-            var sidecarsRegistered = false;
+            bool sidecarsRegistered = false;
 
-            if (HasStructuredConnectors(config))
+            if (config?.Connectors != null)
             {
                 foreach (var entry in config.Connectors)
                 {
                     if (entry == null || string.IsNullOrWhiteSpace(entry.Type)) continue;
 
-                    if (MatchesType(entry.Type, s_browserConnectorTypes))
+                    if (MatchesType(entry.Type, s_browserConnectorTypes) && browser == null)
+                        browser = RegisterBrowser(bus, webView);
+                    else if (MatchesType(entry.Type, s_dllConnectorTypes) && dll == null)
+                        dll = RegisterDll(bus, config);
+                    else if (MatchesType(entry.Type, s_sidecarConnectorTypes) && !sidecarsRegistered)
                     {
-                        if (browser == null)
-                        {
-                            browser = new BrowserConnector(webView);
-                            bus.Register(browser);
-                        }
-                        continue;
+                        RegisterSidecars(bus, config, shutdownToken);
+                        sidecarsRegistered = true;
                     }
-
-                    if (MatchesType(entry.Type, s_dllConnectorTypes))
-                    {
-                        if (dll == null)
-                        {
-                            dll = new DllConnector();
-                            dll.Initialize(config);
-                            bus.Register(dll);
-                        }
-                        continue;
-                    }
-
-                    if (MatchesType(entry.Type, s_sidecarConnectorTypes))
-                    {
-                        if (!sidecarsRegistered)
-                        {
-                            RegisterSidecars(bus, config, shutdownToken);
-                            sidecarsRegistered = true;
-                        }
-                        continue;
-                    }
-
-                    if (MatchesType(entry.Type, s_pipeConnectorTypes))
-                    {
-                        if (pipe == null)
-                        {
-                            pipe = new PipeServerConnector(GetPipeName(), shutdownToken);
-                            bus.Register(pipe);
-                            pipe.Start();
-                        }
-                        continue;
-                    }
-
-                    if (MatchesType(entry.Type, s_mcpConnectorTypes))
-                    {
+                    else if (MatchesType(entry.Type, s_pipeConnectorTypes) && pipe == null)
+                        pipe = RegisterPipe(bus, shutdownToken);
+                    else if (MatchesType(entry.Type, s_mcpConnectorTypes))
                         enableMcp = true;
-                    }
                 }
             }
-            else
-            {
-                browser = new BrowserConnector(webView);
-                bus.Register(browser);
 
-                if (ShouldRegisterDll(config))
-                {
-                    dll = new DllConnector();
-                    dll.Initialize(config);
-                    bus.Register(dll);
-                }
-
-                if (ShouldRegisterSidecars(config))
-                {
-                    RegisterSidecars(bus, config, shutdownToken);
-                    sidecarsRegistered = true;
-                }
-
-                pipe = new PipeServerConnector(GetPipeName(), shutdownToken);
-                bus.Register(pipe);
-                pipe.Start();
-            }
-
+            // フォールバック: Configで指定がなくても最低限Browserは起動する
             if (browser == null)
-            {
-                browser = new BrowserConnector(webView);
-                bus.Register(browser);
-            }
+                browser = RegisterBrowser(bus, webView);
 
             McpConnector? mcp = null;
             if (enableMcp)
@@ -197,18 +124,15 @@ namespace WebView2AppHost
             return (bus, mcp);
         }
 
-        /// <summary>
-        /// Mode 1 用（WebView2 なし）の MessageBus を構築する。
-        /// </summary>
         public static (MessageBus bus, McpConnector mcp) BuildHeadless(
             AppConfig config,
             System.Threading.CancellationToken shutdownToken = default)
         {
             var bus = new MessageBus();
-            var dllRegistered = false;
-            var sidecarsRegistered = false;
+            bool dllRegistered = false;
+            bool sidecarsRegistered = false;
 
-            if (HasStructuredConnectors(config))
+            if (config?.Connectors != null)
             {
                 foreach (var entry in config.Connectors)
                 {
@@ -216,46 +140,16 @@ namespace WebView2AppHost
 
                     if (MatchesType(entry.Type, s_dllConnectorTypes) && !dllRegistered)
                     {
-                        var dll = new DllConnector();
-                        dll.Initialize(config);
-                        bus.Register(dll);
+                        RegisterDll(bus, config);
                         dllRegistered = true;
-                        continue;
                     }
-
-                    if (MatchesType(entry.Type, s_sidecarConnectorTypes) && !sidecarsRegistered)
+                    else if (MatchesType(entry.Type, s_sidecarConnectorTypes) && !sidecarsRegistered)
                     {
                         RegisterSidecars(bus, config, shutdownToken);
                         sidecarsRegistered = true;
                     }
                 }
             }
-            else
-            {
-                if (ShouldRegisterDll(config))
-                {
-                    var dll = new DllConnector();
-                    dll.Initialize(config);
-                    bus.Register(dll);
-                    dllRegistered = true;
-                }
-
-                if (ShouldRegisterSidecars(config))
-                {
-                    RegisterSidecars(bus, config, shutdownToken);
-                    sidecarsRegistered = true;
-                }
-            }
-
-            if (!dllRegistered && config.LoadDlls.Length > 0)
-            {
-                var dll = new DllConnector();
-                dll.Initialize(config);
-                bus.Register(dll);
-            }
-
-            if (!sidecarsRegistered && config.Sidecars.Length > 0)
-                RegisterSidecars(bus, config, shutdownToken);
 
             var mcp = new McpConnector(config, callTimeout: TimeSpan.FromSeconds(30));
             bus.Register(mcp);
@@ -264,7 +158,30 @@ namespace WebView2AppHost
         }
 #endif
 
+        private static BrowserConnector RegisterBrowser(MessageBus bus, WebView2 webView)
+        {
+            var browser = new BrowserConnector(webView);
+            bus.Register(browser);
+            return browser;
+        }
+
+        private static DllConnector RegisterDll(MessageBus bus, AppConfig config)
+        {
+            var dll = new DllConnector();
+            dll.Initialize(config);
+            bus.Register(dll);
+            return dll;
+        }
+
 #if !SECURE_OFFLINE
+        private static PipeServerConnector RegisterPipe(MessageBus bus, System.Threading.CancellationToken shutdownToken)
+        {
+            var pipe = new PipeServerConnector(GetPipeName(), shutdownToken);
+            bus.Register(pipe);
+            pipe.Start();
+            return pipe;
+        }
+
         private static void RegisterSidecars(
             MessageBus bus, AppConfig config,
             System.Threading.CancellationToken shutdownToken)
@@ -332,29 +249,11 @@ namespace WebView2AppHost
         }
 #endif
 
-        private static bool HasStructuredConnectors(AppConfig? config)
-            => config?.Connectors != null && config.Connectors.Length > 0;
-
-        private static bool ShouldRegisterBrowser(AppConfig? config)
-            => !HasStructuredConnectors(config) || ContainsConnectorType(config, s_browserConnectorTypes);
-
-        private static bool ShouldRegisterDll(AppConfig? config)
-            => (config?.LoadDlls.Length ?? 0) > 0 || ContainsConnectorType(config, s_dllConnectorTypes);
-
-        private static bool ShouldRegisterSidecars(AppConfig? config)
-            => (config?.Sidecars.Length ?? 0) > 0 || ContainsConnectorType(config, s_sidecarConnectorTypes);
-
-        private static bool ShouldRegisterPipeServer(AppConfig? config)
-            => !HasStructuredConnectors(config) || ContainsConnectorType(config, s_pipeConnectorTypes);
-
-        private static bool ShouldRegisterMcp(AppConfig? config, bool enableMcp)
-            => enableMcp || ContainsConnectorType(config, s_mcpConnectorTypes);
-
         private static bool ContainsConnectorType(AppConfig? config, string[] supportedTypes)
         {
-            if (!HasStructuredConnectors(config)) return false;
+            if (config?.Connectors == null || config.Connectors.Length == 0) return false;
 
-            foreach (var entry in config!.Connectors)
+            foreach (var entry in config.Connectors)
             {
                 if (entry == null || string.IsNullOrWhiteSpace(entry.Type)) continue;
                 if (MatchesType(entry.Type, supportedTypes)) return true;
@@ -373,4 +272,4 @@ namespace WebView2AppHost
             return false;
         }
     }
-}
+}
