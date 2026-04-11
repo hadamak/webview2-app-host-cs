@@ -246,9 +246,14 @@ namespace WebView2AppHost
                 if (!string.IsNullOrWhiteSpace(stderr))
                     AppLog.Log("WARN", $"SidecarConnector[{Name}].CLI.Stderr", $"stderr len={stderr.Length}");
 
+                var trimmedStdout = stdout.Trim();
                 object result;
-                try { result = s_json.DeserializeObject(stdout); }
-                catch { result = stdout.Trim(); }
+                if (trimmedStdout.Length > 0 && (trimmedStdout[0] == '{' || trimmedStdout[0] == '['))
+                {
+                    try { result = s_json.DeserializeObject(trimmedStdout); }
+                    catch { result = trimmedStdout; }
+                }
+                else { result = trimmedStdout; }
 
                 var response = s_json.Serialize(new Dictionary<string, object?>
                 {
@@ -281,21 +286,25 @@ namespace WebView2AppHost
                 }
             }
 
-            try
+            var trimmed = e.Data.TrimStart();
+            if (trimmed.Length > 0 && trimmed[0] == '{')
             {
-                var msg = s_json.Deserialize<Dictionary<string, object>>(e.Data);
-                if (msg != null && msg.TryGetValue("id", out var idObj) && idObj != null && msg.ContainsKey("method"))
+                try
                 {
-                    // メモリリーク対策: 溜まりすぎたら古いものを掃除
-                    if (_pendingRequestIds.Count > 1000)
+                    var msg = s_json.Deserialize<Dictionary<string, object>>(trimmed);
+                    if (msg != null && msg.TryGetValue("id", out var idObj) && idObj != null && msg.ContainsKey("method"))
                     {
-                        var keys = _pendingRequestIds.Keys.Take(500).ToList();
-                        foreach (var k in keys) _pendingRequestIds.TryRemove(k, out _);
+                        // メモリリーク対策: 溜まりすぎたら古いものを掃除
+                        if (_pendingRequestIds.Count > 1000)
+                        {
+                            var keys = _pendingRequestIds.Keys.Take(500).ToList();
+                            foreach (var k in keys) _pendingRequestIds.TryRemove(k, out _);
+                        }
+                        _pendingRequestIds.TryAdd(idObj.ToString(), true);
                     }
-                    _pendingRequestIds.TryAdd(idObj.ToString(), true);
                 }
+                catch { }
             }
-            catch { }
 
             _publish?.Invoke(e.Data);
         }
