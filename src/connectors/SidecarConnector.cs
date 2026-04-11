@@ -27,7 +27,7 @@ namespace WebView2AppHost
         private StreamWriter?      _stdin;
         private readonly SemaphoreSlim _writeLock  = new SemaphoreSlim(1, 1);
         private readonly ManualResetEventSlim _ready = new ManualResetEventSlim(false);
-        private bool _isReady;
+        private volatile bool _isReady;
         private bool _disposed;
         private bool _restartScheduled;
         private int _restartCount;
