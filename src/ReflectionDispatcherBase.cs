@@ -199,7 +199,7 @@ namespace WebView2AppHost
                 var source = !string.IsNullOrEmpty(sourceFromMsg) ? sourceFromMsg : sourceFromMethod;
 
                 // リクエストdispatch（id あり）
-                Task.Run(async () => await DispatchJsonRpcRequestAsync(source, parts, id, msg));
+                _ = Task.Run(async () => await DispatchJsonRpcRequestAsync(source, parts, id, msg));
             }
             catch (Exception ex)
             {
