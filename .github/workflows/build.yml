@@ -22,17 +22,20 @@ jobs:
     - name: Build SecureRelease
       run: msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=SecureRelease /p:Platform=x64
 
-    - name: Build HostTests
-      run: msbuild tests\HostTests\HostTests.csproj "/t:Restore;Build" /p:Configuration=Debug /p:Platform=x64
+    - name: Run UnitTests
+      run: dotnet test tests\UnitTests\UnitTests.csproj -c Debug
 
-    - name: Build HostTests SecureRelease
-      run: msbuild tests\HostTests\HostTests.csproj "/t:Restore;Build" /p:Configuration=SecureRelease /p:Platform=x64
+    - name: Run UnitTests SecureRelease
+      run: dotnet test tests\UnitTests\UnitTests.csproj -c SecureRelease
 
-    - name: Run HostTests
-      run: tests\HostTests\bin\x64\Debug\net48\HostTests.exe
+    - name: Run IntegrationTests
+      run: dotnet test tests\IntegrationTests\IntegrationTests.csproj -c Debug
 
-    - name: Run HostTests SecureRelease
-      run: tests\HostTests\bin\x64\SecureRelease\net48\HostTests.exe
+    - name: Run IntegrationTests SecureRelease
+      run: dotnet test tests\IntegrationTests\IntegrationTests.csproj -c SecureRelease
+
+    - name: Run StressTests
+      run: dotnet test tests\StressTests\StressTests.csproj -c Debug
 
     - name: Run host.js unit tests
       run: node tests/host-js/host.test.js

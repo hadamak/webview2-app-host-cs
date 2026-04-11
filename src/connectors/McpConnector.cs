@@ -22,12 +22,16 @@ namespace WebView2AppHost
         private static readonly JavaScriptSerializer s_json = new JavaScriptSerializer { MaxJsonLength = int.MaxValue };
         private long _nextId = 1;
         private bool _disposed;
+        private readonly bool _ownsIn;
+        private readonly bool _ownsOut;
 
         public McpConnector(AppConfig? config, TextReader? input = null, TextWriter? output = null, TimeSpan callTimeout = default)
         {
             _config = config ?? new AppConfig();
             var encoding = new UTF8Encoding(false);
+            _ownsIn = input == null;
             _in = input ?? new StreamReader(Console.OpenStandardInput(), encoding);
+            _ownsOut = output == null;
             _out = output ?? new StreamWriter(Console.OpenStandardOutput(), encoding) { AutoFlush = true };
             _callTimeout = callTimeout == default ? TimeSpan.FromSeconds(30) : callTimeout;
             _browser = new BusBrowserTools(this);
@@ -361,7 +365,14 @@ namespace WebView2AppHost
             catch { }
         }
 
-        public void Dispose() => _disposed = true;
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _bridge.UnsolicitedMessage -= ForwardEventAsNotification;
+            if (_ownsIn) _in.Dispose();
+            if (_ownsOut) _out.Dispose();
+        }
 
         private sealed class BusBrowserTools : IBrowserTools
         {

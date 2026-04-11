@@ -189,6 +189,7 @@ namespace HostTests
 #endif
         }
 
+#if !SECURE_OFFLINE
         [Fact]
         public void ConnectorFactory_BuildHeadless_BuildsCorrectly()
         {
@@ -207,5 +208,6 @@ namespace HostTests
             Assert.NotNull(bus);
             Assert.NotNull(mcp);
         }
+#endif
     }
 }

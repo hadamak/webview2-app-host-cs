@@ -1,37 +1,21 @@
-src/bin/
-src/obj/
-src/app.zip
 *.user
 .vs/
 
-tests/HostTests/bin/
-tests/HostTests/obj/
-
 dist/
 
-steam-support/
-node-support/
-extension-base/
+src/bin/
+src/obj/
+src/app.zip
 
-src-node/bin/
-src-node/obj/
-
-src-steam/obj/
-src-steam/bin/
-
-src-generic/bin/
-src-generic/obj/
-
-tests/steam-auto/steam-auto.zip
+tests/UnitTests/bin/
+tests/UnitTests/obj/
+tests/IntegrationTests/bin/
+tests/IntegrationTests/obj/
+tests/StressTests/bin/
+tests/StressTests/obj/
 
 tests/TestSidecar/bin/
 tests/TestSidecar/obj/
 
-tests/PluginCoreTester/obj/
-tests/PluginCoreTester/bin/
-
 tests/TestDll/bin/
 tests/TestDll/obj/
-
-src-sidecar/bin/
-src-sidecar/obj/

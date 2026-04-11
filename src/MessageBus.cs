@@ -152,6 +152,11 @@ namespace WebView2AppHost
             public void Dispose()
             {
                 _mailbox.CompleteAdding();
+                // 配送スレッドが残りのメッセージを処理し終えるのを待つ
+                if (_deliverThread.IsAlive)
+                {
+                    _deliverThread.Join(500); // 最大500ms待機
+                }
                 _mailbox.Dispose();
             }
         }

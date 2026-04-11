@@ -66,7 +66,7 @@ namespace HostTests
             Console.WriteLine("    DllConnector parallel access test passed.");
         }
 
-        [Fact(Skip = "Flaky pipe test")]
+        [Fact]
         public async Task TestPipeServerBackpressure()
         {
             Console.WriteLine("  [Test] PipeServerConnector Backpressure...");
@@ -122,7 +122,7 @@ namespace HostTests
             Console.WriteLine($"    PipeServerConnector backpressure test passed (Received {receivedCount}/{sendCount}).");
         }
 
-        [Fact(Skip = "Flaky pipe test")]
+        [Fact]
         public async Task TestPipeClientRetryAndIntegration()
         {
             string pipeName = "test-pipeclient-" + Guid.NewGuid();

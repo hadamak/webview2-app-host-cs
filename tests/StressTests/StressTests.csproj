@@ -8,7 +8,7 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <RootNamespace>HostTests</RootNamespace>
-    <AssemblyName>HostTests</AssemblyName>
+    <AssemblyName>StressTests</AssemblyName>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
   </PropertyGroup>
 
@@ -53,23 +53,9 @@
   </ItemGroup>
 
   <!-- ================================
-       テストソース
+       Stress テストソース
        ================================ -->
   <ItemGroup>
-    <Compile Include="ZipContentProviderTests.cs" />
-    <Compile Include="NavigationPolicyTests.cs" />
-    <Compile Include="AppConfigTests.cs" />
-    <Compile Include="ReflectionDispatcherTests.cs" />
-    <Compile Include="MiscTests.cs" />
-    <Compile Include="SecureOfflineTests.cs" />
-    <Compile Include="BrowserConnectorTests.cs" />
-    <Compile Include="MessageBusTests.cs" />
-    <Compile Include="CdpProxyTests.cs" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(Configuration)' != 'SecureRelease'">
-    <Compile Include="McpTests.cs" />
-    <Compile Include="SidecarTests.cs" />
     <Compile Include="ConnectorQualityTests.cs" />
   </ItemGroup>
 
