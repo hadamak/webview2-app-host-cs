@@ -84,6 +84,10 @@ namespace WebView2AppHost
             _disposed = true;
             _queue.CompleteAdding();
 
+            // ディスパッチスレッドがキュー残分を処理し終えるのを待つ
+            if (_dispatchThread.IsAlive)
+                _dispatchThread.Join(1000);
+
             List<(IConnector Connector, ConnectorMailbox Mailbox)> snapshot;
             lock (_lock)
             {

@@ -291,7 +291,7 @@ namespace WebView2AppHost
             }
         }
 
-        private Delegate CreateGenericEventHandler(
+        private Delegate? CreateGenericEventHandler(
             Type handlerType, string alias, string eventName, ParameterInfo[] parameters)
         {
             try
@@ -315,7 +315,7 @@ namespace WebView2AppHost
 
                 return Expression.Lambda(handlerType, call, paramExprs).Compile();
             }
-            catch { return null!; }
+            catch { return null; }
         }
 
         private void DispatchDynamicEvent(string alias, string eventName,
