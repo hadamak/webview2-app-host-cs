@@ -36,7 +36,8 @@ namespace WebView2AppHost
         // -------------------------------------------------------------------
 
         private readonly string             _pipeName;
-        private readonly CancellationToken  _shutdownToken;
+        private readonly CancellationTokenSource _internalCts;
+        private readonly CancellationToken       _combinedToken;
 
         private Action<string>?  _publish;
         private readonly object  _sessionsLock = new object();
@@ -51,8 +52,9 @@ namespace WebView2AppHost
             string pipeName,
             CancellationToken shutdownToken = default)
         {
-            _pipeName      = pipeName ?? throw new ArgumentNullException(nameof(pipeName));
-            _shutdownToken = shutdownToken;
+            _pipeName   = pipeName ?? throw new ArgumentNullException(nameof(pipeName));
+            _internalCts = CancellationTokenSource.CreateLinkedTokenSource(shutdownToken);
+            _combinedToken = _internalCts.Token;
         }
 
         // -------------------------------------------------------------------
@@ -77,7 +79,7 @@ namespace WebView2AppHost
             lock (_sessionsLock) snapshot = new List<ClientSession>(_sessions);
 
             foreach (var s in snapshot)
-                s.Send(messageJson, _shutdownToken);
+                s.Send(messageJson, _combinedToken);
         }
 
         // -------------------------------------------------------------------
@@ -98,7 +100,7 @@ namespace WebView2AppHost
             AppLog.Log(AppLog.LogLevel.Info, $"PipeServerConnector",
                 $"Named Pipe 待機中: \\\\.\\pipe\\{_pipeName}");
 
-            while (!_shutdownToken.IsCancellationRequested && !_disposed)
+            while (!_combinedToken.IsCancellationRequested)
             {
                 var pipe = new NamedPipeServerStream(
                     _pipeName,
@@ -108,14 +110,14 @@ namespace WebView2AppHost
                     PipeOptions.Asynchronous);
                 try
                 {
-                    await pipe.WaitForConnectionAsync(_shutdownToken).ConfigureAwait(false);
+                    await pipe.WaitForConnectionAsync(_combinedToken).ConfigureAwait(false);
                     AppLog.Log(AppLog.LogLevel.Info, "PipeServerConnector", "プロキシ接続を受け入れました");
 
                     var session = new ClientSession(pipe, json => _publish?.Invoke(json));
                     lock (_sessionsLock) _sessions.Add(session);
 
                     // 各セッションは独立して動作し、切断時に自分をリストから削除する
-                    _ = session.RunAsync(_shutdownToken).ContinueWith(_ =>
+                    _ = session.RunAsync(_combinedToken).ContinueWith(_ =>
                     {
                         lock (_sessionsLock) _sessions.Remove(session);
                         AppLog.Log(AppLog.LogLevel.Info, "PipeServerConnector", "プロキシ切断");
@@ -126,7 +128,8 @@ namespace WebView2AppHost
                 {
                     AppLog.Log(AppLog.LogLevel.Warn, "PipeServerConnector.Accept", ex.Message);
                     pipe.Dispose();
-                    await Task.Delay(1000, _shutdownToken).ConfigureAwait(false);
+                    try { await Task.Delay(1000, _combinedToken).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { break; }
                 }
             }
         }
@@ -218,13 +221,16 @@ namespace WebView2AppHost
             if (_disposed) return;
             _disposed = true;
 
-            List<ClientSession> snapshot;
-            lock (_sessionsLock)
-            {
-                snapshot = new List<ClientSession>(_sessions);
-                _sessions.Clear();
-            }
-            // 各セッションは RunAsync 内で pipe.Dispose() するので何もしなくてよい
+            // 内部 CTS をキャンセルし、WaitForConnectionAsync 中のパイプを中断させる。
+            // これにより AcceptLoopAsync が OperationCanceledException を受け取り、
+            // 待機中のパイプを Dispose する。
+            try { _internalCts.Cancel(); } catch (ObjectDisposedException) { }
+
+            lock (_sessionsLock) _sessions.Clear();
+
+            // 各セッションは RunAsync 内で pipe.Dispose() する。
+            // _internalCts のキャンセルにより RunAsync も終了に向かう。
+            _internalCts.Dispose();
         }
     }
 }
