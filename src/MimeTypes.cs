@@ -3,6 +3,9 @@ using System.IO;
 
 namespace WebView2AppHost
 {
+    /// <summary>
+    /// ファイル拡張子から MIME タイプを判定するユーティリティ。
+    /// </summary>
     internal static class MimeTypes
     {
         private static readonly Dictionary<string, string> s_map =
@@ -71,6 +74,12 @@ namespace WebView2AppHost
             { ".zip",  "application/zip"           },
         };
 
+        /// <summary>
+        /// 指定されたパスの拡張子に基づいて MIME タイプを取得する。
+        /// 未知の拡張子の場合は application/octet-stream を返す。
+        /// </summary>
+        /// <param name="path">ファイルパスまたはファイル名</param>
+        /// <returns>MIME タイプ文字列</returns>
         public static string FromPath(string path)
         {
             var ext = Path.GetExtension(path);

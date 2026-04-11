@@ -8,7 +8,14 @@ namespace WebView2AppHost
     /// </summary>
     internal static class WebMessageHelper
     {
+        /// <summary>
+        /// 文字列としての取得を試みるデリゲート。
+        /// </summary>
         public delegate string? TryGetStringDelegate();
+
+        /// <summary>
+        /// JSON 文字列としての取得を試みるデリゲート。
+        /// </summary>
         public delegate string GetAsJsonDelegate();
 
         /// <summary>

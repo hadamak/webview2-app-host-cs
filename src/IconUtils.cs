@@ -4,6 +4,9 @@ using System.IO;
 
 namespace WebView2AppHost
 {
+    /// <summary>
+    /// アイコン操作に関するユーティリティクラス。
+    /// </summary>
     internal static class IconUtils
     {
         /// <summary>
