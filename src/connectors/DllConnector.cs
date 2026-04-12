@@ -28,6 +28,7 @@ namespace WebView2AppHost
         // -------------------------------------------------------------------
 
         private readonly object _lock = new object();
+        private bool _initialized = false;
 
         private readonly Dictionary<string, Assembly> _assemblies =
             new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
@@ -80,6 +81,17 @@ namespace WebView2AppHost
         /// <summary>app.conf.json の JSON 文字列から loadDlls を読み込む。</summary>
         public void Initialize(string configJson)
         {
+            lock (_lock)
+            {
+                if (_initialized)
+                {
+                    AppLog.Log(AppLog.LogLevel.Warn, "DllConnector.Initialize",
+                        "Initialize が複数回呼び出されました。2回目以降の呼び出しは無視します。");
+                    return;
+                }
+                _initialized = true;
+            }
+
             try
             {
                 var conf = s_json.Deserialize<Dictionary<string, object>>(configJson);
@@ -101,6 +113,18 @@ namespace WebView2AppHost
         public void Initialize(AppConfig config)
         {
             if (config == null) throw new ArgumentNullException(nameof(config));
+
+            lock (_lock)
+            {
+                if (_initialized)
+                {
+                    AppLog.Log(AppLog.LogLevel.Warn, "DllConnector.Initialize",
+                        "Initialize が複数回呼び出されました。2回目以降の呼び出しは無視します。");
+                    return;
+                }
+                _initialized = true;
+            }
+
             if (config.LoadDlls == null || config.LoadDlls.Length == 0)
             {
                 AppLog.Log(AppLog.LogLevel.Info, "DllConnector", "loadDlls が空です");
