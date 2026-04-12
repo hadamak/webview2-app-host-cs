@@ -78,7 +78,7 @@ namespace HostTests
         }
 
         [Fact]
-        public void AppLog_LogMessage_WritesToOutput()
+        public void AppLog_Log_WritesMessageToOverrideWriter()
         {
             using var sw = new StringWriter();
             var old = AppLog.Override;
@@ -108,7 +108,7 @@ namespace HostTests
         }
 
         [Fact]
-        public void AppLog_ShouldWrite_WithSensitiveData_ReturnsCorrectlyBasedOnBuild()
+        public void AppLog_ShouldWrite_SensitiveDataKind_ReturnsFalseOutsideDebug()
         {
 #if DEBUG && !SECURE_OFFLINE
             Assert.True(AppLog.ShouldWrite(AppLog.LogLevel.Debug, AppLog.LogDataKind.Sensitive));
@@ -118,7 +118,7 @@ namespace HostTests
         }
 
         [Fact]
-        public void AppLog_EnableFileOutput_ReturnsCorrectlyBasedOnBuild()
+        public void AppLog_EnableFileOutput_ReturnsFalseInSecureOfflineBuild()
         {
 #if SECURE_OFFLINE
             Assert.False(AppLog.EnableFileOutput);
@@ -129,7 +129,7 @@ namespace HostTests
         }
 
         [Fact]
-        public void CloseRequestState_StateTransitions_WorkCorrectly()
+        public void CloseRequestState_FullStateMachine_AllTransitionsSucceed()
         {
             var s = new CloseRequestState();
             
@@ -195,7 +195,7 @@ namespace HostTests
         }
 
         [Fact]
-        public void PluginManagerLogic_InitializeAndHandle_ReceivesMessages()
+        public void TestPlugin_HandleWebMessage_ReceivesDeliveredJson()
         {
             var dummy = new TestPlugin();
             var initMethod = dummy.GetType().GetMethod("Initialize", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance, null, new[] { typeof(string) }, null);

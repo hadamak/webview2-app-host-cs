@@ -17,13 +17,13 @@ namespace HostTests
         }
 
         [Fact]
-        public void Classify_LocalIndexHtml_Allows()
+        public void Classify_AppLocalUri_ReturnsAllow()
         {
             Assert.Equal(NavigationPolicy.Action.Allow, NavigationPolicy.Classify("https://app.local/index.html"));
         }
 
         [Fact]
-        public void Classify_BrowserModeConfig_ClassifiesCorrectly()
+        public void Classify_ExternalNavigationMode_Browser_ReturnsOpenExternal()
         {
             var browserCfg = LoadConfig(@"{
               ""navigation_policy"": {
@@ -44,7 +44,7 @@ namespace HostTests
         }
 
         [Fact]
-        public void Classify_HostModeConfig_ClassifiesCorrectly()
+        public void Classify_ExternalNavigationMode_Host_ReturnsAllow()
         {
             var hostCfg = LoadConfig(@"{
               ""navigation_policy"": {
@@ -62,7 +62,7 @@ namespace HostTests
         }
 
         [Fact]
-        public void Classify_RulesModeConfig_ClassifiesCorrectly()
+        public void Classify_ExternalNavigationMode_Rules_AppliesOpenInHostAndBrowserLists()
         {
             var rulesCfg = LoadConfig(@"{
               ""navigation_policy"": {
@@ -85,7 +85,7 @@ namespace HostTests
         }
 
         [Fact]
-        public void Classify_BlockModeConfig_ClassifiesCorrectly()
+        public void Classify_ExternalNavigationMode_Block_ReturnsBlock()
         {
             var blockCfg = LoadConfig(@"{ ""navigation_policy"": { ""external_navigation_mode"": ""block"" } }");
             Assert.NotNull(blockCfg);
@@ -93,7 +93,7 @@ namespace HostTests
         }
 
         [Fact]
-        public void Classify_InsecureLocalOrUnsupportedScheme_Blocks()
+        public void Classify_UnsupportedScheme_ReturnsBlock()
         {
 #if SECURE_OFFLINE
             Assert.Equal(NavigationPolicy.Action.Block, NavigationPolicy.Classify("http://app.local/"));
