@@ -99,7 +99,7 @@ namespace WebView2AppHost
         ///
         /// <para>
         /// TriggerScreenshot のような特例処理を自前で完結させた場合は <c>null</c> を返す。
-        /// null を受け取った <see cref="DispatchInvokeAsync"/> はそれ以上の処理を行わない。
+        /// null を受け取った <see cref="DispatchJsonRpcRequestAsync"/> はそれ以上の処理を行わない。
         /// </para>
         /// </summary>
         protected abstract Task<object?> ResolveTypeAsync(
@@ -350,6 +350,7 @@ namespace WebView2AppHost
 
         /// <summary>
         /// インスタンスのメソッド / プロパティ / フィールドをこの順で検索して呼び出す。
+        /// オーバーロードが存在する場合は引数の数が一致するものを優先する。
         /// </summary>
         protected object? InvokeInstanceMember(object inst, string memberName, object?[] rawArgs)
         {
@@ -357,9 +358,24 @@ namespace WebView2AppHost
             const BindingFlags Flags =
                 BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy;
 
-            var method = t.GetMethod(memberName, Flags);
-            if (method != null)
-                return method.Invoke(inst, ConvertArgs(method.GetParameters(), rawArgs));
+            var methods = t.GetMethods(Flags)
+                .Where(m => m.Name == memberName)
+                .OrderBy(m => m.GetParameters().Length == rawArgs.Length ? 0 : 1)
+                .ToList();
+
+            if (methods.Count > 0)
+            {
+                // 引数の数が一致するオーバーロードを優先
+                foreach (var m in methods.Where(m => m.GetParameters().Length == rawArgs.Length))
+                {
+                    try { return m.Invoke(inst, ConvertArgs(m.GetParameters(), rawArgs)); }
+                    catch (ArgumentException)    { /* 次のオーバーロードへ */ }
+                    catch (InvalidCastException) { /* 次のオーバーロードへ */ }
+                }
+                // 引数数が一致しなければ最初のもので試みる
+                var first = methods[0];
+                return first.Invoke(inst, ConvertArgs(first.GetParameters(), rawArgs));
+            }
 
             var prop = t.GetProperty(memberName, Flags);
             if (prop != null) return prop.GetValue(inst);

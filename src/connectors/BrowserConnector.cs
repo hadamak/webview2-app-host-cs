@@ -38,6 +38,21 @@ namespace WebView2AppHost
         private readonly WebView2  _webView;
         private Action<string>?   _publish;
 
+        /// <summary>
+        /// JS から <c>Host.Browser.WebView.ScreenshotAsync("path")</c> で呼ばれたときの戻り値型。
+        /// <see cref="System.Collections.IEnumerable"/> を実装しないため、
+        /// <see cref="ReflectionDispatcherBase.WrapResult"/> がリストとして誤変換するのを防ぐ。
+        /// </summary>
+        public sealed class ScreenshotFileResult
+        {
+            /// <summary>保存先の絶対パス。</summary>
+            public string path   { get; set; } = "";
+            /// <summary>画像の幅（ピクセル）。</summary>
+            public int    width  { get; set; }
+            /// <summary>画像の高さ（ピクセル）。</summary>
+            public int    height { get; set; }
+        }
+
         public BrowserConnector(WebView2 webView)
         {
             _webView = webView ?? throw new ArgumentNullException(nameof(webView));
@@ -89,6 +104,11 @@ namespace WebView2AppHost
         public Task<string> EvaluateAsync(string script, CancellationToken ct = default)
             => InvokeOnStaAsync<string>(async () => { EnsureReady(); return await _webView.CoreWebView2.ExecuteScriptAsync(script).ConfigureAwait(false); }, ct);
 
+        /// <summary>
+        /// WebView2 の現在の表示内容を PNG としてキャプチャし、
+        /// Base64 エンコード文字列と画像サイズを返す。
+        /// MCP や内部用途向けのオーバーロード。
+        /// </summary>
         public async Task<(string Base64, int Width, int Height)> ScreenshotAsync(CancellationToken ct = default)
         {
             return await InvokeOnStaAsync<(string, int, int)>(async () =>
@@ -104,6 +124,54 @@ namespace WebView2AppHost
                     }
                 }
             }, ct).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// JS から <c>Host.Browser.WebView.ScreenshotAsync("screenshot.png")</c> で呼ばれるオーバーロード。
+        /// 指定パスに PNG を保存し、<c>{ path, width, height }</c> を JS へ返す。
+        /// 相対パスの場合は EXE ディレクトリを基準にする。
+        /// </summary>
+        /// <param name="outputPath">保存先ファイルパス（絶対 or EXE ディレクトリからの相対）。</param>
+        public async Task<ScreenshotFileResult> ScreenshotAsync(string outputPath)
+        {
+            return await InvokeOnStaAsync<ScreenshotFileResult>(async () =>
+            {
+                EnsureReady();
+                using (var ms = new MemoryStream())
+                {
+                    await _webView.CoreWebView2.CapturePreviewAsync(
+                        CoreWebView2CapturePreviewImageFormat.Png, ms).ConfigureAwait(false);
+                    ms.Position = 0;
+
+                    int width, height;
+                    using (var bmp = new Bitmap(ms))
+                    {
+                        width  = bmp.Width;
+                        height = bmp.Height;
+                    }
+
+                    // 相対パスの場合は EXE ディレクトリを基準にする
+                    var fullPath = Path.IsPathRooted(outputPath)
+                        ? outputPath
+                        : Path.Combine(
+                            Path.GetDirectoryName(
+                                System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName!) ?? ".",
+                            outputPath);
+
+                    // 親ディレクトリが存在しない場合は作成する
+                    var dir = Path.GetDirectoryName(fullPath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                        Directory.CreateDirectory(dir);
+
+                    ms.Position = 0;
+                    File.WriteAllBytes(fullPath, ms.ToArray());
+
+                    AppLog.Log(AppLog.LogLevel.Info, "BrowserConnector.ScreenshotAsync",
+                        $"スクリーンショット保存: {AppLog.DescribePath(fullPath)} ({width}x{height})");
+
+                    return new ScreenshotFileResult { path = fullPath, width = width, height = height };
+                }
+            }, default).ConfigureAwait(false);
         }
 
         public Task NavigateAsync(string url, CancellationToken ct = default)
