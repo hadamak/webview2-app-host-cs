@@ -20,7 +20,7 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <Version>8.1.0</Version>
+    <Version>8.1.1</Version>
   </PropertyGroup>
 
   <Target Name="SetVersionRevision" BeforeTargets="BeforeBuild">
