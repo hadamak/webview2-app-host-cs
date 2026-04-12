@@ -56,6 +56,27 @@ namespace WebView2AppHost
         /// </summary>
         private const string McpProtocolVersion = "2024-11-05";
 
+        private static readonly string s_hostName =
+            System.Reflection.Assembly.GetExecutingAssembly().GetName().Name
+            ?? "WebView2AppHost";
+
+        private static readonly string s_hostVersion = ResolveHostVersion();
+
+        private static string ResolveHostVersion()
+        {
+            var asm = System.Reflection.Assembly.GetExecutingAssembly();
+
+            var attrs = (System.Reflection.AssemblyInformationalVersionAttribute[])
+                asm.GetCustomAttributes(
+                    typeof(System.Reflection.AssemblyInformationalVersionAttribute),
+                    inherit: false);
+
+            if (attrs.Length > 0 && !string.IsNullOrWhiteSpace(attrs[0].InformationalVersion))
+                return attrs[0].InformationalVersion;
+
+            return asm.GetName().Version?.ToString(3) ?? "0.0.0";
+        }
+
         public McpConnector(AppConfig? config, TextReader? input = null, TextWriter? output = null, TimeSpan callTimeout = default)
         {
             _config = config ?? new AppConfig();
@@ -146,20 +167,11 @@ namespace WebView2AppHost
                     WriteResult(id, new
                     {
                         protocolVersion = McpProtocolVersion,
-                        capabilities = new { tools = new { listChanged = false } },
+                        capabilities    = new { tools = new { listChanged = false } },
                         serverInfo      = new
                         {
-                            name    = System.Reflection.Assembly.GetExecutingAssembly().GetName().Name,
-                            version = System.Reflection.Assembly
-                                        .GetExecutingAssembly()
-                                        .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
-                                        ?.InformationalVersion
-                                    ?? System.Reflection.Assembly
-                                        .GetExecutingAssembly()
-                                        .GetName()
-                                        .Version?
-                                        .ToString(3)
-                                    ?? "0.0.0"
+                            name    = s_hostName,
+                            version = s_hostVersion
                         }
                     });
                     break;
