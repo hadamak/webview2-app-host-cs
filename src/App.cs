@@ -205,6 +205,12 @@ namespace WebView2AppHost
                 }
             };
 
+            // visibilitychange イベントの重複発火を抑制するデデュープロジック。
+            // WebView2 は最小化・復元時に visibilitychange を複数回発火することがある。
+            // 250ms 以内の同一 state への連続発火は stopImmediatePropagation() で無視する。
+            // また、ホスト側から PostWebMessage で "visibilityChange" イベントを受信し、
+            // document.visibilityState / document.hidden を書き換えて再ディスパッチすることで
+            // WinForms の最小化と Web 標準 API を同期させる。
             await wv.AddScriptToExecuteOnDocumentCreatedAsync(@"
                 const __wv2VisibilityDeduper = {
                     lastState: document.visibilityState,

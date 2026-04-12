@@ -112,6 +112,20 @@ namespace WebView2AppHost
             }
         }
 
+        /// <summary>
+        /// Named Pipe への接続を最大 3 回リトライする。
+        ///
+        /// <para>
+        /// リトライポリシー:
+        /// <list type="number">
+        ///   <item>1 回目の失敗時のみ <see cref="TryLaunchServer"/> でホストプロセスの起動を試みた後、2 秒待機する。</item>
+        ///   <item>2 回目の失敗時は 1 秒待機してリトライする。</item>
+        ///   <item>3 回目も失敗した場合は null を返す（呼び出し元で接続断として扱う）。</item>
+        /// </list>
+        /// </para>
+        /// </summary>
+        /// <param name="ct">キャンセルトークン。</param>
+        /// <returns>接続済みの <see cref="NamedPipeClientStream"/>。接続失敗時は null。</returns>
         private async Task<NamedPipeClientStream?> ConnectWithRetryAsync(CancellationToken ct)
         {
             const int MaxAttempts = 3;
@@ -149,6 +163,15 @@ namespace WebView2AppHost
             return null;
         }
 
+        /// <summary>
+        /// <see cref="_serverExePath"/> に指定されたホスト EXE の起動を試みる。
+        ///
+        /// <para>
+        /// --mcp-proxy モードで使用する。ホストプロセスがまだ起動していない場合に
+        /// 自動起動させるためのベストエフォート処理であり、失敗しても例外をスローしない。
+        /// EXE が存在しない場合や起動に失敗した場合は警告ログのみ出力して返却する。
+        /// </para>
+        /// </summary>
         private void TryLaunchServer()
         {
             if (string.IsNullOrEmpty(_serverExePath) || !File.Exists(_serverExePath)) return;

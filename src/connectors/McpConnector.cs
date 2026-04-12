@@ -10,6 +10,29 @@ using System.Collections.Concurrent;
 
 namespace WebView2AppHost
 {
+    /// <summary>
+    /// Model Context Protocol (MCP) サーバーとして動作するコネクター。
+    ///
+    /// <para>
+    /// stdin/stdout を介して MCP クライアント（AI エージェント等）と JSON-RPC 2.0 で通信し、
+    /// バスに登録された DLL・サイドカー・ブラウザの機能を MCP ツールとして公開する。
+    /// </para>
+    ///
+    /// <para>
+    /// 動作モード:
+    /// <list type="bullet">
+    ///   <item><b>--mcp</b>: WebView2 と同居し <see cref="IBrowserTools"/> も提供する通常モード。</item>
+    ///   <item><b>--mcp-headless</b>: WebView2 なしで DLL/サイドカーのみ公開するヘッドレスモード。</item>
+    ///   <item><b>--mcp-proxy</b>: Named Pipe 経由で本体バスに中継する軽量プロキシモード。</item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// <b>バスとの関係:</b> <see cref="McpBridge"/> を仲介役として使い、
+    /// MCP からの呼び出しをバス経由で各コネクターへ転送し、応答を受け取る。
+    /// コネクターが自発的に送ったイベント通知は <c>plugin/event/*</c> 形式で MCP クライアントへ転送する。
+    /// </para>
+    /// </summary>
     public sealed class McpConnector : IConnector
     {
         private readonly TextReader  _in;
@@ -62,6 +85,12 @@ namespace WebView2AppHost
             }
         }
 
+        /// <summary>
+        /// stdin からの JSON-RPC 2.0 メッセージを読み続けるメインループ。
+        /// キャンセルされるか stdin が EOF になるまで動作する。
+        /// 各リクエストは独立した <see cref="Task"/> で非同期処理される。
+        /// </summary>
+        /// <param name="ct">シャットダウン時にキャンセルされるトークン。</param>
         public async Task RunAsync(CancellationToken ct = default)
         {
             AppLog.Log(AppLog.LogLevel.Info, "McpConnector", "MCP サーバー起動");
@@ -183,6 +212,12 @@ namespace WebView2AppHost
             return new { type, description = desc };
         }
 
+        /// <summary>
+        /// tools/call リクエストを解析し、対象ツール種別（browser_* / invoke_dll_* / call_sidecar_*）へ振り分ける。
+        /// </summary>
+        /// <param name="id">JSON-RPC リクエスト ID。応答の id フィールドに使用する。</param>
+        /// <param name="msg">デシリアライズ済みのリクエスト辞書。</param>
+        /// <param name="ct">シャットダウン用キャンセルトークン。</param>
         private async Task HandleToolsCallAsync(object? id, Dictionary<string, object> msg, CancellationToken ct)
         {
             var p = msg.ContainsKey("params") ? msg["params"] as Dictionary<string, object> : null;

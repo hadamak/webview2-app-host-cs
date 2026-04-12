@@ -10,6 +10,29 @@ using Microsoft.Web.WebView2.WinForms;
 
 namespace WebView2AppHost
 {
+    /// <summary>
+    /// WebView2 の JavaScript ↔ C# メッセージングを担うコネクター。
+    ///
+    /// <para>
+    /// 役割:
+    /// <list type="bullet">
+    ///   <item>JS 側の <c>Host.*.*.*</c> 呼び出しを <see cref="ReflectionDispatcherBase"/> 経由で処理する。</item>
+    ///   <item>自分宛でないメッセージはバスへ流し、他コネクターからの配信は WebView2 へ転送する。</item>
+    ///   <item><see cref="IBrowserTools"/> を実装し、MCP が直接ブラウザを操作できるようにする。</item>
+    /// </list>
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Publish setter の副作用:</b> セットされると同時に内部の <c>_postMessage</c> デリゲートも
+    /// 差し替わる。これにより以降の応答は WebView2 とバスの両方に送られる。
+    /// </para>
+    ///
+    /// <para>
+    /// <b>スレッドモデル:</b> WebView2 のイベントは UI スレッドで発火する。
+    /// ブラウザ操作メソッド（<see cref="EvaluateAsync"/> 等）は
+    /// <c>BeginInvoke</c> を使い UI スレッドへ処理をディスパッチする。
+    /// </para>
+    /// </summary>
     public sealed class BrowserConnector : ReflectionDispatcherBase, IConnector, IBrowserTools
     {
         private readonly WebView2  _webView;

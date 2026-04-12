@@ -71,6 +71,20 @@ namespace WebView2AppHost
         public static string GetServerExePath() =>
             Process.GetCurrentProcess().MainModule!.FileName!;
 
+// ---------------------------------------------------------------------------
+// BuildWithBrowser — ビルド構成別オーバーロード
+//
+// SECURE_OFFLINE ビルド:
+//   Browser と Dll のみ登録可能。MCP/Sidecar/Pipe/CDP は
+//   コンパイル時に完全除去されているため、このオーバーロードは
+//   MessageBus のみを返す（McpConnector は存在しない）。
+//
+// 通常ビルド:
+//   app.conf.json の connectors 配列に記載された種別を順番に登録する。
+//   Browser は必ずフォールバック登録される。
+//   --mcp フラグまたは connectors に "mcp" が含まれる場合は McpConnector も生成し返す。
+//   呼び出し元（App.cs）が McpConnector のスレッド起動を担う。
+// ---------------------------------------------------------------------------
 #if SECURE_OFFLINE
         public static MessageBus BuildWithBrowser(
             WebView2 webView,
