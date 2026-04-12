@@ -19,6 +19,39 @@
     <DebugSymbols Condition="'$(Configuration)'=='SecureRelease'">false</DebugSymbols>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <Version>8.1.0</Version>
+  </PropertyGroup>
+
+  <Target Name="SetVersionRevision" BeforeTargets="BeforeBuild">
+    <Exec
+      Command="git rev-list --count HEAD"
+      ConsoleToMSBuild="true"
+      StandardOutputImportance="Low"
+      IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitCount" />
+    </Exec>
+
+    <PropertyGroup>
+      <GitCommitCount Condition="'$(GitCommitCount)' == ''">0</GitCommitCount>
+      <AssemblyVersion>$(Version).$(GitCommitCount)</AssemblyVersion>
+      <FileVersion>$(Version).$(GitCommitCount)</FileVersion>
+    </PropertyGroup>
+
+    <Exec
+      Command="git rev-parse --short HEAD"
+      ConsoleToMSBuild="true"
+      StandardOutputImportance="Low"
+      IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitShortHash" />
+    </Exec>
+
+    <PropertyGroup>
+      <GitShortHash Condition="'$(GitShortHash)' == ''">unknown</GitShortHash>
+      <InformationalVersion>$(Version).$(GitCommitCount)+$(GitShortHash)</InformationalVersion>
+    </PropertyGroup>
+  </Target>
+
   <PropertyGroup Condition="'$(Configuration)' == 'SecureRelease'">
     <DefineConstants>$(DefineConstants);SECURE_OFFLINE</DefineConstants>
     <Optimize>true</Optimize>

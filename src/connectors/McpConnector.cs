@@ -49,6 +49,13 @@ namespace WebView2AppHost
         private readonly bool _ownsIn;
         private readonly bool _ownsOut;
 
+        /// <summary>
+        /// このサーバーが準拠する MCP 仕様のバージョン（日付形式）。
+        /// https://spec.modelcontextprotocol.io/ の最新リビジョンに合わせて更新する。
+        /// アプリケーションのバージョンとは独立している。
+        /// </summary>
+        private const string McpProtocolVersion = "2024-11-05";
+
         public McpConnector(AppConfig? config, TextReader? input = null, TextWriter? output = null, TimeSpan callTimeout = default)
         {
             _config = config ?? new AppConfig();
@@ -138,9 +145,22 @@ namespace WebView2AppHost
                 case "initialize":
                     WriteResult(id, new
                     {
-                        protocolVersion = "2024-11-05",
+                        protocolVersion = McpProtocolVersion,
                         capabilities = new { tools = new { listChanged = false } },
-                        serverInfo = new { name = "WebView2AppHost", version = "2.2.6" }
+                        serverInfo      = new
+                        {
+                            name    = System.Reflection.Assembly.GetExecutingAssembly().GetName().Name,
+                            version = System.Reflection.Assembly
+                                        .GetExecutingAssembly()
+                                        .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>()
+                                        ?.InformationalVersion
+                                    ?? System.Reflection.Assembly
+                                        .GetExecutingAssembly()
+                                        .GetName()
+                                        .Version?
+                                        .ToString(3)
+                                    ?? "0.0.0"
+                        }
                     });
                     break;
                 case "tools/list":
