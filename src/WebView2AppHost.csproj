@@ -107,11 +107,6 @@
               Condition="Exists('$(OutputPath)runtimes\')" />
   </Target>
 
-  <!-- Debug ビルド時のみ test-www/ をそのまま出力先 www/ へコピーする -->
-  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-    <ManualWwwContent Include="$(MSBuildProjectDirectory)\..\test-www\**\*" />
-  </ItemGroup>
-
   <Target Name="CopyManualWwwContent" AfterTargets="Build">
     <MakeDir Directories="$(TargetDir)www" />
     <Copy SourceFiles="@(ManualWwwContent)"

@@ -97,11 +97,11 @@ The real power of WebView2AppHost is its extensibility without recompilation. If
 
 The host can load web content from multiple sources based on your distribution needs. Priority is as follows:
 
-1. **`www\` next to the EXE**: Best for rapid development and straightforward loose-file distribution.
-2. **Command-line ZIP**: Run `WebView2AppHost.exe content.zip`. Great when using the EXE as a generic shell.
-3. **Sibling ZIP**: `WebView2AppHost.zip`. Good for separating the runtime executable from updatable content.
-4. **Appended ZIP**: `copy /b EXE + ZIP`. Perfect for single-file, portable distribution.
-5. **Embedded `app.zip`**: Best for a guaranteed fallback when building your own custom host binary.
+1. **Appended ZIP**: `copy /b EXE + ZIP`. Best for single-file distribution. Enables "Security Protection Mode" to prevent external config overrides.
+2. **Command-line ZIP**: Run `WebView2AppHost.exe patch.zip`. Perfect for temporarily overriding loose files or using the EXE as a shell.
+3. **`www\` next to the EXE**: Best for large media files (video/audio).
+4. **Sibling ZIP**: `WebView2AppHost.zip`. Good for separating the executable from updatable content.
+5. **Embedded `app.zip`**: Built-in fallback resource.
 
 See [docs/guides/content-packaging.md](docs/guides/content-packaging.md).
 
@@ -137,8 +137,9 @@ Check out the `samples/` directory to see extensions in action immediately:
 Details regarding internal architecture, API compatibility, and the MessageBus bridge design are kept separate for developers:
 
 - [docs/maintainer/README.md](docs/maintainer/README.md)
-- [Web API Compatibility](docs/maintainer/api-compatibility.md)
 - [Bridge & Connector Architecture](docs/architecture/bridge-design.md)
+- [Connectors Deep Dive (DLL & Sidecar)](docs/guides/connectors-deep-dive.md)
+- [Web API Compatibility](docs/maintainer/api-compatibility.md)
 
 ## License
 

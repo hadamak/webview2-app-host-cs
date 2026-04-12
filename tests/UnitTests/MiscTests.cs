@@ -84,7 +84,7 @@ namespace HostTests
             var old = AppLog.Override;
             AppLog.Override = sw;
             
-            var level = AppLog.MinimumLevel == AppLog.LogLevel.Warn ? "WARN" : "INFO";
+            var level = AppLog.MinimumLevel == AppLog.LogLevel.Warn ? AppLog.LogLevel.Warn : AppLog.LogLevel.Info;
             AppLog.Log(level, "Test", "Msg");
             
             AppLog.Override = old;

@@ -1,24 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Configurations>Debug;Release</Configurations>
-    <OutputType>Library</OutputType>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <PlatformTarget>x64</PlatformTarget>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
-    <RootNamespace>HostTests</RootNamespace>
+    <RootNamespace>IntegrationTests</RootNamespace>
     <AssemblyName>IntegrationTests</AssemblyName>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <StartupObject>IntegrationTests.LoadingOrderTest</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>
     <Compile Include="..\..\src\*.cs" />
     <Compile Include="..\..\src\connectors\*.cs" />
-    <Compile Include="BrowserConnectorTests.cs" />
-    <Compile Include="CdpProxyTests.cs" />
-    <Compile Include="McpTests.cs" />
-    <Compile Include="SidecarTests.cs" />
+    <Compile Include="LoadingOrderTest.cs" />
   </ItemGroup>
 
   <ItemGroup>

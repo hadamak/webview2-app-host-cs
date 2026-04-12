@@ -1,60 +1,41 @@
 # Content Packaging
 
-## Content source priority
+WebView2AppHost は複数のソースからコンテンツを解決します。解決はファイル単位で行われるため、異なるソースに分散してファイルを配置することが可能です。
 
-`ZipContentProvider` resolves content in this order:
+## コンテンツ解決の優先順位（高い順）
 
-1. `www\` next to the EXE
-2. ZIP path passed as the first command-line argument
-3. ZIP with the same basename as the EXE
-4. ZIP appended to the EXE
-5. embedded `app.zip`
+1. **連結 ZIP (Appended ZIP)**
+   - `copy /b EXE + ZIP` で作成されたパッケージ。
+   - **最優先**。検出されると「セキュリティ保護モード」が有効になります。
+2. **引数指定 ZIP (Command-line Argument)**
+   - `WebView2AppHost.exe patch.zip` のように起動。
+   - 展開済みの `www/` フォルダよりも優先されるため、パッチの適用や一時的なオーバーライドに最適です。
+3. **個別配置 (Loose files in `www/`)**
+   - EXE 隣接の `www/` フォルダ。
+   - **セキュリティ制約**: 連結 ZIP が検出されている場合、このフォルダ内の `app.conf.json` は無視されます。
+4. **同封 ZIP (Sibling ZIP)**
+   - EXE と同名の `.zip` ファイル。
+5. **埋め込み ZIP (Embedded Resource)**
+   - ビルド時に `app.zip` として埋め込まれたリソース。
 
-Resolution is file-by-file, not package-by-package.
+---
 
-## Packaging patterns
+## セキュリティ保護モード
 
-### Loose `www\`
+連結 ZIP が検出された場合、ホストは自動的に保護モードに入ります。このモードの目的は、配布済みのアプリケーションに対して外部から悪意ある設定（`app.conf.json`）を差し込まれることを防ぐことです。
 
-Best for:
+- **`app.conf.json` の固定**: 外部の `www/app.conf.json` は物理的に読み込みが拒否されます。必ず連結 ZIP 内の設定が使用されます。
+- **改ざん防止**: 同名のファイル（例: `index.html`）が ZIP と `www/` の両方にある場合、常に ZIP 内のファイルが優先されます。
 
-- local development
-- rapidly changing content
-- large files such as video, audio, or other assets better served directly from disk
+## メディアファイルとの併用パターン
 
-### Launch-selected ZIP
+巨大な動画や音声ファイルは、以下の理由から `www/` フォルダへの配置が推奨されます。
+- **メモリ効率**: ZIP 内のファイルは一度メモリに展開されますが、`www/` のファイルはディスクからストリーム読み込みされます。
+- **Range Request**: 動画のシーク（部分読み込み）が OS レベルで高速に動作します。
 
-Best for:
+### 推奨される構成例
+- **連結 ZIP**: `app.conf.json`、`index.html`、`host.js`、CSS、アイコン等（保護が必要な核となるファイル）。
+- **`www/` フォルダ**: `video.mp4`、`bgm.wav`、大型のテクスチャ等。
 
-- shell-style hosts
-- cartridge-style content switching
-- automation that chooses content at startup
-
-### Sibling ZIP
-
-Best for:
-
-- separate shipping of host and content
-- replacing content without replacing the EXE
-
-### Appended ZIP
-
-Best for:
-
-- single-file delivery
-- content and executable distributed together as one artifact
-
-### Embedded `app.zip`
-
-Best for:
-
-- a built-in default experience
-- shipping a host that always has fallback content
-
-## Build-time embedding
-
-`src/WebView2AppHost.csproj` zips `web-content\` into `src\app.zip` before build and embeds it as a resource.
-
-## Debug behavior
-
-`Debug` builds additionally copy `test-www\` into the output directory as `www\`, which overrides the embedded resource because loose content has higher priority.
+## デバッグ時の挙動
+`Debug` ビルドでは `test-www/` が出力先の `www/` にコピーされます。連結 ZIP を作成していない開発段階では、この `www/` フォルダが最も高い優先順位として機能します。

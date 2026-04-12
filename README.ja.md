@@ -98,11 +98,11 @@ www/
 
 コンテンツの配布方法は、要件に合わせて複数のスタイルから選べます（優先順位順）：
 
-1. **EXE 隣接の `www\`**: 開発中の差し替えや、そのままの配布に最も向く。
-2. **コマンドライン ZIP**: `WebView2AppHost.exe content.zip` のように起動。シェルとしての利用に最適。
-3. **EXE と同名の ZIP**: `WebView2AppHost.zip`。コンテンツだけを後から更新したい場合に向く。
-4. **EXE 末尾に連結した ZIP**: `copy /b EXE + ZIP`。単一ファイル配布（ポータブル化）に最適。
-5. **埋め込み `app.zip`**: 自前でホストをビルドする場合の既定フォールバック。
+1. **EXE 末尾に連結した ZIP**: `copy /b EXE + ZIP`。単一ファイル配布に最適。検出時は外部の `app.conf.json` を無視する保護モードが働きます。
+2. **コマンドライン ZIP**: `WebView2AppHost.exe patch.zip`。展開済みの環境を一時的に上書きする場合やシェルとしての利用に最適。
+3. **EXE 隣接の `www\`**: 巨大なメディアファイル（動画・音声）の配置に最適。
+4. **EXE と同名の ZIP**: `WebView2AppHost.zip`。コンテンツだけを後から更新したい場合に向く。
+5. **埋め込み `app.zip`**: 内蔵の最終フォールバック。
 
 詳細: [docs/guides/content-packaging.md](docs/guides/content-packaging.md)
 
@@ -137,8 +137,9 @@ msbuild src\WebView2AppHost.csproj "/t:Restore;Build" /p:Configuration=Release /
 
 内部アーキテクチャ、API 対応状況、互換性についての詳細は、メンテナ向けのドキュメントに分離しています。
 - [docs/maintainer/README.md](docs/maintainer/README.md)
-- [Web API 対応状況](docs/maintainer/api-compatibility.md)
 - [MessageBus と Bridge の設計](docs/architecture/bridge-design.md)
+- [コネクター詳細ガイド (DLL & サイドカー)](docs/guides/connectors-deep-dive.md)
+- [Web API 対応状況](docs/maintainer/api-compatibility.md)
 
 ## ライセンス
 

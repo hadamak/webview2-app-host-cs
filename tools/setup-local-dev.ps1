@@ -11,7 +11,7 @@
     実行後は生成された EXE をそのまま起動して動作確認できる。
 
 .PARAMETER Configuration
-    ビルド構成。Debug (既定) または Release。
+    ビルド構成。Debug (既定) / Release / SecureRelease。
 
 .EXAMPLE
     # 通常のローカル開発セットアップ
@@ -23,7 +23,7 @@
 #>
 
 param(
-    [ValidateSet("Debug", "Release")]
+    [ValidateSet("Debug", "Release", "SecureRelease")]
     [string]$Configuration = "Debug"
 )
 
@@ -82,7 +82,8 @@ try {
     # ---------------------------------------------------------------------------
     Write-Host "==> Facepunch.Steamworks DLL を配置中..." -ForegroundColor Cyan
 
-    $steamDllPath = "Facepunch.Steamworks\Facepunch.Steamworks\bin\x64\$Configuration\net46\Facepunch.Steamworks.Win64.dll"
+    $steamConfig = if ($Configuration -eq "SecureRelease") { "Release" } else { $Configuration }
+    $steamDllPath = "Facepunch.Steamworks\Facepunch.Steamworks\bin\x64\$steamConfig\net46\Facepunch.Steamworks.Win64.dll"
     if (Test-Path $steamDllPath) {
         Copy-Item $steamDllPath $outDir -Force
         Write-Host "    Facepunch.Steamworks.Win64.dll -> $outDir" -ForegroundColor Gray
@@ -93,7 +94,7 @@ try {
     }
 
     # steam_api64.dll もコピー（存在する場合）
-    $steamApiPath = "Facepunch.Steamworks\Facepunch.Steamworks\bin\x64\$Configuration\net46\steam_api64.dll"
+    $steamApiPath = "Facepunch.Steamworks\Facepunch.Steamworks\bin\x64\$steamConfig\net46\steam_api64.dll"
     if (Test-Path $steamApiPath) {
         Copy-Item $steamApiPath $outDir -Force
         Write-Host "    steam_api64.dll -> $outDir" -ForegroundColor Gray
@@ -115,6 +116,24 @@ try {
     }
     else {
         Write-Warning "Pythonサイドカーが見つかりません: samples\sidecar-python\python-runtime\server.py"
+    }
+
+    # ---------------------------------------------------------------------------
+    # 4. test-www サンプルをコピー (動作確認用の簡単なWebコンテンツ)
+    # ---------------------------------------------------------------------------
+    Write-Host "==> test-www サンプルを配置中..." -ForegroundColor Cyan
+
+    $testWwwDest = Join-Path $outDir "www"
+    if (!(Test-Path $testWwwDest)) {
+        New-Item -ItemType Directory -Force -Path $testWwwDest | Out-Null
+    }
+
+    if (Test-Path "test-www") {
+        Copy-Item "test-www\*" $testWwwDest -Recurse -Force
+        Write-Host "    test-www -> $testWwwDest" -ForegroundColor Gray
+    }
+    else {
+        Write-Warning "test-www サンプルが見つかりません: test-www"
     }
 
     # ---------------------------------------------------------------------------

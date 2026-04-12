@@ -27,6 +27,7 @@ This section is for people changing the host itself rather than simply shipping 
 
 - [../guides/build-and-release.md](../guides/build-and-release.md)
 - [../guides/content-packaging.md](../guides/content-packaging.md)
+- [../guides/connectors-deep-dive.md](../guides/connectors-deep-dive.md)
 - [../api/connector-interfaces.md](../api/connector-interfaces.md)
 - [../api/app-conf-json.md](../api/app-conf-json.md)
 

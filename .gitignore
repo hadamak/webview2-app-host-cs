@@ -9,6 +9,7 @@ src/app.zip
 
 tests/IntegrationTests/bin/
 tests/IntegrationTests/obj/
+tests/IntegrationTests/temp
 
 tests/SecureTests/bin
 tests/SecureTests/obj
