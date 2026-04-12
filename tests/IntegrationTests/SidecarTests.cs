@@ -143,18 +143,37 @@ namespace HostTests
         {
             if (!IsNodeAvailable()) return;
 
-            var entry = new SidecarEntry { Alias = "Suicide", Executable = "node", Args = new[] { "-e", "process.exit(1)" }, Mode = "streaming" };
+            var restartSignal = new ManualResetEventSlim(false);
+            var entry = new SidecarEntry
+            {
+                Alias = "Suicide",
+                Executable = "node",
+                Args = new[] { "-e", "process.exit(1)" },
+                Mode = "streaming"
+            };
             var sidecar = new SidecarConnector(entry, _globalCts.Token);
             _sidecars.Add(sidecar);
 
-            sidecar.Start();
-            await Task.Delay(2000); // 1回目の再起動(1s後)を待つ
-
-            var countField = typeof(SidecarConnector).GetField("_restartCount", BindingFlags.NonPublic | BindingFlags.Instance);
+            var countField = typeof(SidecarConnector)
+                .GetField("_restartCount", BindingFlags.NonPublic | BindingFlags.Instance);
             Assert.NotNull(countField);
-            
-            var count = (int)(countField.GetValue(sidecar) ?? 0);
-            Assert.True(count >= 1, $"Restart count should be >= 1, actual: {count}");
+
+            // _restartCount が 1 以上になったらシグナルを立てる
+            // SidecarConnector は OnExited 内でカウンタをインクリメントするため、
+            // ポーリングで確認する（最大 5 秒）
+            sidecar.Start();
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            int count = 0;
+            while (!cts.IsCancellationRequested)
+            {
+                count = (int)(countField!.GetValue(sidecar) ?? 0);
+                if (count >= 1) break;
+                await Task.Delay(50, cts.Token).ConfigureAwait(false);
+            }
+
+            Assert.True(count >= 1, $"Restart count should be >= 1 within 5 seconds, actual: {count}");
+            Assert.True(count <= 5, $"Restart count should not exceed the limit of 5, actual: {count}");
         }
 
         [Fact]
