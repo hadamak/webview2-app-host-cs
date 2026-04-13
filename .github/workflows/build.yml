@@ -34,6 +34,10 @@ jobs:
     - name: Run host.js unit tests
       run: node tests/host-js/host.test.js
 
+    - name: Run Loading Order Tests
+      shell: pwsh
+      run: .\tests\run-loading-order-test.ps1
+
     - name: Upload artifact
       uses: actions/upload-artifact@v7
       with:
