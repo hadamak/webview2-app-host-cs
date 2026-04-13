@@ -18,6 +18,12 @@
     <Compile Include="BrowserConnectorTests.cs" />
     <Compile Include="CdpProxyTests.cs" />
     <Compile Include="McpTests.cs" />
+    <Compile Include="McpTestHelper.cs" />
+    <Compile Include="MockBrowserTools.cs" />
+    <Compile Include="McpBrowserToolTests.cs" />
+    <Compile Include="McpErrorHandlingTests.cs" />
+    <Compile Include="McpPluginRoutingTests.cs" />
+    <Compile Include="McpEventTests.cs" />
     <Compile Include="SidecarTests.cs" />
   </ItemGroup>
 
