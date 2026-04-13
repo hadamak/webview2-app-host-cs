@@ -1,0 +1,35 @@
+{
+  "title": "Sidecar Sample",
+  "window": { "width": 1280, "height": 800, "frame": true },
+  "url": "https://app.local/index.html",
+  "navigation_policy": {
+    "external_navigation_mode": "browser",
+    "block_request_patterns": []
+  },
+  "connectors": [
+    {
+      "type": "sidecar",
+      "alias": "Python",
+      "runtime": "python",
+      "script": "server.py",
+      "working_directory": "python-runtime",
+      "wait_for_ready": true
+    },
+    {
+      "type": "sidecar",
+      "alias": "PowerShell",
+      "runtime": "pwsh",
+      "script": "server.ps1",
+      "working_directory": "powershell-runtime",
+      "wait_for_ready": true
+    },
+    {
+      "type": "sidecar",
+      "alias": "Node",
+      "runtime": "node",
+      "script": "server.js",
+      "working_directory": "node-runtime",
+      "wait_for_ready": true
+    }
+  ]
+}

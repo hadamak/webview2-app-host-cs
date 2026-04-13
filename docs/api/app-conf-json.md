@@ -42,7 +42,7 @@
       "type": "sidecar",
       "alias": "PythonRuntime",
       "runtime": "python",
-      "script": "python-runtime/server.py",
+      "script": "server.py",
       "working_directory": "python-runtime",
       "wait_for_ready": true,
       "encoding": "utf-8"

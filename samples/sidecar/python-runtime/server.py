@@ -31,6 +31,12 @@ def secure_path(target_path):
         raise PermissionError(f"Access Denied: {target_path} is outside the sandbox.")
     return resolved
 
+def truncate_text(text, max_len):
+    """テキストが長すぎる場合に末尾を切り詰めて警告を付加する"""
+    if len(text) > max_len:
+        return text[:max_len] + f"\n... [System: Truncated. Original length was {len(text)} characters.]"
+    return text
+
 # ---------------------------------------------------------------------------
 # ハンドラ実装
 # ---------------------------------------------------------------------------
@@ -51,28 +57,84 @@ class Handlers:
         for entry in path.iterdir():
             items.append({
                 "name": entry.name,
-                "isDirectory": entry.is_dir()
+                "isDirectory": entry.is_dir(),
+                "size": entry.stat().st_size if entry.is_file() else 0
             })
         return items
 
     @staticmethod
     def filesystem_readFile(filePath):
         path = secure_path(filePath)
-        return path.read_text(encoding='utf-8')
+        content = path.read_text(encoding='utf-8', errors='replace')
+        return truncate_text(content, 50000)
 
     @staticmethod
     def filesystem_writeFile(filePath, content):
         path = secure_path(filePath)
-        # 親ディレクトリがなければ作成
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding='utf-8')
-        return True
+        return {"status": "success", "file": str(path.relative_to(ROOT_DIR))}
+
+    @staticmethod
+    def filesystem_replaceInFile(filePath, old_text, new_text):
+        """ファイル内の特定の文字列を置換する（差分修正用）"""
+        path = secure_path(filePath)
+        if not path.exists():
+            return {"status": "error", "message": "File not found."}
+        
+        content = path.read_text(encoding='utf-8', errors='replace')
+        if old_text not in content:
+            return {"status": "error", "message": "old_text not found in the file. Exact match required."}
+            
+        new_content = content.replace(old_text, new_text)
+        path.write_text(new_content, encoding='utf-8')
+        return {"status": "success", "message": "Text replaced successfully."}
+
+    @staticmethod
+    def filesystem_readFileLines(filePath, start_line=1, end_line=100):
+        """ファイルの指定した行範囲だけを返す（1-based index）"""
+        path = secure_path(filePath)
+        if not path.exists():
+            return {"status": "error", "message": "File not found."}
+            
+        with path.open('r', encoding='utf-8', errors='replace') as f:
+            lines = f.readlines()
+            
+        start_idx = max(0, start_line - 1)
+        end_idx = min(len(lines), end_line)
+        
+        extracted = "".join(lines[start_idx:end_idx])
+        return truncate_text(extracted, 50000)
+
+    @staticmethod
+    def filesystem_listDirectoryTree(dirPath=".", max_depth=2):
+        """ディレクトリ構造をテキストのツリー形式で返す"""
+        base_path = secure_path(dirPath)
+        if not base_path.exists() or not base_path.is_dir():
+            return "Directory not found."
+            
+        def build_tree(current_path, current_depth):
+            if current_depth > max_depth:
+                return []
+            tree = []
+            try:
+                # フォルダを先に、ファイルを後にソート
+                entries = sorted(current_path.iterdir(), key=lambda x: (x.is_file(), x.name))
+                for entry in entries:
+                    prefix = "  " * current_depth + ("- " if entry.is_file() else "+ ")
+                    tree.append(f"{prefix}{entry.name}")
+                    if entry.is_dir():
+                        tree.extend(build_tree(entry, current_depth + 1))
+            except PermissionError:
+                tree.append("  " * current_depth + "[Permission Denied]")
+            return tree
+            
+        tree_lines = [f"[{base_path.name}/]"] + build_tree(base_path, 1)
+        return truncate_text("\n".join(tree_lines), 20000)
 
     @staticmethod
     def terminal_execute(command):
         try:
-            # バイナリモード (text=False) で実行し、手動でデコードを試みる。
-            # これにより、UTF-8 と CP932 (Windows標準) が混在する環境に対応する。
             result = subprocess.run(
                 command, 
                 shell=True, 
@@ -85,17 +147,18 @@ class Handlers:
                 if not b:
                     return ""
                 try:
-                    # まずは UTF-8 を試す (モダンなツールや PowerShell)
                     return b.decode('utf-8')
                 except UnicodeDecodeError:
                     if os.name == 'nt':
-                        # Windows なら CP932 を試す (標準の dir 等)
                         return b.decode('cp932', errors='replace')
                     return b.decode('utf-8', errors='replace')
 
+            stdout_text = truncate_text(decode_best_effort(result.stdout), 10000)
+            stderr_text = truncate_text(decode_best_effort(result.stderr), 10000)
+
             return {
-                "stdout": decode_best_effort(result.stdout),
-                "stderr": decode_best_effort(result.stderr),
+                "stdout": stdout_text,
+                "stderr": stderr_text,
                 "code": result.returncode,
                 "ok": result.returncode == 0
             }
@@ -106,6 +169,14 @@ class Handlers:
                 "code": 1,
                 "ok": False
             }
+
+    @staticmethod
+    def agent_askHuman(question=""):
+        return {
+            "status": "waiting_for_human",
+            "question": question,
+            "message": "Execution paused. Waiting for user input."
+        }
 
 # ---------------------------------------------------------------------------
 # 通信・ディスパッチ
@@ -127,8 +198,6 @@ def dispatch(msg):
         return
 
     method_name = msg["method"]
-    # "Node.FileSystem.readFile" 形式（サイドカー互換）を
-    # "filesystem_readFile" 形式に変換して Handlers から探す
     parts = method_name.split('.')
     if len(parts) < 3:
         reject(msg.get("id"), f"Invalid method format: {method_name}")
@@ -146,7 +215,6 @@ def dispatch(msg):
         if isinstance(params, dict):
             result = handler(**params)
         else:
-            # 配列の場合はアンパックして渡す
             result = handler(*params)
         resolve(msg.get("id"), result)
     except Exception as e:
@@ -154,13 +222,12 @@ def dispatch(msg):
         reject(msg.get("id"), str(e))
 
 # ---------------------------------------------------------------------------
-# メメインループ
+# メインループ
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
     sys.stderr.write(f"[server.py] Python サイドカー起動 (PID: {os.getpid()})\n")
     
-    # 起動完了を通知
     send({"ready": True})
 
     for line in sys.stdin:

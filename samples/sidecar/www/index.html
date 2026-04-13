@@ -34,16 +34,13 @@
 
     <!-- PowerShell Section -->
     <div class="card">
-        <h2>🔵 PowerShell (via server.ps1)</h2>
-        <div class="status">OS標準機能のみで動作（インストール不要）</div>
+        <h2>🔵 PowerShell-7 (via server.ps1)</h2>
         <div class="row">
-            <button class="ps" onclick="call('PS', 'PowerShell.version')">Get PS Version</button>
-            <button class="ps" onclick="call('PS', 'PowerShell.getServices')">Get Top 10 Services</button>
-            <button class="ps" onclick="call('PS', 'PowerShell.getUptime')">Get Uptime</button>
+            <button class="ps" onclick="call('PowerShell', 'PowerShell.version')">Get PS Version</button>
         </div>
         <div class="row">
             <input type="text" id="ps-cmd" value="Get-Process | Sort-Object CPU -Descending | Select -First 5" style="flex:1; padding: 8px;">
-            <button class="ps" onclick="call('PS', 'PowerShell.execute', [document.getElementById('ps-cmd').value])">Execute Command</button>
+            <button class="ps" onclick="call('PowerShell', 'Terminal.execute', [document.getElementById('ps-cmd').value])">Execute Command</button>
         </div>
     </div>
 
@@ -52,7 +49,6 @@
         <h2>🟡 Python (via server.py)</h2>
         <div class="row">
             <button class="py" onclick="call('Python', 'Python.version')">Get Version</button>
-            <button class="py" onclick="call('Python', 'Math.add', [10, 20])">Add (10 + 20)</button>
         </div>
     </div>
 

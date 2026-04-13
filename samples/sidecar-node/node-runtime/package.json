@@ -1,9 +1,0 @@
-{
-  "name": "webview2-app-host-node-runtime",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Node.js version management for sidecar runtime",
-  "devDependencies": {
-    "node": "24.14.1"
-  }
-}
