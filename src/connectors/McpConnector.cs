@@ -199,7 +199,7 @@ namespace WebView2AppHost
             if (_browserEnabled)
             {
                 tools.Add(BuildToolDef("browser_evaluate", "Run JS", new { script = Prop("string", "JS") }, new[] { "script" }));
-                tools.Add(BuildToolDef("browser_screenshot", "Take Screenshot", new { }, null));
+                tools.Add(BuildToolDef("browser_screenshot", "Take Screenshot", new { }, Array.Empty<string>()));
                 tools.Add(BuildToolDef("browser_navigate", "Navigate", new { url = Prop("string", "URL") }, new[] { "url" }));
                 tools.Add(BuildToolDef("browser_click", "Click", new { selector = Prop("string", "Selector") }, new[] { "selector" }));
                 tools.Add(BuildToolDef("browser_type", "Type", 
@@ -208,8 +208,8 @@ namespace WebView2AppHost
                 tools.Add(BuildToolDef("browser_scroll", "Scroll", 
                     new { x = Prop("number", "X"), y = Prop("number", "Y") }, 
                     new[] { "x", "y" }));
-                tools.Add(BuildToolDef("browser_get_url", "Get URL", new { }, null));
-                tools.Add(BuildToolDef("browser_get_content", "Get HTML", new { }, null));
+                tools.Add(BuildToolDef("browser_get_url", "Get URL", new { }, Array.Empty<string>()));
+                tools.Add(BuildToolDef("browser_get_content", "Get HTML", new { }, Array.Empty<string>()));
             }
 
             foreach (var dll in _config.LoadDlls)
@@ -235,7 +235,7 @@ namespace WebView2AppHost
             {
                 name,
                 description = desc,
-                inputSchema = new { type = "object", properties = props, required = req }
+                inputSchema = new { type = "object", properties = props, required = req ?? Array.Empty<string>() }
             };
         }
 
