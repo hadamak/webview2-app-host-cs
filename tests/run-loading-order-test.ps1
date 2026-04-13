@@ -6,10 +6,10 @@ if (Test-Path $testDir) { Remove-Item $testDir -Recurse -Force }
 New-Item -ItemType Directory -Path $testDir | Out-Null
 
 Write-Host "==> 1. Build Test Runner" -ForegroundColor Cyan
-msbuild "$repoRoot\tests\IntegrationTests\IntegrationTests.csproj" "/t:Restore;Build" /p:Configuration=Debug /p:Platform=x64 /v:minimal
+msbuild "$repoRoot\tests\IntegrationTests\LoadingOrderTests\LoadingOrderTests.csproj" "/t:Restore;Build" /p:Configuration=Debug /p:Platform=x64 /v:minimal
 
-$runner = Join-Path $repoRoot "tests\IntegrationTests\bin\x64\Debug\net48\IntegrationTests.exe"
-$baseExe = Join-Path $repoRoot "src\bin\x64\Release\net48\WebView2AppHost.exe"
+$runner = Join-Path $repoRoot "tests\IntegrationTests\LoadingOrderTests\bin\x64\Debug\net48\LoadingOrderTests.exe"
+$baseExe = Join-Path $repoRoot "src\bin\x64\Debug\net48\WebView2AppHost.exe"
 
 if (!(Test-Path $runner)) { throw "Runner not found at $runner" }
 if (!(Test-Path $baseExe)) { throw "Base EXE not found at $baseExe" }

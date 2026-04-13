@@ -11,6 +11,9 @@ tests/IntegrationTests/bin/
 tests/IntegrationTests/obj/
 tests/IntegrationTests/temp
 
+tests/IntegrationTests/LoadingOrderTests/bin
+tests/IntegrationTests/LoadingOrderTests/obj
+
 tests/SecureTests/bin
 tests/SecureTests/obj
 

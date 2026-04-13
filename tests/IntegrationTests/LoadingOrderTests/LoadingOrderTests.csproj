@@ -1,24 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <Configurations>Debug;Release</Configurations>
-    <OutputType>Library</OutputType>
+    <OutputType>Exe</OutputType>
     <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <PlatformTarget>x64</PlatformTarget>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
-    <RootNamespace>HostTests</RootNamespace>
-    <AssemblyName>IntegrationTests</AssemblyName>
+    <RootNamespace>IntegrationTests</RootNamespace>
+    <AssemblyName>LoadingOrderTests</AssemblyName>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <StartupObject>IntegrationTests.LoadingOrderTest</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\src\*.cs" />
-    <Compile Include="..\..\src\connectors\*.cs" />
-    <Compile Include="BrowserConnectorTests.cs" />
-    <Compile Include="CdpProxyTests.cs" />
-    <Compile Include="McpTests.cs" />
-    <Compile Include="SidecarTests.cs" />
+    <Compile Include="..\..\..\src\*.cs" />
+    <Compile Include="..\..\..\src\connectors\*.cs" />
+    <Compile Include="LoadingOrderTest.cs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -31,11 +29,5 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="xunit" />
-    <PackageReference Include="xunit.runner.visualstudio">
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-      <PrivateAssets>all</PrivateAssets>
-    </PackageReference>
   </ItemGroup>
 </Project>
