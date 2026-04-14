@@ -273,10 +273,64 @@ namespace WebView2AppHost
                 InitPlugins();
             }
 
+            await ApplyUserScriptsAsync();
+
             wv.Navigate(_initialUri);
 
             if (_config.Fullscreen)
                 RequestFullscreen();
+        }
+
+        // ---------------------------------------------------------------------------
+        // UserScript 適用
+        // ---------------------------------------------------------------------------
+
+        private async Task ApplyUserScriptsAsync()
+        {
+            if (_config.UserScripts == null || _config.UserScripts.Length == 0) return;
+
+            foreach (var entry in _config.UserScripts)
+            {
+                if (entry.Scripts == null || entry.Scripts.Length == 0) continue;
+
+                foreach (var path in entry.Scripts)
+                {
+                    var bytes = _zip.TryGetBytes(path);
+                    if (bytes == null)
+                    {
+                        AppLog.Log(AppLog.LogLevel.Warn, "App.ApplyUserScriptsAsync", $"UserScript が見つかりません: {path}");
+                        continue;
+                    }
+
+                    var script = System.Text.Encoding.UTF8.GetString(bytes);
+                    var wrapped = WrapUserScript(script, entry.Match);
+
+                    try
+                    {
+                        await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(wrapped);
+                        AppLog.Log(AppLog.LogLevel.Info, "App.ApplyUserScriptsAsync", $"UserScript を登録しました: {path} (match: {entry.Match})");
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLog.Log(AppLog.LogLevel.Error, "App.ApplyUserScriptsAsync", $"UserScript の登録に失敗: {path}", ex);
+                    }
+                }
+            }
+        }
+
+        internal static string WrapUserScript(string script, string match)
+        {
+            if (string.IsNullOrEmpty(match) || match == "*") return script;
+
+            // ワイルドカードを正規表現に変換
+            var regexPattern = "^" + System.Text.RegularExpressions.Regex.Escape(match.Trim())
+                .Replace(@"\*", ".*")
+                .Replace(@"\?", ".") + "$";
+
+            // JS の文字列リテラルとして安全にエスケープ（最低限）
+            var escapedPattern = regexPattern.Replace(@"\", @"\\").Replace("'", @"\'");
+
+            return $"(function() {{ if (new RegExp('{escapedPattern}', 'i').test(location.href)) {{ \n{script}\n }} }})();";
         }
 
         // ---------------------------------------------------------------------------

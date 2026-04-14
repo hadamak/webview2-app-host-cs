@@ -4,6 +4,19 @@ using System.Threading.Tasks;
 namespace WebView2AppHost
 {
     /// <summary>
+    /// スクリーンショットの結果を格納する。
+    /// </summary>
+    public sealed class ScreenshotResult
+    {
+        /// <summary>Base64 エンコードされた PNG 画像データ。</summary>
+        public string base64 { get; set; } = "";
+        /// <summary>画像の幅（ピクセル）。</summary>
+        public int    width  { get; set; }
+        /// <summary>画像の高さ（ピクセル）。</summary>
+        public int    height { get; set; }
+    }
+
+    /// <summary>
     /// McpConnector が browser_* ツールを提供するための最小インターフェース。
     ///
     /// <para>
@@ -27,8 +40,8 @@ namespace WebView2AppHost
         /// Base64 エンコード文字列と画像サイズを返す。
         /// </summary>
         /// <param name="ct">キャンセルトークン。</param>
-        /// <returns>Base64 文字列・幅・高さのタプル。</returns>
-        Task<(string Base64, int Width, int Height)> ScreenshotAsync(CancellationToken ct = default);
+        /// <returns>スクリーンショット結果。</returns>
+        Task<ScreenshotResult> ScreenshotAsync(CancellationToken ct = default);
 
         /// <summary>
         /// 指定した URL へ WebView2 をナビゲートし、完了まで待機する。
@@ -75,5 +88,12 @@ namespace WebView2AppHost
         /// <param name="y">縦方向のピクセル座標。</param>
         /// <param name="ct">キャンセルトークン。</param>
         Task ScrollAsync(int x, int y, CancellationToken ct = default);
+
+        /// <summary>
+        /// OS 標準のフォルダ選択ダイアログを表示し、選択された絶対パスを返す。
+        /// </summary>
+        /// <param name="ct">キャンセルトークン。</param>
+        /// <returns>選択されたフォルダの絶対パス。キャンセルされた場合は空文字列。</returns>
+        Task<string> PickFolderAsync(CancellationToken ct = default);
     }
 }

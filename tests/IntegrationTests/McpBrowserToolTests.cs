@@ -160,7 +160,7 @@ namespace HostTests
         [Fact]
         public async Task ToolsCall_BrowserScreenshot_ReturnsImageData()
         {
-            _mockBrowser.ScreenshotReturnValue = ("abc123BASE64", 1920, 1080);
+            _mockBrowser.ScreenshotReturnValue = new ScreenshotResult { base64 = "abc123BASE64", width = 1920, height = 1080 };
 
             var lines = await McpTestHelper.RunServerAsync(new[]
             {
@@ -185,6 +185,24 @@ namespace HostTests
             Assert.Equal("1920x1080px", textContent?["text"]);
 
             Assert.Single(_mockBrowser.ScreenshotCalls);
+        }
+
+        [Fact]
+        public async Task ToolsCall_BrowserPickFolder_ReturnsPath()
+        {
+            _mockBrowser.PickFolderReturnValue = "C:\\Selected\\Folder";
+
+            var lines = await McpTestHelper.RunServerAsync(new[]
+            {
+                @"{""jsonrpc"":""2.0"",""id"":13,""method"":""tools/call"",""params"":{""name"":""browser_pick_folder"",""arguments"":{}}}"
+            }, mockBrowser: _mockBrowser);
+
+            Assert.NotEmpty(lines);
+            var resp = McpTestHelper.ParseJson(lines[0]);
+            Assert.False(McpTestHelper.IsErrorResponse(resp));
+            var text = McpTestHelper.ExtractToolTextContent(resp);
+            Assert.Contains("C:\\Selected\\Folder", text);
+            Assert.Single(_mockBrowser.PickFolderCalls);
         }
 
         [Fact]

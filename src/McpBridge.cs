@@ -57,11 +57,15 @@ namespace WebView2AppHost
             }
 
             // 自分(MCP)が発行したリクエストの遅延応答・タイムアウト後の応答のみ警告を出す。
-            // 他のコネクター間の通信（Browser等が発行したID）はメッセージバスを流れるが、
-            // MCPの管轄外なので無視する。
+            // メッセージバスにはリクエストメッセージ自体も流れるため、
+            // レスポンス(result または error を持つ)である場合のみチェックする。
             if (id!.StartsWith("mcp-"))
             {
-                AppLog.Log(AppLog.LogLevel.Warn, "McpBridge", $"一致する pending id が見つかりません: {id} (現在の pending: {string.Join(", ", _pending.Keys)})");
+                bool isResponse = dict != null && (dict.ContainsKey("result") || dict.ContainsKey("error"));
+                if (isResponse)
+                {
+                    AppLog.Log(AppLog.LogLevel.Warn, "McpBridge", $"一致する pending id が見つかりません（タイムアウトまたは重複）: {id} (現在の pending: {string.Join(", ", _pending.Keys)})");
+                }
             }
         }
 

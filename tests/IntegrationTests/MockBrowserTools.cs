@@ -33,8 +33,12 @@ namespace HostTests
         public string? GetContentReturnValue { get; set; } = "<html></html>";
 
         public List<CancellationToken> ScreenshotCalls { get; } = new();
-        public Func<CancellationToken, Task<(string Base64, int Width, int Height)>>? ScreenshotImpl { get; set; }
-        public (string Base64, int Width, int Height)? ScreenshotReturnValue { get; set; } = ("iVBORw0KGgo=", 800, 600);
+        public Func<CancellationToken, Task<ScreenshotResult>>? ScreenshotImpl { get; set; }
+        public ScreenshotResult? ScreenshotReturnValue { get; set; } = new ScreenshotResult { base64 = "iVBORw0KGgo=", width = 800, height = 600 };
+
+        public List<CancellationToken> PickFolderCalls { get; } = new();
+        public Func<CancellationToken, Task<string>>? PickFolderImpl { get; set; }
+        public string? PickFolderReturnValue { get; set; } = "C:\\MockPath";
 
         public void Reset()
         {
@@ -46,6 +50,7 @@ namespace HostTests
             GetUrlCalls.Clear();
             GetContentCalls.Clear();
             ScreenshotCalls.Clear();
+            PickFolderCalls.Clear();
         }
 
         public Task<string> EvaluateAsync(string script, CancellationToken ct = default)
@@ -97,12 +102,18 @@ namespace HostTests
             return Task.FromResult(GetContentReturnValue ?? "");
         }
 
-        public Task<(string Base64, int Width, int Height)> ScreenshotAsync(CancellationToken ct = default)
+        public Task<ScreenshotResult> ScreenshotAsync(CancellationToken ct = default)
         {
             ScreenshotCalls.Add(ct);
             if (ScreenshotImpl != null) return ScreenshotImpl(ct);
-            var ret = ScreenshotReturnValue ?? ("", 0, 0);
-            return Task.FromResult<(string, int, int)>(ret);
+            return Task.FromResult(ScreenshotReturnValue ?? new ScreenshotResult());
+        }
+
+        public Task<string> PickFolderAsync(CancellationToken ct = default)
+        {
+            PickFolderCalls.Add(ct);
+            if (PickFolderImpl != null) return PickFolderImpl(ct);
+            return Task.FromResult(PickFolderReturnValue ?? "");
         }
 
         public Task<string> GetElementsAsync(CancellationToken ct = default) =>

@@ -22,6 +22,17 @@
     },
     {
       "type": "dll",
+      "alias": "System",
+      "path": "WebView2AppHost.SystemAgent.dll"
+    },
+    {
+      "type": "pipe_server"
+    },
+    {
+      "type": "mcp"
+    },
+    {
+      "type": "dll",
       "alias": "Steam",
       "path": "Facepunch.Steamworks.Win64.dll",
       "expose_events": [
@@ -38,12 +49,12 @@
       "working_directory": "../../../../../",
       "args": ["-u", "src/bin/x64/Debug/net48/python-runtime/server.py"],
       "wait_for_ready": true
-    },
-    {
-      "type": "pipe_server"
-    },
-    {
-      "type": "mcp"
     }
+  ],
+    "user_scripts": [
+      {
+          "match": "https://aistudio.google.com/*",
+          "scripts": ["host.js", "aistudio.js"]
+      }
   ]
 }

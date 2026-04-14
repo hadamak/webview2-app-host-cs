@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -56,6 +56,9 @@ namespace WebView2AppHost
         [DataMember(Name = "connectors")]
         public ConnectorEntry[] Connectors { get; private set; } = Array.Empty<ConnectorEntry>();
 
+        [DataMember(Name = "user_scripts")]
+        public UserScriptEntry[] UserScripts { get; private set; } = Array.Empty<UserScriptEntry>();
+
         [DataMember(Name = "proxy_origins")]
         public string[] ProxyOrigins { get; private set; } = Array.Empty<string>();
 
@@ -88,12 +91,6 @@ namespace WebView2AppHost
 
         public string[] BlockRequestPatterns => NavigationPolicy?.BlockRequestPatterns ?? Array.Empty<string>();
 
-        private Regex[]? _openInHostRegexes;
-        private Regex[]? _openInBrowserRegexes;
-        private Regex[]? _blockExternalHostsRegexes;
-        private Regex[]? _allowedExternalSchemesRegexes;
-        private Regex[]? _blockRequestPatternsRegexes;
-
         public bool IsProxyAllowed(Uri uri)
         {
             if (ProxyOrigins == null || ProxyOrigins.Length == 0) return false;
@@ -104,19 +101,19 @@ namespace WebView2AppHost
         }
 
         public bool ShouldOpenInHost(string host)
-            => MatchesAny(host, _openInHostRegexes);
+            => MatchesAnyWildcard(host, OpenInHost);
 
         public bool ShouldOpenInBrowser(string host)
-            => MatchesAny(host, _openInBrowserRegexes);
+            => MatchesAnyWildcard(host, OpenInBrowser);
 
         public bool IsExternalHostBlocked(string host)
-            => MatchesAny(host, _blockExternalHostsRegexes);
+            => MatchesAnyWildcard(host, BlockExternalHosts);
 
         public bool IsExternalSchemeAllowed(string scheme)
-            => MatchesAny(scheme, _allowedExternalSchemesRegexes);
+            => MatchesAnyWildcard(scheme, AllowedExternalSchemes);
 
         public bool IsRequestBlocked(string target)
-            => MatchesAny(target, _blockRequestPatternsRegexes);
+            => MatchesAnyWildcard(target, BlockRequestPatterns);
 
         public static AppConfig? Load(Stream stream)
         {
@@ -206,6 +203,14 @@ namespace WebView2AppHost
             ProxyOrigins ??= Array.Empty<string>();
             Steam ??= new SteamConfig();
             Connectors ??= Array.Empty<ConnectorEntry>();
+            UserScripts ??= Array.Empty<UserScriptEntry>();
+
+            foreach (var script in UserScripts)
+            {
+                if (script == null) continue;
+                if (string.IsNullOrWhiteSpace(script.Match)) script.Match = "*";
+                script.Scripts ??= Array.Empty<string>();
+            }
 
             NavigationPolicy ??= new NavigationPolicyConfig();
             NavigationPolicy.OpenInHost ??= Array.Empty<string>();
@@ -216,12 +221,6 @@ namespace WebView2AppHost
             NavigationPolicy.ExternalNavigationMode = string.IsNullOrWhiteSpace(NavigationPolicy.ExternalNavigationMode)
                 ? ""
                 : NavigationPolicy.ExternalNavigationMode.Trim().ToLowerInvariant();
-
-            _openInHostRegexes = CompileWildcardPatterns(NavigationPolicy.OpenInHost);
-            _openInBrowserRegexes = CompileWildcardPatterns(NavigationPolicy.OpenInBrowser);
-            _blockExternalHostsRegexes = CompileWildcardPatterns(NavigationPolicy.Block);
-            _allowedExternalSchemesRegexes = CompileWildcardPatterns(NavigationPolicy.AllowedExternalSchemes);
-            _blockRequestPatternsRegexes = CompileWildcardPatterns(NavigationPolicy.BlockRequestPatterns);
 
             NormalizeConnectors();
         }
@@ -314,29 +313,19 @@ namespace WebView2AppHost
             return Path.GetFileNameWithoutExtension(executable);
         }
 
-        private static bool MatchesAny(string value, Regex[]? regexes)
+        private static bool MatchesAnyWildcard(string value, string[] patterns)
         {
-            if (regexes == null || regexes.Length == 0 || string.IsNullOrWhiteSpace(value))
+            if (patterns == null || patterns.Length == 0 || string.IsNullOrWhiteSpace(value))
                 return false;
 
-            return regexes.Any(r => r.IsMatch(value));
-        }
-
-        private static Regex[] CompileWildcardPatterns(string[]? patterns)
-        {
-            if (patterns == null || patterns.Length == 0)
-                return Array.Empty<Regex>();
-
-            return patterns
-                .Where(p => !string.IsNullOrWhiteSpace(p))
-                .Select(p =>
-                {
-                    var pattern = "^" + Regex.Escape(p.Trim())
-                        .Replace(@"\*", ".*")
-                        .Replace(@"\?", ".") + "$";
-                    return new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
-                })
-                .ToArray();
+            return patterns.Any(pattern =>
+            {
+                if (string.IsNullOrWhiteSpace(pattern)) return false;
+                var regex = "^" + Regex.Escape(pattern.Trim())
+                    .Replace(@"\*", ".*")
+                    .Replace(@"\?", ".") + "$";
+                return Regex.IsMatch(value, regex, RegexOptions.IgnoreCase);
+            });
         }
     }
 
@@ -439,6 +428,16 @@ namespace WebView2AppHost
 
         [DataMember(Name = "expose_events")]
         public string[] ExposeEvents { get; set; } = Array.Empty<string>();
+    }
+
+    [DataContract]
+    public sealed class UserScriptEntry
+    {
+        [DataMember(Name = "match")]
+        public string Match { get; set; } = "*";
+
+        [DataMember(Name = "scripts")]
+        public string[] Scripts { get; set; } = Array.Empty<string>();
     }
 
     [DataContract]

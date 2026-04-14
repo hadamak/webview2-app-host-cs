@@ -210,6 +210,7 @@ namespace WebView2AppHost
                     new[] { "x", "y" }));
                 tools.Add(BuildToolDef("browser_get_url", "Get URL", new { }, Array.Empty<string>()));
                 tools.Add(BuildToolDef("browser_get_content", "Get HTML", new { }, Array.Empty<string>()));
+                tools.Add(BuildToolDef("browser_pick_folder", "Open folder picker dialog", new { }, Array.Empty<string>()));
             }
 
             foreach (var dll in _config.LoadDlls)
@@ -302,8 +303,8 @@ namespace WebView2AppHost
                         var sc = await _browser.ScreenshotAsync(ct);
                         WriteToolResponse(id, new object[] 
                         { 
-                            new { type = "image", data = sc.Base64, mimeType = "image/png" }, 
-                            new { type = "text", text = $"{sc.Width}x{sc.Height}px" } 
+                            new { type = "image", data = sc.base64, mimeType = "image/png" }, 
+                            new { type = "text", text = $"{sc.width}x{sc.height}px" } 
                         });
                         break;
 
@@ -333,6 +334,9 @@ namespace WebView2AppHost
 
                     case "browser_get_content":
                         WriteToolResult(id, await _browser.GetContentAsync(ct));
+                        break;
+                    case "browser_pick_folder":
+                        WriteToolResult(id, await _browser.PickFolderAsync(ct));
                         break;
 
                     default:
@@ -457,10 +461,15 @@ namespace WebView2AppHost
             public Task<string> EvaluateAsync(string s, CancellationToken ct) => 
                 CallAsync<string>("Browser.WebView.EvaluateAsync", new[] { s }, ct);
 
-            public async Task<(string Base64, int Width, int Height)> ScreenshotAsync(CancellationToken ct)
+            public async Task<ScreenshotResult> ScreenshotAsync(CancellationToken ct)
             {
                 var r = await CallAsync<Dictionary<string, object>>("Browser.WebView.ScreenshotAsync", null, ct);
-                return (r["base64"].ToString(), (int)r["width"], (int)r["height"]);
+                return new ScreenshotResult
+                {
+                    base64 = r["base64"]?.ToString() ?? "",
+                    width = Convert.ToInt32(r["width"]),
+                    height = Convert.ToInt32(r["height"])
+                };
             }
 
             public Task NavigateAsync(string u, CancellationToken ct) => 
@@ -489,6 +498,9 @@ namespace WebView2AppHost
 
             public Task ClearLabelsAsync(CancellationToken ct) => 
                 CallAsync<object>("Browser.WebView.ClearLabelsAsync", null, ct);
+
+            public Task<string> PickFolderAsync(CancellationToken ct = default) =>
+                CallAsync<string>("Browser.WebView.PickFolderAsync", null, ct);
 
             private async Task<T> CallAsync<T>(string m, object? a, CancellationToken ct)
             {

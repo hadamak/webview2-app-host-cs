@@ -207,5 +207,24 @@ namespace HostTests
             handleMethod!.Invoke(dummy, new object[] { "{\"test\":1}" });
             Assert.Equal("{\"test\":1}", dummy.LastMessage);
         }
+
+        [Fact]
+        public void App_WrapUserScript_WrapsCorrectly()
+        {
+            var script = "console.log('test');";
+            
+            // Case 1: Wildcard * (no wrapping)
+            Assert.Equal(script, App.WrapUserScript(script, "*"));
+            Assert.Equal(script, App.WrapUserScript(script, ""));
+
+            // Case 2: Specific pattern
+            var wrapped = App.WrapUserScript(script, "https://example.com/*");
+            Assert.Contains("new RegExp('^https://example\\\\.com/.*$', 'i')", wrapped);
+            Assert.Contains(script, wrapped);
+
+            // Case 3: Pattern with single quotes (escaping)
+            var wrapped2 = App.WrapUserScript(script, "https://o'reilly.com/*");
+            Assert.Contains("new RegExp('^https://o\\'reilly\\\\.com/.*$', 'i')", wrapped2);
+        }
     }
 }

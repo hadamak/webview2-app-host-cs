@@ -12,26 +12,6 @@ namespace WebView2AppHost
 {
     /// <summary>
     /// WebView2 の JavaScript ↔ C# メッセージングを担うコネクター。
-    ///
-    /// <para>
-    /// 役割:
-    /// <list type="bullet">
-    ///   <item>JS 側の <c>Host.*.*.*</c> 呼び出しを <see cref="ReflectionDispatcherBase"/> 経由で処理する。</item>
-    ///   <item>自分宛でないメッセージはバスへ流し、他コネクターからの配信は WebView2 へ転送する。</item>
-    ///   <item><see cref="IBrowserTools"/> を実装し、MCP が直接ブラウザを操作できるようにする。</item>
-    /// </list>
-    /// </para>
-    ///
-    /// <para>
-    /// <b>Publish setter の副作用:</b> セットされると同時に内部の <c>_postMessage</c> デリゲートも
-    /// 差し替わる。これにより以降の応答は WebView2 とバスの両方に送られる。
-    /// </para>
-    ///
-    /// <para>
-    /// <b>スレッドモデル:</b> WebView2 のイベントは UI スレッドで発火する。
-    /// ブラウザ操作メソッド（<see cref="EvaluateAsync"/> 等）は
-    /// <c>BeginInvoke</c> を使い UI スレッドへ処理をディスパッチする。
-    /// </para>
     /// </summary>
     public sealed class BrowserConnector : ReflectionDispatcherBase, IConnector, IBrowserTools
     {
@@ -40,8 +20,6 @@ namespace WebView2AppHost
 
         /// <summary>
         /// JS から <c>Host.Browser.WebView.ScreenshotAsync("path")</c> で呼ばれたときの戻り値型。
-        /// <see cref="System.Collections.IEnumerable"/> を実装しないため、
-        /// <see cref="ReflectionDispatcherBase.WrapResult"/> がリストとして誤変換するのを防ぐ。
         /// </summary>
         public sealed class ScreenshotFileResult
         {
@@ -76,7 +54,6 @@ namespace WebView2AppHost
             set
             {
                 _publish = value;
-                // BrowserConnector は WebView2 への送信とバスへの送信を同時に行う
                 _postMessage = msg =>
                 {
                     _publish?.Invoke(msg);
@@ -102,45 +79,48 @@ namespace WebView2AppHost
         }
 
         public Task<string> EvaluateAsync(string script, CancellationToken ct = default)
-            => InvokeOnStaAsync<string>(async () => { EnsureReady(); return await _webView.CoreWebView2.ExecuteScriptAsync(script).ConfigureAwait(false); }, ct);
+            => InvokeOnStaAsync<string>(async () => { EnsureReady(); return await _webView.CoreWebView2.ExecuteScriptAsync(script); }, ct);
 
         /// <summary>
-        /// WebView2 の現在の表示内容を PNG としてキャプチャし、
-        /// Base64 エンコード文字列と画像サイズを返す。
-        /// MCP や内部用途向けのオーバーロード。
+        /// WebView2 の現在の表示内容を PNG としてキャプチャし、Base64 文字列とサイズを返す。
         /// </summary>
-        public async Task<(string Base64, int Width, int Height)> ScreenshotAsync(CancellationToken ct = default)
+        public async Task<ScreenshotResult> ScreenshotAsync(CancellationToken ct = default)
         {
-            return await InvokeOnStaAsync<(string, int, int)>(async () =>
+            return await InvokeOnStaAsync<ScreenshotResult>(async () =>
             {
                 EnsureReady();
+                await Task.Delay(50, ct);
+
                 using (var ms = new MemoryStream())
                 {
-                    await _webView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, ms).ConfigureAwait(false);
+                    await _webView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, ms);
                     ms.Position = 0;
                     using (var bmp = new Bitmap(ms))
                     {
-                        return (Convert.ToBase64String(ms.ToArray()), bmp.Width, bmp.Height);
+                        return new ScreenshotResult
+                        {
+                            base64 = Convert.ToBase64String(ms.ToArray()),
+                            width = bmp.Width,
+                            height = bmp.Height
+                        };
                     }
                 }
-            }, ct).ConfigureAwait(false);
+            }, ct);
         }
 
         /// <summary>
-        /// JS から <c>Host.Browser.WebView.ScreenshotAsync("screenshot.png")</c> で呼ばれるオーバーロード。
-        /// 指定パスに PNG を保存し、<c>{ path, width, height }</c> を JS へ返す。
-        /// 相対パスの場合は EXE ディレクトリを基準にする。
+        /// 指定パスに PNG を保存する。JS から呼ばれるオーバーロード。
         /// </summary>
-        /// <param name="outputPath">保存先ファイルパス（絶対 or EXE ディレクトリからの相対）。</param>
         public async Task<ScreenshotFileResult> ScreenshotAsync(string outputPath)
         {
             return await InvokeOnStaAsync<ScreenshotFileResult>(async () =>
             {
                 EnsureReady();
+                await Task.Delay(50);
+
                 using (var ms = new MemoryStream())
                 {
-                    await _webView.CoreWebView2.CapturePreviewAsync(
-                        CoreWebView2CapturePreviewImageFormat.Png, ms).ConfigureAwait(false);
+                    await _webView.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, ms);
                     ms.Position = 0;
 
                     int width, height;
@@ -150,28 +130,20 @@ namespace WebView2AppHost
                         height = bmp.Height;
                     }
 
-                    // 相対パスの場合は EXE ディレクトリを基準にする
                     var fullPath = Path.IsPathRooted(outputPath)
                         ? outputPath
-                        : Path.Combine(
-                            Path.GetDirectoryName(
-                                System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName!) ?? ".",
-                            outputPath);
+                        : Path.Combine(Path.GetDirectoryName(System.Diagnostics.Process.GetCurrentProcess().MainModule!.FileName!) ?? ".", outputPath);
 
-                    // 親ディレクトリが存在しない場合は作成する
                     var dir = Path.GetDirectoryName(fullPath);
                     if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
                         Directory.CreateDirectory(dir);
 
-                    ms.Position = 0;
                     File.WriteAllBytes(fullPath, ms.ToArray());
-
-                    AppLog.Log(AppLog.LogLevel.Info, "BrowserConnector.ScreenshotAsync",
-                        $"スクリーンショット保存: {AppLog.DescribePath(fullPath)} ({width}x{height})");
+                    AppLog.Log(AppLog.LogLevel.Info, "BrowserConnector.ScreenshotAsync", $"スクリーンショット保存: {AppLog.DescribePath(fullPath)} ({width}x{height})");
 
                     return new ScreenshotFileResult { path = fullPath, width = width, height = height };
                 }
-            }, default).ConfigureAwait(false);
+            }, default);
         }
 
         public Task NavigateAsync(string url, CancellationToken ct = default)
@@ -189,7 +161,7 @@ namespace WebView2AppHost
                 {
                     wv.NavigationCompleted += h;
                     wv.Navigate(url);
-                    using (ct.Register(() => tcs.TrySetCanceled())) await tcs.Task.ConfigureAwait(false);
+                    using (ct.Register(() => tcs.TrySetCanceled())) await tcs.Task;
                 }
                 finally { wv.NavigationCompleted -= h; }
             }, ct);
@@ -199,34 +171,75 @@ namespace WebView2AppHost
 
         public async Task<string> GetContentAsync(CancellationToken ct = default)
         {
-            var json = await EvaluateAsync("document.documentElement.outerHTML", ct).ConfigureAwait(false);
+            var json = await EvaluateAsync("document.documentElement.outerHTML", ct);
             return UnescapeJsString(json);
         }
 
         public Task ClickAsync(string selector, CancellationToken ct = default)
             => InvokeOnStaAsync(async () => {
                 EnsureReady();
-                await _webView.CoreWebView2.ExecuteScriptAsync($"(function(){{ const el=document.querySelector({JsEncode(selector)}); if(!el)throw new Error('NotFound'); el.click(); }})()").ConfigureAwait(false);
+                var script = $@"
+                    (function() {{
+                        const el = document.querySelector({JsEncode(selector)});
+                        if (!el) throw new Error('NotFound');
+                        el.focus();
+                        const opts = {{ bubbles: true, cancelable: true, view: window }};
+                        el.dispatchEvent(new MouseEvent('mousedown', opts));
+                        el.dispatchEvent(new MouseEvent('mouseup', opts));
+                        el.click();
+                        el.dispatchEvent(new MouseEvent('pointerdown', opts));
+                        el.dispatchEvent(new MouseEvent('pointerup', opts));
+                    }})()";
+                await _webView.CoreWebView2.ExecuteScriptAsync(script);
             }, ct);
 
         public Task TypeAsync(string selector, string text, CancellationToken ct = default)
             => InvokeOnStaAsync(async () => {
                 EnsureReady();
-                await _webView.CoreWebView2.ExecuteScriptAsync($"(function(){{ const el=document.querySelector({JsEncode(selector)}); if(!el)throw new Error('NotFound'); el.focus(); el.value={JsEncode(text)}; el.dispatchEvent(new Event('input',{{bubbles:true}})); el.dispatchEvent(new Event('change',{{bubbles:true}})); }})()").ConfigureAwait(false);
+                var script = $@"
+                    (function() {{
+                        const el = document.querySelector({JsEncode(selector)});
+                        if (!el) throw new Error('NotFound');
+                        el.focus();
+                        el.value = {JsEncode(text)};
+                        el.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        el.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        el.dispatchEvent(new KeyboardEvent('keydown', {{ bubbles: true }}));
+                        el.dispatchEvent(new KeyboardEvent('keyup', {{ bubbles: true }}));
+                    }})()";
+                await _webView.CoreWebView2.ExecuteScriptAsync(script);
             }, ct);
 
         public Task ScrollAsync(int x, int y, CancellationToken ct = default)
             => InvokeOnStaAsync(async () => {
                 EnsureReady();
-                await _webView.CoreWebView2.ExecuteScriptAsync($"window.scrollTo({x},{y})").ConfigureAwait(false);
+                await _webView.CoreWebView2.ExecuteScriptAsync($"window.scrollTo({x},{y})");
             }, ct);
+
+        public Task<string> PickFolderAsync(CancellationToken ct = default)
+        {
+            return InvokeOnStaAsync<string>(() =>
+            {
+                using (var dialog = new System.Windows.Forms.FolderBrowserDialog())
+                {
+                    dialog.Description = "作業ディレクトリを選択してください";
+                    dialog.ShowNewFolderButton = true;
+                    var result = dialog.ShowDialog(_webView);
+                    return Task.FromResult(result == System.Windows.Forms.DialogResult.OK ? dialog.SelectedPath : "");
+                }
+            }, ct);
+        }
 
         private static string JsEncode(string s) => "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n") + "\"";
 
         private static string UnescapeJsString(string json)
         {
+            if (string.IsNullOrEmpty(json)) return "";
             if (json.Length >= 2 && json[0] == '"' && json[json.Length - 1] == '"')
-                return System.Text.RegularExpressions.Regex.Unescape(json.Substring(1, json.Length - 2));
+            {
+                try { return s_json.Deserialize<string>(json) ?? ""; }
+                catch { return System.Text.RegularExpressions.Regex.Unescape(json.Substring(1, json.Length - 2)); }
+            }
             return json;
         }
 
@@ -238,7 +251,7 @@ namespace WebView2AppHost
                 try {
                     using (ct.Register(() => tcs.TrySetCanceled())) {
                         if (_disposed || _webView.CoreWebView2 == null) throw new InvalidOperationException("WebView2NotAvailable");
-                        tcs.TrySetResult(await action().ConfigureAwait(false));
+                        tcs.TrySetResult(await action());
                     }
                 }
                 catch (OperationCanceledException) { tcs.TrySetCanceled(); }
@@ -249,7 +262,7 @@ namespace WebView2AppHost
 
         private Task InvokeOnStaAsync(Func<Task> action, CancellationToken ct)
         {
-            return InvokeOnStaAsync<bool>(async () => { await action().ConfigureAwait(false); return true; }, ct);
+            return InvokeOnStaAsync<bool>(async () => { await action(); return true; }, ct);
         }
 
         private void EnsureReady() { if (_webView.CoreWebView2 == null) throw new InvalidOperationException("WebView2NotInitialized"); }

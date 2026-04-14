@@ -5,8 +5,10 @@
 .DESCRIPTION
     以下をまとめて実行する:
       1. ホスト本体 (WebView2AppHost.csproj) をビルド
-      2. Facepunch.Steamworks DLL を EXE と同じフォルダにコピー
-      3. Pythonサイドカーを出力先にコピー
+      2. SystemAgent DLL をビルドして配置
+      3. Facepunch.Steamworks DLL を EXE と同じフォルダにコピー
+      4. Pythonサイドカーを出力先にコピー
+      5. test-www サンプルをコピー
 
     実行後は生成された EXE をそのまま起動して動作確認できる。
 
@@ -57,7 +59,6 @@ try {
     Write-Host "==> ホスト本体をビルド中... ($Configuration/x64)" -ForegroundColor Cyan
     
     # MSBuild 実行
-    # NOTE: プロジェクト内の PreBuildEvent で web-content -> app.zip の圧縮が行われる
     msbuild src\WebView2AppHost.csproj `
         "/t:Restore;Build" `
         /p:Configuration=$Configuration `
@@ -78,7 +79,29 @@ try {
     }
 
     # ---------------------------------------------------------------------------
-    # 2. Facepunch.Steamworks DLL をコピー
+    # 2. SystemAgent DLL ビルドと配置
+    # ---------------------------------------------------------------------------
+    Write-Host "==> SystemAgent DLL をビルド中..." -ForegroundColor Cyan
+    
+    msbuild src-system-agent\WebView2AppHost.SystemAgent.csproj `
+        "/t:Restore;Build" `
+        /p:Configuration=$Configuration `
+        /p:Platform=x64 `
+        /v:minimal `
+        /clp:ForceConsoleColor
+
+    if ($LASTEXITCODE -eq 0) {
+        $agentDll = "src-system-agent\bin\x64\$Configuration\net48\WebView2AppHost.SystemAgent.dll"
+        if (Test-Path $agentDll) {
+            Copy-Item $agentDll $outDir -Force
+            Write-Host "    WebView2AppHost.SystemAgent.dll -> $outDir" -ForegroundColor Gray
+        }
+    } else {
+        Write-Warning "SystemAgent DLL のビルドに失敗しました。"
+    }
+
+    # ---------------------------------------------------------------------------
+    # 3. Facepunch.Steamworks DLL をコピー
     # ---------------------------------------------------------------------------
     Write-Host "==> Facepunch.Steamworks DLL を配置中..." -ForegroundColor Cyan
 
@@ -93,7 +116,6 @@ try {
         Write-Warning "  Steam 機能を使用するには Facepunch.Steamworks をビルドしてください"
     }
 
-    # steam_api64.dll もコピー（存在する場合）
     $steamApiPath = "Facepunch.Steamworks\Facepunch.Steamworks\bin\x64\$steamConfig\net46\steam_api64.dll"
     if (Test-Path $steamApiPath) {
         Copy-Item $steamApiPath $outDir -Force
@@ -101,7 +123,7 @@ try {
     }
 
     # ---------------------------------------------------------------------------
-    # 3. Pythonサイドカーをコピー
+    # 4. Pythonサイドカーをコピー
     # ---------------------------------------------------------------------------
     Write-Host "==> Pythonサイドカーを配置中..." -ForegroundColor Cyan
 
@@ -119,10 +141,9 @@ try {
     }
 
     # ---------------------------------------------------------------------------
-    # 4. test-www サンプルをコピー (動作確認用の簡単なWebコンテンツ)
+    # 5. test-www サンプルをコピー
     # ---------------------------------------------------------------------------
     Write-Host "==> test-www サンプルを配置中..." -ForegroundColor Cyan
-
     $testWwwDest = Join-Path $outDir "www"
     if (!(Test-Path $testWwwDest)) {
         New-Item -ItemType Directory -Force -Path $testWwwDest | Out-Null
@@ -131,9 +152,6 @@ try {
     if (Test-Path "test-www") {
         Copy-Item "test-www\*" $testWwwDest -Recurse -Force
         Write-Host "    test-www -> $testWwwDest" -ForegroundColor Gray
-    }
-    else {
-        Write-Warning "test-www サンプルが見つかりません: test-www"
     }
 
     # ---------------------------------------------------------------------------

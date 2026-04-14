@@ -454,7 +454,8 @@ namespace WebView2AppHost
         {
             if (!(result is Task task)) return result;
 
-            await task.ConfigureAwait(false);
+            // 重要: WebView2 (STA) の継続スレッドを維持するため ConfigureAwait(false) は使わない。
+            await task;
 
             var taskType = task.GetType();
             if (taskType.IsGenericType)

@@ -28,3 +28,7 @@ tests/TestSidecar/obj/
 
 tests/UnitTests/bin/
 tests/UnitTests/obj/
+src-system-agent/bin/  
+src-system-agent/obj/ 
+src-system-agent/bin/  
+src-system-agent/obj/ 

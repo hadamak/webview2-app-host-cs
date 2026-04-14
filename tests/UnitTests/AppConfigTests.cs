@@ -198,5 +198,34 @@ namespace HostTests
             Assert.NotNull(bus);
             Assert.NotNull(mcp);
         }
+
+        [Fact]
+        public void Load_WithUserScripts_ParsesCorrectly()
+        {
+            var json = @"
+            {
+              ""user_scripts"": [
+                {
+                  ""match"": ""https://example.com/*"",
+                  ""scripts"": [""scripts/custom-style.js"", ""scripts/inject.js""]
+                },
+                {
+                  ""scripts"": [""global.js""]
+                }
+              ]
+            }";
+
+            var cfg = LoadConfig(json);
+            Assert.NotNull(cfg);
+            Assert.Equal(2, cfg!.UserScripts.Length);
+
+            Assert.Equal("https://example.com/*", cfg.UserScripts[0].Match);
+            Assert.Equal(2, cfg.UserScripts[0].Scripts.Length);
+            Assert.Equal("scripts/custom-style.js", cfg.UserScripts[0].Scripts[0]);
+
+            Assert.Equal("*", cfg.UserScripts[1].Match); // Default value
+            Assert.Single(cfg.UserScripts[1].Scripts);
+            Assert.Equal("global.js", cfg.UserScripts[1].Scripts[0]);
+        }
     }
 }

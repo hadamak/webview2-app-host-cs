@@ -15,6 +15,8 @@
   <ItemGroup>
     <Compile Include="..\..\src\*.cs" />
     <Compile Include="..\..\src\connectors\*.cs" />
+    <Compile Include="..\..\src-system-agent\SystemAgent.cs" />
+    <Compile Include="SystemAgentTests.cs" />
     <Compile Include="AppConfigTests.cs" />
     <Compile Include="MessageBusTests.cs" />
     <Compile Include="MiscTests.cs" />
